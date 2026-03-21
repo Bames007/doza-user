@@ -5,7 +5,7 @@ import { adminDb } from "@/app/utils/firebaseAdmin";
 
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string } },
+  { params }: { params: Promise<{ id: string }> },
 ) {
   const uid = await verifyIdToken(request);
   if (!uid) {
@@ -15,7 +15,7 @@ export async function DELETE(
     );
   }
 
-  const appointmentId = params.id;
+  const { id: appointmentId } = await params;
   if (!appointmentId) {
     return NextResponse.json(
       { success: false, error: "Missing appointment ID" },
@@ -35,7 +35,6 @@ export async function DELETE(
       );
     }
 
-    // Optionally mark as cancelled instead of deleting
     appointments[index].status = "cancelled";
     await appointmentsRef.set(appointments);
 
