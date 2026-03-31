@@ -4,9 +4,9 @@ import { adminDb } from "@/app/utils/firebaseAdmin";
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } },
+  { params }: { params: Promise<{ id: string }> },
 ) {
-  const id = params.id;
+  const { id } = await params;
   try {
     const medicsRef = adminDb.ref("doza/medics");
     const snapshot = await medicsRef.once("value");
