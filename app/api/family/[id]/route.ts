@@ -5,7 +5,7 @@ import { adminDb } from "@/app/utils/firebaseAdmin";
 
 export async function PUT(
   request: NextRequest,
-  { params }: { params: { id: string } },
+  { params }: { params: Promise<{ id: string }> },
 ) {
   const uid = await verifyIdToken(request);
   if (!uid)
@@ -14,7 +14,7 @@ export async function PUT(
       { status: 401 },
     );
 
-  const id = params.id;
+  const { id } = await params;
   try {
     const updates = await request.json();
     delete updates.id; // don't allow ID change
@@ -45,7 +45,7 @@ export async function PUT(
 
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string } },
+  { params }: { params: Promise<{ id: string }> },
 ) {
   const uid = await verifyIdToken(request);
   if (!uid)
@@ -54,7 +54,7 @@ export async function DELETE(
       { status: 401 },
     );
 
-  const id = params.id;
+  const { id } = await params;
   try {
     const familyRef = adminDb.ref(`doza/users/${uid}/familyFriends`);
     const snapshot = await familyRef.once("value");
