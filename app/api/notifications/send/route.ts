@@ -4,7 +4,7 @@ import webPush from "web-push";
 
 // Set VAPID details
 webPush.setVapidDetails(
-  "mailto:your-email@example.com",
+  "mailto:eddybames007@gmail.com",
   process.env.VAPID_PUBLIC_KEY!,
   process.env.VAPID_PRIVATE_KEY!,
 );
