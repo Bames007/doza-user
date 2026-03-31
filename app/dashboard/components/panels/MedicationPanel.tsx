@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import useSWR, { mutate } from "swr";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion, AnimatePresence, Transition } from "framer-motion";
 import {
   Pill,
   Bell,
@@ -22,6 +22,7 @@ import {
   BarChart3,
   ChevronLeft,
   ChevronRight,
+  StopCircle,
 } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -39,6 +40,13 @@ import { cn } from "@/app/utils/utils";
 import { authFetcher, authPost, authPut } from "@/app/utils/client-auth";
 import { useProfile } from "@/app/dashboard/hooks/useUserData";
 import { poppins, bebasNeue } from "@/app/constants";
+
+// ---------- Spring transition (matches Dashboard) ----------
+const spring: Transition = {
+  type: "spring",
+  stiffness: 200,
+  damping: 20,
+};
 
 // ---------- Types ----------
 type FamilyMember = {
@@ -166,22 +174,22 @@ function generateDoses(
   return doses;
 }
 
-// ---------- Custom Tooltip for Chart ----------
+// ---------- Custom Tooltip for Chart (matches Dashboard style) ----------
 const CustomTooltip = ({ active, payload, label }: any) => {
   if (active && payload && payload.length) {
     return (
-      <div className="bg-white/90 backdrop-blur-sm p-2 rounded-xl shadow-xl border border-gray-100">
-        <p className="text-xs font-semibold text-gray-800 mb-1">{label}</p>
+      <div className="bg-white/90 backdrop-blur-sm p-3 rounded-2xl shadow-xl border border-slate-100">
+        <p className="text-xs font-semibold text-slate-800 mb-1">{label}</p>
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-1">
             <div className="w-2 h-2 bg-emerald-500 rounded-full" />
-            <span className="text-xs text-gray-600">
+            <span className="text-xs text-slate-600">
               Taken: {payload[0].value}
             </span>
           </div>
           <div className="flex items-center gap-1">
-            <div className="w-2 h-2 bg-gray-400 rounded-full" />
-            <span className="text-xs text-gray-600">
+            <div className="w-2 h-2 bg-slate-400 rounded-full" />
+            <span className="text-xs text-slate-600">
               Scheduled: {payload[1].value}
             </span>
           </div>
@@ -191,6 +199,21 @@ const CustomTooltip = ({ active, payload, label }: any) => {
   }
   return null;
 };
+
+// ---------- Subcomponent: BentoTile (reused from Dashboard) ----------
+const BentoTile = ({ children, className, onClick }: any) => (
+  <motion.div
+    whileHover={{ y: -4 }}
+    transition={spring}
+    onClick={onClick}
+    className={cn(
+      "p-7 rounded-[32px] border border-slate-100 transition-all cursor-pointer bg-white",
+      className,
+    )}
+  >
+    {children}
+  </motion.div>
+);
 
 // ---------- Main Component ----------
 export default function MedicationPanel() {
@@ -206,6 +229,7 @@ export default function MedicationPanel() {
   const [expandedMedId, setExpandedMedId] = useState<string | null>(null);
   const [showHelp, setShowHelp] = useState(false);
   const [helpSlide, setHelpSlide] = useState(0);
+  const [stopConfirm, setStopConfirm] = useState<string | null>(null);
 
   useEffect(() => {
     const hasSeenHelp = localStorage.getItem("doza_medication_help");
@@ -349,6 +373,24 @@ export default function MedicationPanel() {
     }
   };
 
+  const stopMedication = async (medicationId: string) => {
+    try {
+      const result = await authPut(`/api/medications/${medicationId}`, {
+        status: "completed",
+      });
+      if (result.success) {
+        mutate(`/api/medications?memberId=${selectedFamilyId}`);
+        mutate(`/api/medications/upcoming?memberId=${selectedFamilyId}`);
+        setStopConfirm(null);
+      } else {
+        alert("Error: " + (result.error || "Failed to stop medication"));
+      }
+    } catch (error) {
+      console.error("Failed to stop medication", error);
+      alert("An error occurred while stopping the medication.");
+    }
+  };
+
   const requestNotificationPermission = async () => {
     if (!("Notification" in window)) {
       alert("This browser does not support notifications.");
@@ -421,7 +463,7 @@ export default function MedicationPanel() {
     return () => clearInterval(interval);
   }, [nextDose]);
 
-  const chartData = (() => {
+  const chartData = useMemo(() => {
     const last7Days = Array.from({ length: 7 }, (_, i) => {
       const d = new Date();
       d.setDate(d.getDate() - i);
@@ -446,7 +488,7 @@ export default function MedicationPanel() {
         total,
       };
     });
-  })();
+  }, [medications]);
 
   const helpSlides = [
     {
@@ -483,7 +525,7 @@ export default function MedicationPanel() {
 
   if (isLoading) {
     return (
-      <div className="max-w-6xl mx-auto px-3 pb-24  min-h-screen flex items-center justify-center">
+      <div className="flex items-center justify-center min-h-[400px]">
         <Loader2 className="w-8 h-8 animate-spin text-emerald-600" />
       </div>
     );
@@ -491,377 +533,388 @@ export default function MedicationPanel() {
 
   if (error) {
     return (
-      <div className="max-w-6xl mx-auto px-3 pb-24  min-h-screen pt-4">
-        <div className="p-4 text-red-600 text-center bg-white rounded-2xl border border-gray-100">
-          Error loading medications.
-        </div>
+      <div className="p-6 text-red-600 text-center bg-white rounded-3xl border border-slate-100 shadow-sm">
+        Error loading medications.
       </div>
     );
   }
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      className={cn(
-        "max-w-6xl mx-auto px-3 pb-24  min-h-screen",
-        poppins.className,
-      )}
+    <div
+      className={cn("min-h-screen bg-[#F8FAFC] pb-32 pt-6", poppins.className)}
     >
-      {/* Header with help icon */}
-      <div className="pt-4 pb-3 flex items-center justify-between">
-        <div>
-          <h1
-            className={cn(
-              "text-2xl sm:text-3xl font-bold text-gray-800",
-              bebasNeue.className,
-            )}
-          >
-            Medication Tracker
-          </h1>
-          <p className="text-xs sm:text-sm text-emerald-600 mt-0.5">
-            Stay on top of your doses
-          </p>
-        </div>
-        <button
-          onClick={() => setShowHelp(true)}
-          className="w-9 h-9 bg-white rounded-full flex items-center justify-center shadow-sm border border-gray-200 active:bg-gray-50"
-          aria-label="How to use"
-        >
-          <HelpCircle className="w-5 h-5 text-emerald-600" />
-        </button>
-      </div>
-
-      {/* Action Buttons */}
-      <div className="flex flex-wrap items-center justify-end gap-2 mb-4">
-        <button
-          onClick={requestNotificationPermission}
-          className="flex items-center gap-2 px-3 py-1.5 sm:px-4 sm:py-2 bg-white border border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 transition shadow-sm text-xs sm:text-sm"
-        >
-          <Bell className="w-4 h-4" />
-          <span className="hidden xs:inline">Enable Reminders</span>
-        </button>
-        <button
-          onClick={() => setShowAddMedModal(true)}
-          className="flex items-center gap-2 px-3 py-1.5 sm:px-4 sm:py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl transition shadow-sm text-xs sm:text-sm"
-        >
-          <Plus className="w-4 h-4" />
-          Add Medication
-        </button>
-      </div>
-
-      {/* Stats Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-5">
-        {/* Family Picker */}
-        <div className="bg-white border border-gray-100 rounded-2xl p-3 shadow-sm">
-          <div className="flex items-center justify-between mb-2">
-            <h2
+      <div className="max-w-7xl mx-auto px-6 space-y-8">
+        {/* --- HEADER --- */}
+        <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white p-8 rounded-[32px] border border-slate-200/60 shadow-sm">
+          <div>
+            <div className="flex items-center gap-2 mb-1">
+              <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.2em]">
+                Adherence Protocol
+              </p>
+            </div>
+            <h1
               className={cn(
-                "text-sm font-semibold text-gray-800 flex items-center gap-1",
+                "text-4xl md:text-5xl text-slate-900 leading-none",
                 bebasNeue.className,
               )}
             >
-              <Users className="w-4 h-4 text-emerald-600" />
-              Managing for
-            </h2>
+              Medication <span className="text-emerald-600">Tracker</span>
+            </h1>
+          </div>
+          <div className="flex gap-3">
             <button
-              onClick={() => setShowAddFamilyModal(true)}
-              className="p-1 hover:bg-gray-100 rounded-full"
-              title="Add family member"
+              onClick={requestNotificationPermission}
+              className="flex items-center gap-2 px-6 py-3 bg-slate-900 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-emerald-600 transition-all shadow-md"
             >
-              <UserPlus className="w-4 h-4 text-gray-500" />
+              <Bell size={14} /> Enable Reminders
+            </button>
+            <button
+              onClick={() => setShowAddMedModal(true)}
+              className="flex items-center gap-2 px-6 py-3 bg-emerald-600 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-emerald-700 transition-all shadow-md"
+            >
+              <Plus size={14} /> Add Med
             </button>
           </div>
-          <div className="space-y-1">
-            {familyMembers.map((member) => (
-              <button
-                key={member.id}
-                onClick={() => setSelectedFamilyId(member.id)}
+        </header>
+
+        {/* Stats Row */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          {/* Family Picker */}
+          <BentoTile className="bg-white">
+            <div className="flex items-center justify-between mb-4">
+              <h3
                 className={cn(
-                  "w-full text-left px-2 py-1.5 rounded-lg text-xs font-medium transition flex items-center gap-2",
-                  selectedFamilyId === member.id
-                    ? "bg-emerald-50 text-emerald-700"
-                    : "text-gray-600 hover:bg-gray-50",
-                )}
-              >
-                <div
-                  className={cn(
-                    "w-1.5 h-1.5 rounded-full",
-                    selectedFamilyId === member.id
-                      ? "bg-emerald-500"
-                      : "bg-gray-300",
-                  )}
-                />
-                {member.name}
-                {member.relationship !== "self" && (
-                  <span className="text-[10px] text-gray-400 ml-auto">
-                    {member.relationship}
-                  </span>
-                )}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* Today's Doses */}
-        <div className="bg-gradient-to-br from-blue-500 to-blue-600 rounded-2xl p-3 text-white shadow-sm">
-          <div className="flex items-center gap-1 mb-1">
-            <Calendar className="w-4 h-4 text-blue-100" />
-            <h2
-              className={cn(
-                "text-sm font-semibold text-blue-100",
-                bebasNeue.className,
-              )}
-            >
-              Today's Doses
-            </h2>
-          </div>
-          <p className="text-3xl font-bold">{upcomingDoses.length}</p>
-          <p className="text-[10px] text-blue-100 mt-1">remaining</p>
-        </div>
-
-        {/* Next Dose Countdown */}
-        <div className="bg-gradient-to-br from-emerald-600 to-emerald-700 rounded-2xl p-3 text-white shadow-sm">
-          <div className="flex items-center gap-1 mb-1">
-            <Clock className="w-4 h-4 text-emerald-100" />
-            <h2
-              className={cn(
-                "text-sm font-semibold text-emerald-100",
-                bebasNeue.className,
-              )}
-            >
-              Next Dose
-            </h2>
-          </div>
-          {nextDose ? (
-            <>
-              <p className="text-sm font-semibold truncate">
-                {nextDose.medicationName}
-              </p>
-              <p className="text-2xl font-bold mt-1">{timeRemaining}</p>
-              <p className="text-[10px] text-emerald-100 mt-1">
-                {new Date(nextDose.scheduledTime).toLocaleTimeString([], {
-                  hour: "2-digit",
-                  minute: "2-digit",
-                })}{" "}
-                for {nextDose.assignedToName}
-              </p>
-            </>
-          ) : (
-            <p className="text-sm font-medium flex items-center gap-2">
-              <CheckCircle className="w-4 h-4" /> All caught up!
-            </p>
-          )}
-        </div>
-      </div>
-
-      {/* Chart Section */}
-      {medications.length > 0 && (
-        <div className="bg-white border border-gray-100 rounded-2xl p-3 shadow-sm mb-5">
-          <h2
-            className={cn(
-              "text-base font-semibold text-gray-800 mb-2 flex items-center gap-2",
-              bebasNeue.className,
-            )}
-          >
-            <BarChart3 className="w-4 h-4 text-emerald-600" />
-            Doses taken (last 7 days)
-          </h2>
-          <div className="h-48 sm:h-56 w-full min-w-0">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart
-                data={chartData}
-                margin={{ top: 5, right: 5, left: 0, bottom: 0 }}
-              >
-                <defs>
-                  <linearGradient
-                    id="gradientTaken"
-                    x1="0"
-                    y1="0"
-                    x2="0"
-                    y2="1"
-                  >
-                    <stop offset="0%" stopColor="#10b981" stopOpacity={0.15} />
-                    <stop offset="100%" stopColor="#10b981" stopOpacity={0} />
-                  </linearGradient>
-                  <linearGradient
-                    id="gradientTotal"
-                    x1="0"
-                    y1="0"
-                    x2="0"
-                    y2="1"
-                  >
-                    <stop offset="0%" stopColor="#94a3b8" stopOpacity={0.15} />
-                    <stop offset="100%" stopColor="#94a3b8" stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid
-                  strokeDasharray="3 3"
-                  stroke="#f0f0f0"
-                  vertical={false}
-                />
-                <XAxis
-                  dataKey="date"
-                  tick={{ fontSize: 8, fill: "#6b7280" }}
-                  axisLine={{ stroke: "#e5e7eb" }}
-                  tickLine={false}
-                  interval="preserveStartEnd"
-                />
-                <YAxis
-                  tick={{ fontSize: 8, fill: "#6b7280" }}
-                  axisLine={{ stroke: "#e5e7eb" }}
-                  tickLine={false}
-                  width={20}
-                  allowDecimals={false}
-                />
-                <Tooltip content={<CustomTooltip />} />
-                <Line
-                  type="monotone"
-                  dataKey="taken"
-                  stroke="#10b981"
-                  strokeWidth={2}
-                  dot={{
-                    r: 2,
-                    fill: "white",
-                    stroke: "#10b981",
-                    strokeWidth: 2,
-                  }}
-                  activeDot={{ r: 4, stroke: "white", strokeWidth: 2 }}
-                  fill="url(#gradientTaken)"
-                  name="Taken"
-                />
-                <Line
-                  type="monotone"
-                  dataKey="total"
-                  stroke="#94a3b8"
-                  strokeWidth={2}
-                  dot={{
-                    r: 2,
-                    fill: "white",
-                    stroke: "#94a3b8",
-                    strokeWidth: 2,
-                  }}
-                  activeDot={{ r: 4, stroke: "white", strokeWidth: 2 }}
-                  fill="url(#gradientTotal)"
-                  name="Scheduled"
-                />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-      )}
-
-      {/* Medication List */}
-      {medications.length === 0 ? (
-        <div className="bg-white/60 backdrop-blur-sm p-8 text-center text-gray-500 rounded-2xl border border-gray-100 shadow-sm">
-          <div className="w-14 h-14 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-2">
-            <Pill className="w-7 h-7 text-emerald-600" />
-          </div>
-          <p className="text-base font-medium text-gray-700 mb-1">
-            No medications yet
-          </p>
-          <p className="text-xs mb-3 max-w-md mx-auto">
-            Add your first medication to start tracking.
-          </p>
-          <button
-            onClick={() => setShowAddMedModal(true)}
-            className="px-4 py-2 bg-emerald-600 text-white rounded-xl hover:bg-emerald-700 transition inline-flex items-center gap-2 text-sm shadow-sm"
-          >
-            <Plus className="w-4 h-4" /> Add Medication
-          </button>
-        </div>
-      ) : (
-        <div className="space-y-4">
-          {/* Active Medications */}
-          <div>
-            <h2
-              className={cn(
-                "text-base font-semibold text-gray-800 mb-2 flex items-center gap-2",
-                bebasNeue.className,
-              )}
-            >
-              <span className="w-1 h-4 bg-emerald-500 rounded-full" />
-              Active
-            </h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              {medications
-                .filter((m) => m.status === "active")
-                .map((med) => (
-                  <MedicationCard
-                    key={med.id}
-                    medication={med}
-                    expanded={expandedMedId === med.id}
-                    onToggleExpand={() =>
-                      setExpandedMedId(expandedMedId === med.id ? null : med.id)
-                    }
-                    onLogDose={(doseId, taken) =>
-                      logDose(med.id, doseId, taken)
-                    }
-                    onReportReaction={(doseId) =>
-                      setShowReactionModal({ medicationId: med.id, doseId })
-                    }
-                  />
-                ))}
-            </div>
-          </div>
-
-          {/* Past Medications */}
-          {medications.filter((m) => m.status !== "active").length > 0 && (
-            <div>
-              <h2
-                className={cn(
-                  "text-base font-semibold text-gray-800 mb-2 flex items-center gap-2",
+                  "text-lg font-bold text-slate-900 flex items-center gap-2",
                   bebasNeue.className,
                 )}
               >
-                <span className="w-1 h-4 bg-gray-400 rounded-full" />
-                Past Medications
-              </h2>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 opacity-75">
-                {medications
-                  .filter((m) => m.status !== "active")
-                  .map((med) => (
-                    <MedicationCard
-                      key={med.id}
-                      medication={med}
-                      expanded={expandedMedId === med.id}
-                      onToggleExpand={() =>
-                        setExpandedMedId(
-                          expandedMedId === med.id ? null : med.id,
-                        )
-                      }
-                      onLogDose={() => {}}
-                      onReportReaction={() => {}}
-                    />
-                  ))}
-              </div>
+                <Users className="text-emerald-500" size={20} /> Managing for
+              </h3>
+              <button
+                onClick={() => setShowAddFamilyModal(true)}
+                className="p-2 rounded-full hover:bg-slate-100 transition-all"
+              >
+                <UserPlus size={16} className="text-slate-400" />
+              </button>
             </div>
-          )}
-        </div>
-      )}
+            <div className="space-y-2">
+              {familyMembers.map((member) => (
+                <button
+                  key={member.id}
+                  onClick={() => setSelectedFamilyId(member.id)}
+                  className={cn(
+                    "w-full text-left px-4 py-3 rounded-xl text-sm font-medium transition flex items-center justify-between",
+                    selectedFamilyId === member.id
+                      ? "bg-emerald-50 text-emerald-700 border border-emerald-100"
+                      : "text-slate-600 hover:bg-slate-50",
+                  )}
+                >
+                  <div className="flex items-center gap-2">
+                    <div
+                      className={cn(
+                        "w-1.5 h-1.5 rounded-full",
+                        selectedFamilyId === member.id
+                          ? "bg-emerald-500"
+                          : "bg-slate-300",
+                      )}
+                    />
+                    {member.name}
+                  </div>
+                  {member.relationship !== "self" && (
+                    <span className="text-[10px] text-slate-400">
+                      {member.relationship}
+                    </span>
+                  )}
+                </button>
+              ))}
+            </div>
+          </BentoTile>
 
-      {/* Help Carousel Modal */}
+          {/* Today's Doses */}
+          <BentoTile className="bg-gradient-to-br from-emerald-600 to-emerald-700 text-white border-none relative overflow-hidden">
+            <div className="absolute top-0 right-0 p-4 opacity-20">
+              <Pill size={60} />
+            </div>
+            <div className="relative z-10">
+              <div className="flex items-center gap-2 mb-1">
+                <Calendar size={16} className="text-emerald-100" />
+                <h3
+                  className={cn(
+                    "text-sm font-bold text-emerald-100",
+                    bebasNeue.className,
+                  )}
+                >
+                  Today's Doses
+                </h3>
+              </div>
+              <p className="text-4xl font-black">{upcomingDoses.length}</p>
+              <p className="text-xs text-emerald-100 mt-1">remaining</p>
+            </div>
+          </BentoTile>
+
+          {/* Next Dose Countdown */}
+          <BentoTile className="bg-gradient-to-br from-blue-600 to-blue-700 text-white border-none relative overflow-hidden">
+            <div className="absolute top-0 right-0 p-4 opacity-20">
+              <Clock size={60} />
+            </div>
+            <div className="relative z-10">
+              <div className="flex items-center gap-2 mb-1">
+                <Clock size={16} className="text-blue-100" />
+                <h3
+                  className={cn(
+                    "text-sm font-bold text-blue-100",
+                    bebasNeue.className,
+                  )}
+                >
+                  Next Dose
+                </h3>
+              </div>
+              {nextDose ? (
+                <>
+                  <p className="text-sm font-semibold truncate">
+                    {nextDose.medicationName}
+                  </p>
+                  <p className="text-3xl font-bold mt-1">{timeRemaining}</p>
+                  <p className="text-[10px] text-blue-100 mt-1">
+                    {new Date(nextDose.scheduledTime).toLocaleTimeString([], {
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })}{" "}
+                    for {nextDose.assignedToName}
+                  </p>
+                </>
+              ) : (
+                <p className="text-sm font-medium flex items-center gap-2">
+                  <CheckCircle size={16} /> All caught up!
+                </p>
+              )}
+            </div>
+          </BentoTile>
+        </div>
+
+        {/* Chart */}
+        {medications.length > 0 && (
+          <BentoTile className="bg-white">
+            <div className="flex items-center gap-2 mb-6">
+              <BarChart3 className="text-emerald-500" size={20} />
+              <h3
+                className={cn(
+                  "text-lg font-bold text-slate-900",
+                  bebasNeue.className,
+                )}
+              >
+                Adherence (Last 7 Days)
+              </h3>
+            </div>
+            <div className="h-[280px] w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart
+                  data={chartData}
+                  margin={{ top: 5, right: 5, left: 0, bottom: 5 }}
+                >
+                  <defs>
+                    <linearGradient
+                      id="gradientTaken"
+                      x1="0"
+                      y1="0"
+                      x2="0"
+                      y2="1"
+                    >
+                      <stop
+                        offset="0%"
+                        stopColor="#10b981"
+                        stopOpacity={0.15}
+                      />
+                      <stop offset="100%" stopColor="#10b981" stopOpacity={0} />
+                    </linearGradient>
+                    <linearGradient
+                      id="gradientTotal"
+                      x1="0"
+                      y1="0"
+                      x2="0"
+                      y2="1"
+                    >
+                      <stop
+                        offset="0%"
+                        stopColor="#94a3b8"
+                        stopOpacity={0.15}
+                      />
+                      <stop offset="100%" stopColor="#94a3b8" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid
+                    strokeDasharray="3 3"
+                    stroke="#eef2ff"
+                    vertical={false}
+                  />
+                  <XAxis
+                    dataKey="date"
+                    tick={{ fontSize: 10, fill: "#64748b" }}
+                    axisLine={{ stroke: "#e2e8f0" }}
+                    tickLine={false}
+                  />
+                  <YAxis
+                    tick={{ fontSize: 10, fill: "#64748b" }}
+                    axisLine={{ stroke: "#e2e8f0" }}
+                    tickLine={false}
+                    width={30}
+                    allowDecimals={false}
+                  />
+                  <Tooltip content={<CustomTooltip />} />
+                  <Line
+                    type="monotone"
+                    dataKey="taken"
+                    stroke="#10b981"
+                    strokeWidth={2}
+                    dot={{
+                      r: 3,
+                      fill: "white",
+                      stroke: "#10b981",
+                      strokeWidth: 2,
+                    }}
+                    activeDot={{ r: 5, stroke: "white", strokeWidth: 2 }}
+                    fill="url(#gradientTaken)"
+                    name="Taken"
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="total"
+                    stroke="#94a3b8"
+                    strokeWidth={2}
+                    dot={{
+                      r: 3,
+                      fill: "white",
+                      stroke: "#94a3b8",
+                      strokeWidth: 2,
+                    }}
+                    activeDot={{ r: 5, stroke: "white", strokeWidth: 2 }}
+                    fill="url(#gradientTotal)"
+                    name="Scheduled"
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          </BentoTile>
+        )}
+
+        {/* Medication List */}
+        {medications.length === 0 ? (
+          <div className="bg-white/80 backdrop-blur-sm p-12 text-center text-slate-500 rounded-3xl border border-slate-100 shadow-xl">
+            <div className="w-16 h-16 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-4">
+              <Pill className="w-8 h-8 text-emerald-600" />
+            </div>
+            <p className="text-lg font-medium text-slate-700 mb-1">
+              No medications yet
+            </p>
+            <p className="text-sm mb-6 max-w-md mx-auto">
+              Add your first medication to start tracking.
+            </p>
+            <button
+              onClick={() => setShowAddMedModal(true)}
+              className="inline-flex items-center gap-2 px-5 py-2.5 bg-emerald-600 text-white rounded-2xl hover:bg-emerald-700 transition shadow-md"
+            >
+              <Plus className="w-4 h-4" /> Add Medication
+            </button>
+          </div>
+        ) : (
+          <div className="space-y-8">
+            {/* Active Medications */}
+            {medications.filter((m) => m.status === "active").length > 0 && (
+              <div>
+                <h2
+                  className={cn(
+                    "text-sm font-semibold text-slate-800 mb-4 flex items-center gap-2",
+                    bebasNeue.className,
+                  )}
+                >
+                  <span className="w-1 h-4 bg-emerald-500 rounded-full" />{" "}
+                  Active
+                </h2>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  {medications
+                    .filter((m) => m.status === "active")
+                    .map((med) => (
+                      <MedicationCard
+                        key={med.id}
+                        medication={med}
+                        expanded={expandedMedId === med.id}
+                        onToggleExpand={() =>
+                          setExpandedMedId(
+                            expandedMedId === med.id ? null : med.id,
+                          )
+                        }
+                        onLogDose={(doseId, taken) =>
+                          logDose(med.id, doseId, taken)
+                        }
+                        onReportReaction={(doseId) =>
+                          setShowReactionModal({ medicationId: med.id, doseId })
+                        }
+                        onStop={() => setStopConfirm(med.id)}
+                        isPast={false}
+                      />
+                    ))}
+                </div>
+              </div>
+            )}
+
+            {/* Past Medications */}
+            {medications.filter((m) => m.status !== "active").length > 0 && (
+              <div>
+                <h2
+                  className={cn(
+                    "text-sm font-semibold text-slate-800 mb-4 flex items-center gap-2",
+                    bebasNeue.className,
+                  )}
+                >
+                  <span className="w-1 h-4 bg-slate-400 rounded-full" /> Past
+                </h2>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 opacity-75">
+                  {medications
+                    .filter((m) => m.status !== "active")
+                    .map((med) => (
+                      <MedicationCard
+                        key={med.id}
+                        medication={med}
+                        expanded={expandedMedId === med.id}
+                        onToggleExpand={() =>
+                          setExpandedMedId(
+                            expandedMedId === med.id ? null : med.id,
+                          )
+                        }
+                        onLogDose={() => {}}
+                        onReportReaction={() => {}}
+                        onStop={() => {}}
+                        isPast
+                      />
+                    ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* --- MODALS (same as before but with premium styling) --- */}
       <AnimatePresence>
         {showHelp && (
           <Modal onClose={() => setShowHelp(false)}>
-            <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center justify-between mb-6">
               <h2
                 className={cn(
-                  "text-lg font-bold text-gray-900 flex items-center gap-2",
+                  "text-2xl font-bold text-slate-900 flex items-center gap-2",
                   bebasNeue.className,
                 )}
               >
-                <HelpCircle className="w-5 h-5 text-emerald-600" />
-                How to use
+                <HelpCircle className="text-emerald-600" size={24} /> How to use
               </h2>
               <button
                 onClick={() => setShowHelp(false)}
-                className="p-1 hover:bg-gray-100 rounded-full"
+                className="p-2 hover:bg-slate-100 rounded-full"
               >
-                <X className="w-4 h-4 text-gray-500" />
+                <X size={18} />
               </button>
             </div>
-
             <div className="relative">
               <AnimatePresence mode="wait">
                 <motion.div
@@ -870,42 +923,40 @@ export default function MedicationPanel() {
                   animate={{ opacity: 1, x: 0 }}
                   exit={{ opacity: 0, x: -50 }}
                   transition={{ duration: 0.3 }}
-                  className="flex flex-col items-center text-center p-2"
+                  className="flex flex-col items-center text-center p-4"
                 >
-                  <div className="w-14 h-14 bg-emerald-50 rounded-full flex items-center justify-center mb-2">
+                  <div className="w-20 h-20 bg-emerald-50 rounded-full flex items-center justify-center mb-4">
                     {helpSlides[helpSlide].icon}
                   </div>
-                  <h3 className="text-sm font-semibold text-gray-800 mb-1">
+                  <h3 className="text-lg font-bold text-slate-800 mb-2">
                     {helpSlides[helpSlide].title}
                   </h3>
-                  <p className="text-xs text-gray-600">
+                  <p className="text-sm text-slate-600">
                     {helpSlides[helpSlide].description}
                   </p>
                 </motion.div>
               </AnimatePresence>
-
-              <div className="flex justify-center gap-2 mt-3">
+              <div className="flex justify-center gap-2 mt-4">
                 {helpSlides.map((_, idx) => (
                   <button
                     key={idx}
                     onClick={() => setHelpSlide(idx)}
                     className={cn(
-                      "w-1.5 h-1.5 rounded-full transition",
-                      idx === helpSlide ? "bg-emerald-600 w-3" : "bg-gray-300",
+                      "w-1.5 h-1.5 rounded-full transition-all",
+                      idx === helpSlide ? "bg-emerald-600 w-3" : "bg-slate-300",
                     )}
                   />
                 ))}
               </div>
-
               <button
                 onClick={() =>
                   setHelpSlide((prev) =>
                     prev === 0 ? helpSlides.length - 1 : prev - 1,
                   )
                 }
-                className="absolute left-0 top-1/2 -translate-y-1/2 p-1 bg-gray-100 rounded-full hover:bg-gray-200"
+                className="absolute left-0 top-1/2 -translate-y-1/2 p-2 bg-white rounded-full shadow-md hover:shadow-lg active:scale-95 border border-slate-100"
               >
-                <ChevronLeft className="w-4 h-4 text-gray-600" />
+                <ChevronLeft size={16} />
               </button>
               <button
                 onClick={() =>
@@ -913,15 +964,14 @@ export default function MedicationPanel() {
                     prev === helpSlides.length - 1 ? 0 : prev + 1,
                   )
                 }
-                className="absolute right-0 top-1/2 -translate-y-1/2 p-1 bg-gray-100 rounded-full hover:bg-gray-200"
+                className="absolute right-0 top-1/2 -translate-y-1/2 p-2 bg-white rounded-full shadow-md hover:shadow-lg active:scale-95 border border-slate-100"
               >
-                <ChevronRight className="w-4 h-4 text-gray-600" />
+                <ChevronRight size={16} />
               </button>
             </div>
-
             <button
               onClick={() => setShowHelp(false)}
-              className="mt-4 w-full px-4 py-2 bg-emerald-600 text-white rounded-xl hover:bg-emerald-700 text-sm"
+              className="mt-6 w-full py-3 bg-emerald-600 text-white rounded-2xl hover:bg-emerald-700 transition font-medium"
             >
               Get Started
             </button>
@@ -935,21 +985,21 @@ export default function MedicationPanel() {
           <Modal onClose={() => setShowAddMedModal(false)}>
             <h2
               className={cn(
-                "text-lg font-bold text-gray-900 mb-3",
+                "text-2xl font-bold text-slate-900 mb-4",
                 bebasNeue.className,
               )}
             >
               Add New Medication
             </h2>
-            <form onSubmit={handleSubmit(onSubmitNewMed)} className="space-y-3">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <form onSubmit={handleSubmit(onSubmitNewMed)} className="space-y-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-medium text-gray-700 mb-1">
+                  <label className="block text-xs font-medium text-slate-600 mb-1">
                     Name *
                   </label>
                   <input
                     {...register("name")}
-                    className="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl focus:ring-2 focus:ring-emerald-500"
+                    className="w-full px-3 py-2 text-sm border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none"
                     placeholder="e.g. Amoxicillin"
                   />
                   {errors.name && (
@@ -959,12 +1009,12 @@ export default function MedicationPanel() {
                   )}
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-gray-700 mb-1">
+                  <label className="block text-xs font-medium text-slate-600 mb-1">
                     Dosage *
                   </label>
                   <input
                     {...register("dosage")}
-                    className="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl focus:ring-2 focus:ring-emerald-500"
+                    className="w-full px-3 py-2 text-sm border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none"
                     placeholder="e.g. 500mg"
                   />
                   {errors.dosage && (
@@ -974,14 +1024,14 @@ export default function MedicationPanel() {
                   )}
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-gray-700 mb-1">
+                  <label className="block text-xs font-medium text-slate-600 mb-1">
                     Qty per dose *
                   </label>
                   <input
                     type="number"
                     step="0.1"
                     {...register("quantityPerDose")}
-                    className="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl focus:ring-2 focus:ring-emerald-500"
+                    className="w-full px-3 py-2 text-sm border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none"
                     placeholder="e.g. 1"
                   />
                   {errors.quantityPerDose && (
@@ -991,13 +1041,13 @@ export default function MedicationPanel() {
                   )}
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-gray-700 mb-1">
+                  <label className="block text-xs font-medium text-slate-600 mb-1">
                     Total stock *
                   </label>
                   <input
                     type="number"
                     {...register("totalQuantity")}
-                    className="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl focus:ring-2 focus:ring-emerald-500"
+                    className="w-full px-3 py-2 text-sm border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none"
                     placeholder="e.g. 100"
                   />
                   {errors.totalQuantity && (
@@ -1007,22 +1057,22 @@ export default function MedicationPanel() {
                   )}
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-gray-700 mb-1">
+                  <label className="block text-xs font-medium text-slate-600 mb-1">
                     Ailment (opt)
                   </label>
                   <input
                     {...register("ailment")}
-                    className="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl"
+                    className="w-full px-3 py-2 text-sm border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none"
                     placeholder="e.g. Infection"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-gray-700 mb-1">
+                  <label className="block text-xs font-medium text-slate-600 mb-1">
                     Frequency *
                   </label>
                   <select
                     {...register("frequency")}
-                    className="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl focus:ring-2 focus:ring-emerald-500"
+                    className="w-full px-3 py-2 text-sm border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none"
                   >
                     <option value="once">Once daily</option>
                     <option value="twice">Twice daily</option>
@@ -1031,12 +1081,12 @@ export default function MedicationPanel() {
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-gray-700 mb-1">
+                  <label className="block text-xs font-medium text-slate-600 mb-1">
                     Assigned to *
                   </label>
                   <select
                     {...register("assignedTo")}
-                    className="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl focus:ring-2 focus:ring-emerald-500"
+                    className="w-full px-3 py-2 text-sm border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none"
                   >
                     {familyMembers.map((m) => (
                       <option key={m.id} value={m.id}>
@@ -1048,12 +1098,12 @@ export default function MedicationPanel() {
                 </div>
                 {frequency === "custom" && (
                   <div className="sm:col-span-2">
-                    <label className="block text-xs font-medium text-gray-700 mb-1">
+                    <label className="block text-xs font-medium text-slate-600 mb-1">
                       Times (comma separated 24h) *
                     </label>
                     <input
                       {...register("times")}
-                      className="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl focus:ring-2 focus:ring-emerald-500"
+                      className="w-full px-3 py-2 text-sm border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none"
                       placeholder="e.g. 08:00, 14:00, 20:00"
                     />
                     {errors.times && (
@@ -1064,13 +1114,13 @@ export default function MedicationPanel() {
                   </div>
                 )}
                 <div>
-                  <label className="block text-xs font-medium text-gray-700 mb-1">
+                  <label className="block text-xs font-medium text-slate-600 mb-1">
                     Start Date *
                   </label>
                   <input
                     type="date"
                     {...register("startDate")}
-                    className="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl focus:ring-2 focus:ring-emerald-500"
+                    className="w-full px-3 py-2 text-sm border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none"
                   />
                   {errors.startDate && (
                     <p className="text-red-500 text-xs mt-1">
@@ -1078,31 +1128,31 @@ export default function MedicationPanel() {
                     </p>
                   )}
                 </div>
-                <div>
-                  <label className="block text-xs font-medium text-gray-700 mb-1">
+                <div className="sm:col-span-2">
+                  <label className="block text-xs font-medium text-slate-600 mb-1">
                     Instructions (opt)
                   </label>
                   <input
                     {...register("instructions")}
-                    className="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl"
+                    className="w-full px-3 py-2 text-sm border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none"
                     placeholder="e.g. Take with food"
                   />
                 </div>
               </div>
-              <div className="flex justify-end gap-2 pt-2">
+              <div className="flex justify-end gap-3 pt-2">
                 <button
                   type="button"
                   onClick={() => setShowAddMedModal(false)}
-                  className="px-4 py-2 text-sm bg-gray-200 text-gray-800 rounded-xl hover:bg-gray-300"
+                  className="px-5 py-2 text-sm bg-slate-100 text-slate-700 rounded-xl hover:bg-slate-200 transition"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={isSubmitting}
-                  className="flex items-center gap-2 px-4 py-2 text-sm bg-emerald-600 text-white rounded-xl hover:bg-emerald-700 disabled:opacity-50"
+                  className="flex items-center gap-2 px-5 py-2 text-sm bg-emerald-600 text-white rounded-xl hover:bg-emerald-700 disabled:opacity-50 transition shadow-md"
                 >
-                  {isSubmitting && <Loader2 className="w-4 h-4 animate-spin" />}
+                  {isSubmitting && <Loader2 className="w-4 h-4 animate-spin" />}{" "}
                   Save
                 </button>
               </div>
@@ -1117,7 +1167,7 @@ export default function MedicationPanel() {
           <Modal onClose={() => setShowAddFamilyModal(false)}>
             <h2
               className={cn(
-                "text-lg font-bold text-gray-900 mb-3",
+                "text-2xl font-bold text-slate-900 mb-4",
                 bebasNeue.className,
               )}
             >
@@ -1125,15 +1175,15 @@ export default function MedicationPanel() {
             </h2>
             <form
               onSubmit={familyForm.handleSubmit(addFamilyMember)}
-              className="space-y-3"
+              className="space-y-4"
             >
               <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">
+                <label className="block text-xs font-medium text-slate-600 mb-1">
                   Name *
                 </label>
                 <input
                   {...familyForm.register("name")}
-                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl"
+                  className="w-full px-3 py-2 text-sm border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none"
                   placeholder="Full name"
                 />
                 {familyForm.formState.errors.name && (
@@ -1143,12 +1193,12 @@ export default function MedicationPanel() {
                 )}
               </div>
               <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">
+                <label className="block text-xs font-medium text-slate-600 mb-1">
                   Phone *
                 </label>
                 <input
                   {...familyForm.register("phone")}
-                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl"
+                  className="w-full px-3 py-2 text-sm border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none"
                   placeholder="+1234567890"
                 />
                 {familyForm.formState.errors.phone && (
@@ -1158,12 +1208,12 @@ export default function MedicationPanel() {
                 )}
               </div>
               <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">
+                <label className="block text-xs font-medium text-slate-600 mb-1">
                   Relationship *
                 </label>
                 <input
                   {...familyForm.register("relationship")}
-                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl"
+                  className="w-full px-3 py-2 text-sm border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none"
                   placeholder="e.g. Spouse, Child, Parent"
                 />
                 {familyForm.formState.errors.relationship && (
@@ -1172,22 +1222,22 @@ export default function MedicationPanel() {
                   </p>
                 )}
               </div>
-              <div className="flex justify-end gap-2 pt-2">
+              <div className="flex justify-end gap-3 pt-2">
                 <button
                   type="button"
                   onClick={() => setShowAddFamilyModal(false)}
-                  className="px-4 py-2 text-sm bg-gray-200 text-gray-800 rounded-xl hover:bg-gray-300"
+                  className="px-5 py-2 text-sm bg-slate-100 text-slate-700 rounded-xl hover:bg-slate-200 transition"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={familyForm.formState.isSubmitting}
-                  className="flex items-center gap-2 px-4 py-2 text-sm bg-emerald-600 text-white rounded-xl hover:bg-emerald-700 disabled:opacity-50"
+                  className="flex items-center gap-2 px-5 py-2 text-sm bg-emerald-600 text-white rounded-xl hover:bg-emerald-700 disabled:opacity-50 transition shadow-md"
                 >
                   {familyForm.formState.isSubmitting && (
                     <Loader2 className="w-4 h-4 animate-spin" />
-                  )}
+                  )}{" "}
                   Add
                 </button>
               </div>
@@ -1202,7 +1252,7 @@ export default function MedicationPanel() {
           <Modal onClose={() => setShowReactionModal(null)}>
             <h2
               className={cn(
-                "text-lg font-bold text-gray-900 mb-3",
+                "text-2xl font-bold text-slate-900 mb-4",
                 bebasNeue.className,
               )}
             >
@@ -1219,16 +1269,16 @@ export default function MedicationPanel() {
                 setShowReactionModal(null);
                 reactionForm.reset();
               })}
-              className="space-y-3"
+              className="space-y-4"
             >
               <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">
+                <label className="block text-xs font-medium text-slate-600 mb-1">
                   How did you feel? *
                 </label>
                 <textarea
                   {...reactionForm.register("reaction")}
                   rows={3}
-                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl"
+                  className="w-full px-3 py-2 text-sm border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none"
                   placeholder="Describe any side effects..."
                 />
                 {reactionForm.formState.errors.reaction && (
@@ -1237,22 +1287,22 @@ export default function MedicationPanel() {
                   </p>
                 )}
               </div>
-              <div className="flex justify-end gap-2">
+              <div className="flex justify-end gap-3">
                 <button
                   type="button"
                   onClick={() => setShowReactionModal(null)}
-                  className="px-4 py-2 text-sm bg-gray-200 text-gray-800 rounded-xl hover:bg-gray-300"
+                  className="px-5 py-2 text-sm bg-slate-100 text-slate-700 rounded-xl hover:bg-slate-200 transition"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={reactionForm.formState.isSubmitting}
-                  className="flex items-center gap-2 px-4 py-2 text-sm bg-emerald-600 text-white rounded-xl hover:bg-emerald-700 disabled:opacity-50"
+                  className="flex items-center gap-2 px-5 py-2 text-sm bg-emerald-600 text-white rounded-xl hover:bg-emerald-700 disabled:opacity-50 transition shadow-md"
                 >
                   {reactionForm.formState.isSubmitting && (
                     <Loader2 className="w-4 h-4 animate-spin" />
-                  )}
+                  )}{" "}
                   Submit
                 </button>
               </div>
@@ -1260,23 +1310,66 @@ export default function MedicationPanel() {
           </Modal>
         )}
       </AnimatePresence>
-    </motion.div>
+
+      {/* Stop Confirmation Modal */}
+      <AnimatePresence>
+        {stopConfirm && (
+          <Modal onClose={() => setStopConfirm(null)}>
+            <div className="text-center space-y-4">
+              <div className="mx-auto w-16 h-16 bg-amber-100 rounded-full flex items-center justify-center">
+                <StopCircle className="w-8 h-8 text-amber-600" />
+              </div>
+              <h2
+                className={cn(
+                  "text-xl font-bold text-slate-900",
+                  bebasNeue.className,
+                )}
+              >
+                Stop Medication?
+              </h2>
+              <p className="text-sm text-slate-600">
+                Are you sure you want to stop this medication? It will be moved
+                to "Past Medications" and you will no longer receive reminders.
+              </p>
+              <div className="flex justify-center gap-3 pt-2">
+                <button
+                  onClick={() => setStopConfirm(null)}
+                  className="px-5 py-2 text-sm bg-slate-100 text-slate-700 rounded-xl hover:bg-slate-200 transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => stopConfirm && stopMedication(stopConfirm)}
+                  className="px-5 py-2 text-sm bg-amber-600 text-white rounded-xl hover:bg-amber-700 transition shadow-md"
+                >
+                  Stop Medication
+                </button>
+              </div>
+            </div>
+          </Modal>
+        )}
+      </AnimatePresence>
+    </div>
   );
 }
 
-// ---------- Medication Card ----------
+// ---------- MedicationCard ----------
 const MedicationCard = ({
   medication,
   expanded,
   onToggleExpand,
   onLogDose,
   onReportReaction,
+  onStop,
+  isPast = false,
 }: {
   medication: Medication;
   expanded: boolean;
   onToggleExpand: () => void;
   onLogDose: (doseId: string, taken: boolean) => void;
   onReportReaction: (doseId: string) => void;
+  onStop: () => void;
+  isPast?: boolean;
 }) => {
   const quantityPerDose = Number(medication.quantityPerDose) || 1;
   const totalQuantity = Number(medication.totalQuantity) || 0;
@@ -1313,12 +1406,14 @@ const MedicationCard = ({
   return (
     <motion.div
       layout
-      className="bg-white border border-gray-100 rounded-2xl p-3 shadow-sm hover:shadow-md transition-all"
+      whileHover={{ y: -4 }}
+      transition={spring}
+      className="bg-white border border-slate-100 rounded-[32px] p-6 shadow-sm hover:shadow-xl transition-all"
     >
       <div className="flex items-start justify-between">
         <div className="flex-1 cursor-pointer" onClick={onToggleExpand}>
           <div className="flex items-center gap-2 flex-wrap">
-            <h3 className="font-semibold text-gray-900 text-base">
+            <h3 className="font-semibold text-slate-900 text-lg">
               {medication.name}
             </h3>
             <span className="text-[10px] bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full">
@@ -1330,40 +1425,39 @@ const MedicationCard = ({
               </span>
             )}
           </div>
-          <p className="text-xs text-gray-600 mt-1 flex items-center gap-1">
-            <Package className="w-3 h-3 text-gray-400" />
+          <p className="text-xs text-slate-500 mt-2 flex items-center gap-1">
+            <Package className="w-3 h-3 text-slate-400" />
             Stock: {isNaN(remainingStock)
               ? "?"
               : remainingStock.toFixed(1)} / {totalQuantity} left
           </p>
           {medication.instructions && (
-            <p className="text-[10px] text-gray-500 mt-1 italic">
+            <p className="text-[10px] text-slate-500 mt-1 italic">
               {medication.instructions}
             </p>
           )}
         </div>
         <button
           onClick={onToggleExpand}
-          className="p-2 hover:bg-gray-100 rounded-full transition min-w-[36px] min-h-[36px] flex items-center justify-center"
-          aria-label={expanded ? "Collapse" : "Expand"}
+          className="p-2 hover:bg-slate-100 rounded-full transition"
         >
           {expanded ? (
-            <ChevronUp className="w-4 h-4" />
+            <ChevronUp className="w-4 h-4 text-slate-500" />
           ) : (
-            <ChevronDown className="w-4 h-4" />
+            <ChevronDown className="w-4 h-4 text-slate-500" />
           )}
         </button>
       </div>
 
-      <div className="mt-3 space-y-2">
+      <div className="mt-4 space-y-3">
         <div>
-          <div className="flex justify-between text-[10px] text-gray-500 mb-1">
+          <div className="flex justify-between text-[10px] text-slate-500 mb-1">
             <span>Today's progress</span>
             <span>
               {takenCount}/{totalToday}
             </span>
           </div>
-          <div className="w-full bg-gray-100 h-1.5 rounded-full overflow-hidden">
+          <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
             <motion.div
               initial={{ width: 0 }}
               animate={{ width: `${progress}%` }}
@@ -1372,13 +1466,13 @@ const MedicationCard = ({
           </div>
         </div>
         <div>
-          <div className="flex justify-between text-[10px] text-gray-500 mb-1">
+          <div className="flex justify-between text-[10px] text-slate-500 mb-1">
             <span>Overall completion</span>
             <span>
               {isNaN(completionPercent) ? 0 : Math.round(completionPercent)}%
             </span>
           </div>
-          <div className="w-full bg-gray-100 h-1.5 rounded-full overflow-hidden">
+          <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
             <motion.div
               initial={{ width: 0 }}
               animate={{
@@ -1396,10 +1490,10 @@ const MedicationCard = ({
             initial={{ opacity: 0, height: 0 }}
             animate={{ opacity: 1, height: "auto" }}
             exit={{ opacity: 0, height: 0 }}
-            className="mt-3 space-y-3 overflow-hidden"
+            className="mt-4 space-y-4 overflow-hidden"
           >
             <div>
-              <h4 className="text-xs font-medium text-gray-700 mb-2 flex items-center gap-1">
+              <h4 className="text-xs font-medium text-slate-700 mb-3 flex items-center gap-1">
                 <Calendar className="w-3 h-3" /> Next 7 days
               </h4>
               <div className="grid grid-cols-7 gap-1">
@@ -1422,8 +1516,8 @@ const MedicationCard = ({
                             ? "bg-emerald-100 text-emerald-700"
                             : someTaken
                               ? "bg-amber-100 text-amber-700"
-                              : "bg-gray-100 text-gray-600"
-                          : "bg-gray-50 text-gray-300",
+                              : "bg-slate-100 text-slate-600"
+                          : "bg-slate-50 text-slate-300",
                       )}
                     >
                       <span className="font-medium">
@@ -1438,7 +1532,7 @@ const MedicationCard = ({
                   );
                 })}
               </div>
-              <p className="text-[10px] text-gray-500 mt-2">
+              <p className="text-[10px] text-slate-500 mt-2">
                 Est. finish:{" "}
                 {medication.endDate
                   ? new Date(medication.endDate).toLocaleDateString()
@@ -1447,11 +1541,11 @@ const MedicationCard = ({
             </div>
 
             <div>
-              <h4 className="text-xs font-medium text-gray-700 mb-2">
+              <h4 className="text-xs font-medium text-slate-700 mb-2">
                 Today's Doses
               </h4>
               {todaysDoses.length === 0 ? (
-                <p className="text-xs text-gray-500">No doses today.</p>
+                <p className="text-xs text-slate-500">No doses today.</p>
               ) : (
                 <div className="space-y-2">
                   {todaysDoses.map((dose) => {
@@ -1464,23 +1558,23 @@ const MedicationCard = ({
                     return (
                       <div
                         key={dose.id}
-                        className="flex items-center justify-between p-2 bg-gray-50 rounded-lg"
+                        className="flex items-center justify-between p-3 bg-slate-50 rounded-xl"
                       >
                         <div>
-                          <p className="text-sm font-medium text-gray-900">
+                          <p className="text-sm font-medium text-slate-900">
                             {timeStr}
                           </p>
                           {dose.reaction && (
-                            <p className="text-xs text-gray-500 mt-1">
+                            <p className="text-xs text-slate-500 mt-1">
                               Reaction: {dose.reaction}
                             </p>
                           )}
                         </div>
-                        {!taken ? (
+                        {!isPast && !taken ? (
                           <div className="flex gap-2">
                             <button
                               onClick={() => onLogDose(dose.id, true)}
-                              className="px-3 py-1 bg-emerald-600 text-white text-xs rounded-lg hover:bg-emerald-700 min-w-[50px]"
+                              className="px-3 py-1 bg-emerald-600 text-white text-xs rounded-lg hover:bg-emerald-700"
                             >
                               Taken
                             </button>
@@ -1502,6 +1596,15 @@ const MedicationCard = ({
                 </div>
               )}
             </div>
+
+            {!isPast && (
+              <button
+                onClick={onStop}
+                className="w-full py-2 text-sm bg-amber-50 text-amber-600 rounded-xl hover:bg-amber-100 transition font-medium flex items-center justify-center gap-2"
+              >
+                <StopCircle className="w-4 h-4" /> Stop Medication
+              </button>
+            )}
           </motion.div>
         )}
       </AnimatePresence>
@@ -1509,7 +1612,7 @@ const MedicationCard = ({
   );
 };
 
-// ---------- Modal Component ----------
+// ---------- Modal Component (matches Dashboard) ----------
 const Modal = ({
   children,
   onClose,
@@ -1528,7 +1631,7 @@ const Modal = ({
       initial={{ scale: 0.95, y: 10 }}
       animate={{ scale: 1, y: 0 }}
       exit={{ scale: 0.95, y: 10 }}
-      className="bg-white rounded-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto p-4 shadow-2xl"
+      className="bg-white rounded-3xl max-w-lg w-full max-h-[90vh] overflow-y-auto p-6 shadow-2xl border border-slate-100"
       onClick={(e) => e.stopPropagation()}
     >
       {children}

@@ -1,4 +1,10 @@
-import { Alex_Brush, Bebas_Neue, Poppins } from "next/font/google";
+import {
+  Alex_Brush,
+  Bebas_Neue,
+  Josefin_Sans,
+  Josefin_Slab,
+  Poppins,
+} from "next/font/google";
 
 export const bebasNeue = Bebas_Neue({
   weight: "400",

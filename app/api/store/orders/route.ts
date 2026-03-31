@@ -1,19 +1,22 @@
 import { NextRequest, NextResponse } from "next/server";
-import { adminDb } from "@/app/utils/firebaseAdmin";
+import { adminDb, adminAuth } from "@/app/utils/firebaseAdmin";
 import { cookies } from "next/headers";
 
 export async function GET() {
   try {
-    const cookieStore = cookies();
-    const sessionCookie = (await cookieStore).get("session")?.value;
+    const cookieStore = await cookies();
+    const sessionCookie = cookieStore.get("__session")?.value;
+
     if (!sessionCookie) {
       return NextResponse.json(
         { success: false, error: "Unauthorized" },
         { status: 401 },
       );
     }
-    const session = JSON.parse(sessionCookie);
-    const userId = session.user.id;
+
+    // Verify the session cookie and extract UID
+    const decoded = await adminAuth.verifySessionCookie(sessionCookie, true);
+    const userId = decoded.uid;
 
     const ordersRef = adminDb.ref(`doza/users/${userId}/store/orders`);
     const snapshot = await ordersRef.get();
@@ -31,19 +34,21 @@ export async function GET() {
 
 export async function POST(req: NextRequest) {
   try {
-    const cookieStore = cookies();
-    const sessionCookie = (await cookieStore).get("session")?.value;
+    const cookieStore = await cookies();
+    const sessionCookie = cookieStore.get("__session")?.value;
+
     if (!sessionCookie) {
       return NextResponse.json(
         { success: false, error: "Unauthorized" },
         { status: 401 },
       );
     }
-    const session = JSON.parse(sessionCookie);
-    const userId = session.user.id;
+
+    const decoded = await adminAuth.verifySessionCookie(sessionCookie, true);
+    const userId = decoded.uid;
+
     const orderData = await req.json();
 
-    // Generate a unique order ID
     const orderId = `DOZA-${Date.now()}`;
     const newOrder = {
       orderId,
@@ -57,7 +62,6 @@ export async function POST(req: NextRequest) {
     );
     await orderRef.set(newOrder);
 
-    // Optionally clear the cart (client should handle that)
     return NextResponse.json({ success: true, data: orderId });
   } catch (error) {
     console.error("Error creating order:", error);

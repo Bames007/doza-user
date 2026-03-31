@@ -1,3 +1,4 @@
+//api/challenges/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { verifyIdToken } from "@/app/utils/auth";
 import { adminDb } from "@/app/utils/firebaseAdmin";

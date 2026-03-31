@@ -11,11 +11,12 @@ import {
   Loader2,
   Mail,
   Phone,
-  Calendar,
   User,
-  HelpCircle,
-  X,
-  ChevronLeft,
+  ShieldCheck,
+  Dna,
+  Save,
+  Fingerprint,
+  HeartPulse,
   ChevronRight,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
@@ -23,7 +24,7 @@ import { cn } from "@/app/utils/utils";
 import { authPut } from "@/app/utils/client-auth";
 import { poppins, bebasNeue } from "@/app/constants";
 
-// Actual avatar files from your public folder
+// Avatar Assets
 const AVATARS = [
   {
     id: "avatar_adult_transparent",
@@ -36,18 +37,13 @@ const AVATARS = [
   { id: "avatar_female_one", src: "/assets/avatars/avatar-female-one.jpg" },
   { id: "avatar_user1", src: "/assets/avatars/avatar-user1.png" },
   { id: "avatar_default", src: "/assets/avatars/avatar.jpg" },
-  { id: "good_emoji", src: "/assets/avatars/good_emoji.jpg" },
-  { id: "happy_emoji", src: "/assets/avatars/happy_emoji.jpg" },
-  { id: "not_sure_emoji", src: "/assets/avatars/not_sure_emoji.jpg" },
-  { id: "ok_emoji", src: "/assets/avatars/ok_emoji.jpg" },
-  { id: "sad_emoji", src: "/assets/avatars/sad_emoji.jpg" },
 ];
 
 const emergencyContactSchema = z.object({
   id: z.string().optional(),
-  name: z.string().min(1, "Name is required"),
-  phone: z.string().min(1, "Phone is required"),
-  relationship: z.string().min(1, "Relationship is required"),
+  name: z.string().min(1, "Required"),
+  phone: z.string().min(1, "Required"),
+  relationship: z.string().min(1, "Required"),
 });
 
 const profileSchema = z.object({
@@ -64,60 +60,21 @@ const profileSchema = z.object({
 
 type ProfileFormValues = z.infer<typeof profileSchema>;
 
-const helpSlides = [
-  {
-    icon: <User className="w-12 h-12 text-emerald-600" />,
-    title: "Personal Information",
-    description: "Fill in your details – name, contact, and health metrics.",
-  },
-  {
-    icon: <Plus className="w-12 h-12 text-emerald-600" />,
-    title: "Choose an avatar",
-    description: "Pick an avatar from the grid to personalise your profile.",
-  },
-  {
-    icon: <Phone className="w-12 h-12 text-emerald-600" />,
-    title: "Emergency Contacts",
-    description: "Add people to reach in case of emergency.",
-  },
-  {
-    icon: <Mail className="w-12 h-12 text-emerald-600" />,
-    title: "Save Changes",
-    description: "Don't forget to hit 'Save Changes' when you're done.",
-  },
-];
-
 export default function ProfilePanel() {
-  const { profile, isLoading, error, mutateProfile } = useProfile();
+  const { profile, isLoading, mutateProfile } = useProfile();
   const [isSaving, setIsSaving] = useState(false);
-  const [showHelp, setShowHelp] = useState(false);
-  const [helpSlide, setHelpSlide] = useState(0);
-
-  // First visit help modal
-  useEffect(() => {
-    const hasSeenHelp = localStorage.getItem("doza_profile_help");
-    if (!hasSeenHelp) {
-      setShowHelp(true);
-      localStorage.setItem("doza_profile_help", "true");
-    }
-  }, []);
 
   const {
     register,
     control,
     handleSubmit,
     reset,
+    watch,
     formState: { errors, isDirty },
-  } = useForm({
+  } = useForm<ProfileFormValues>({
     resolver: zodResolver(profileSchema),
     defaultValues: {
-      displayName: "",
-      phone: "",
-      dateOfBirth: "",
       gender: "prefer-not-to-say",
-      bloodGroup: "",
-      height: undefined,
-      weight: undefined,
       avatarId: AVATARS[0].id,
       emergencyContacts: [],
     },
@@ -128,19 +85,15 @@ export default function ProfilePanel() {
     name: "emergencyContacts",
   });
 
+  const watchedAvatar = watch("avatarId");
+
   useEffect(() => {
     if (profile) {
       reset({
-        displayName: profile.displayName || "",
-        phone: profile.phone || "",
-        dateOfBirth: profile.dateOfBirth || "",
-        gender: profile.gender || "prefer-not-to-say",
-        bloodGroup: profile.bloodGroup || "",
-        height: profile.height || undefined,
-        weight: profile.weight || undefined,
+        ...profile,
         avatarId: profile.avatarId || AVATARS[0].id,
-        emergencyContacts: profile.emergencyContacts || [],
-      });
+        gender: profile.gender || "prefer-not-to-say",
+      } as any);
     }
   }, [profile, reset]);
 
@@ -151,419 +104,414 @@ export default function ProfilePanel() {
       if (result.success) {
         mutateProfile();
         reset(data);
-      } else {
-        alert("Error saving profile: " + result.error);
       }
+    } catch {
+      alert("System Sync Failed");
     } finally {
       setIsSaving(false);
     }
   };
 
-  if (isLoading) {
+  if (isLoading)
     return (
-      <div className="max-w-6xl mx-auto px-3 pb-24  min-h-screen flex items-center justify-center">
-        <Loader2 className="w-8 h-8 animate-spin text-emerald-600" />
+      <div className="h-screen bg-[#F8FAFC] flex flex-col items-center justify-center gap-4">
+        <Loader2 className="animate-spin text-emerald-500" size={40} />
+        <span
+          className={cn(
+            "text-2xl font-black text-slate-400 tracking-tighter uppercase",
+            bebasNeue.className,
+          )}
+        >
+          Decrypting Identity...
+        </span>
       </div>
     );
-  }
-
-  if (error) {
-    return (
-      <div className="max-w-6xl mx-auto px-3 pb-24  min-h-screen pt-4">
-        <div className="p-4 text-red-600 text-center bg-white rounded-2xl border border-gray-100">
-          Error loading profile.
-        </div>
-      </div>
-    );
-  }
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      className={cn(
-        "max-w-6xl mx-auto px-3 pb-24  min-h-screen",
-        poppins.className,
-      )}
+    <div
+      className={cn("min-h-screen bg-[#F8FAFC] pb-40 pt-6", poppins.className)}
     >
-      {/* Header with help icon */}
-      <div className="pt-4 pb-3 flex items-center justify-between">
-        <div>
-          <h1
-            className={cn(
-              "text-2xl sm:text-3xl font-bold text-gray-800",
-              bebasNeue.className,
-            )}
-          >
-            Profile
-          </h1>
-          <p className="text-xs sm:text-sm text-emerald-600 mt-0.5">
-            Manage your personal information
-          </p>
-        </div>
-        <button
-          onClick={() => setShowHelp(true)}
-          className="w-9 h-9 bg-white rounded-full flex items-center justify-center shadow-sm border border-gray-200 active:bg-gray-50"
-          aria-label="How to use"
-        >
-          <HelpCircle className="w-5 h-5 text-emerald-600" />
-        </button>
-      </div>
+      <div className="max-w-6xl mx-auto px-4 md:px-6">
+        {/* --- HERO SECTION (Dashboard Style) --- */}
+        <section className="relative rounded-[32px] md:rounded-[40px] bg-slate-900 overflow-hidden mb-12 shadow-2xl border border-white/5">
+          <div className="absolute top-0 right-0 w-1/3 h-full bg-gradient-to-l from-emerald-500/10 to-transparent" />
+          <div className="absolute -left-20 -bottom-20 w-80 h-80 bg-emerald-600/5 rounded-full blur-[100px]" />
 
-      <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-        {/* Avatar Selection */}
-        <div className="bg-white border border-gray-100 rounded-2xl p-3 shadow-sm">
-          <h2
-            className={cn(
-              "text-base font-semibold text-gray-800 mb-2 flex items-center gap-2",
-              bebasNeue.className,
-            )}
-          >
-            <User className="w-4 h-4 text-emerald-600" />
-            Choose an avatar
-          </h2>
-          <div className="grid grid-cols-4 sm:grid-cols-6 md:grid-cols-7 gap-2">
-            {AVATARS.map((avatar) => (
-              <button
-                key={avatar.id}
-                type="button"
-                onClick={() =>
-                  reset({ ...profile, avatarId: avatar.id } as any)
-                }
-                className={cn(
-                  "relative aspect-square rounded-full overflow-hidden border-2 transition-all hover:scale-105",
-                  profile?.avatarId === avatar.id
-                    ? "border-emerald-600 ring-2 ring-emerald-200 ring-offset-2"
-                    : "border-gray-200 hover:border-emerald-300",
-                )}
-              >
+          <div className="relative z-10 p-8 md:p-14 flex flex-col md:flex-row items-center gap-10">
+            <div className="relative group">
+              <div className="w-28 h-28 md:w-40 md:h-40 rounded-[35px] overflow-hidden border-4 border-emerald-500 shadow-2xl rotate-3 bg-white transition-transform group-hover:rotate-0 duration-500">
                 <img
-                  src={avatar.src}
-                  alt={avatar.id}
+                  src={
+                    AVATARS.find((a) => a.id === watchedAvatar)?.src ||
+                    AVATARS[0].src
+                  }
                   className="w-full h-full object-cover"
+                  alt="Profile"
                 />
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* Personal Information */}
-        <div className="bg-white border border-gray-100 rounded-2xl p-3 shadow-sm">
-          <h2
-            className={cn(
-              "text-base font-semibold text-gray-800 mb-2 flex items-center gap-2",
-              bebasNeue.className,
-            )}
-          >
-            <User className="w-4 h-4 text-emerald-600" />
-            Personal Information
-          </h2>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-medium text-gray-700 mb-1">
-                Full Name *
-              </label>
-              <input
-                {...register("displayName")}
-                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl focus:ring-2 focus:ring-emerald-500 text-gray-900"
-                placeholder="John Doe"
-              />
-              {errors.displayName && (
-                <p className="text-red-500 text-xs mt-1">
-                  {errors.displayName.message}
-                </p>
-              )}
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-700 mb-1 flex items-center gap-1">
-                <Mail className="w-3 h-3" /> Email
-              </label>
-              <div className="flex items-center gap-2 w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-gray-600 text-sm">
-                <span className="truncate">
-                  {profile?.email || "Not provided"}
-                </span>
-                <span className="text-xs text-gray-400 ml-auto">
-                  (read‑only)
-                </span>
+              </div>
+              <div className="absolute -bottom-3 -right-3 p-4 bg-emerald-500 rounded-2xl shadow-xl border-4 border-slate-900">
+                <Fingerprint className="text-white w-6 h-6" />
               </div>
             </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-700 mb-1">
-                <Phone className="w-3 h-3 inline mr-1" /> Phone
-              </label>
-              <input
-                {...register("phone")}
-                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl focus:ring-2 focus:ring-emerald-500 text-gray-900"
-                placeholder="+234 123 456 7890"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-700 mb-1">
-                <Calendar className="w-3 h-3 inline mr-1" /> Date of Birth
-              </label>
-              <input
-                type="date"
-                {...register("dateOfBirth")}
-                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl focus:ring-2 focus:ring-emerald-500 text-gray-900"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-700 mb-1">
-                Gender
-              </label>
-              <select
-                {...register("gender")}
-                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl focus:ring-2 focus:ring-emerald-500 text-gray-900"
-              >
-                <option value="male">Male</option>
-                <option value="female">Female</option>
-                <option value="other">Other</option>
-                <option value="prefer-not-to-say">Prefer not to say</option>
-              </select>
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-700 mb-1">
-                Blood Group
-              </label>
-              <input
-                {...register("bloodGroup")}
-                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl focus:ring-2 focus:ring-emerald-500 text-gray-900"
-                placeholder="A+"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-700 mb-1">
-                Height (cm)
-              </label>
-              <input
-                type="number"
-                {...register("height", { valueAsNumber: true })}
-                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl focus:ring-2 focus:ring-emerald-500 text-gray-900"
-                placeholder="175"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-700 mb-1">
-                Weight (kg)
-              </label>
-              <input
-                type="number"
-                {...register("weight", { valueAsNumber: true })}
-                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl focus:ring-2 focus:ring-emerald-500 text-gray-900"
-                placeholder="70"
-              />
-            </div>
-          </div>
-        </div>
 
-        {/* Emergency Contacts */}
-        <div className="bg-white border border-gray-100 rounded-2xl p-3 shadow-sm">
-          <div className="flex items-center justify-between mb-2">
-            <h2
-              className={cn(
-                "text-base font-semibold text-gray-800 flex items-center gap-2",
-                bebasNeue.className,
-              )}
-            >
-              <Phone className="w-4 h-4 text-emerald-600" />
-              Emergency Contacts
-            </h2>
-            <button
-              type="button"
-              onClick={() =>
-                append({
-                  id: Date.now().toString(),
-                  name: "",
-                  phone: "",
-                  relationship: "",
-                })
-              }
-              className="flex items-center gap-1 text-xs bg-emerald-50 text-emerald-700 px-3 py-1.5 rounded-full hover:bg-emerald-100 transition"
-            >
-              <Plus className="w-3 h-3" /> Add
-            </button>
-          </div>
-          <div className="space-y-2">
-            {fields.map((field, index) => (
-              <div
-                key={field.id}
-                className="flex flex-col sm:flex-row gap-2 items-start p-2 border border-gray-100 rounded-xl bg-gray-50/50"
-              >
-                <div className="flex-1 w-full">
-                  <input
-                    {...register(`emergencyContacts.${index}.name`)}
-                    placeholder="Name"
-                    className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:ring-1 focus:ring-emerald-500 text-gray-900"
-                  />
-                  {errors.emergencyContacts?.[index]?.name && (
-                    <p className="text-red-500 text-xs mt-1">
-                      {errors.emergencyContacts[index]?.name?.message}
-                    </p>
-                  )}
-                </div>
-                <div className="flex-1 w-full">
-                  <input
-                    {...register(`emergencyContacts.${index}.phone`)}
-                    placeholder="Phone"
-                    className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:ring-1 focus:ring-emerald-500 text-gray-900"
-                  />
-                </div>
-                <div className="flex-1 w-full">
-                  <input
-                    {...register(`emergencyContacts.${index}.relationship`)}
-                    placeholder="Relationship"
-                    className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:ring-1 focus:ring-emerald-500 text-gray-900"
-                  />
-                </div>
-                <button
-                  type="button"
-                  onClick={() => remove(index)}
-                  className="text-red-500 hover:text-red-700 p-2 mt-1 sm:mt-0 self-center"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
+            <div className="flex-1 text-center md:text-left">
+              <div className="flex items-center gap-2 mb-3 justify-center md:justify-start">
+                <span className="h-[2px] w-8 bg-emerald-500" />
+                <span className="text-[10px] font-black text-emerald-400 uppercase tracking-[0.4em]">
+                  Biometric Record
+                </span>
               </div>
-            ))}
-            {fields.length === 0 && (
-              <p className="text-gray-500 text-xs italic">
-                No emergency contacts added.
-              </p>
-            )}
-          </div>
-        </div>
-
-        {/* Save Button */}
-        <div className="flex justify-end">
-          <button
-            type="submit"
-            disabled={!isDirty || isSaving}
-            className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-xl hover:bg-emerald-700 disabled:opacity-50 transition shadow-sm text-sm"
-          >
-            {isSaving && <Loader2 className="w-4 h-4 animate-spin" />}
-            {isSaving ? "Saving..." : "Save Changes"}
-          </button>
-        </div>
-      </form>
-
-      {/* Help Carousel Modal */}
-      <AnimatePresence>
-        {showHelp && (
-          <Modal onClose={() => setShowHelp(false)}>
-            <div className="flex items-center justify-between mb-3">
-              <h2
+              <h1
                 className={cn(
-                  "text-lg font-bold text-gray-900 flex items-center gap-2",
+                  "text-5xl md:text-8xl text-white leading-[0.85] mb-4",
                   bebasNeue.className,
                 )}
               >
-                <HelpCircle className="w-5 h-5 text-emerald-600" />
-                How to use
-              </h2>
-              <button
-                onClick={() => setShowHelp(false)}
-                className="p-1 hover:bg-gray-100 rounded-full"
-                aria-label="Close help"
-              >
-                <X className="w-4 h-4 text-gray-500" />
-              </button>
+                IDENTITY <span className="text-emerald-500">MATRIX</span>
+              </h1>
+              <p className="text-slate-400 text-sm max-w-md font-medium">
+                Manage your clinical biometrics, authenticated identity, and
+                emergency medical protocols.
+              </p>
             </div>
+          </div>
+        </section>
 
-            <div className="relative">
-              <AnimatePresence mode="wait">
-                <motion.div
-                  key={helpSlide}
-                  initial={{ opacity: 0, x: 50 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  exit={{ opacity: 0, x: -50 }}
-                  transition={{ duration: 0.3 }}
-                  className="flex flex-col items-center text-center p-2"
-                >
-                  <div className="w-14 h-14 bg-emerald-50 rounded-full flex items-center justify-center mb-2">
-                    {helpSlides[helpSlide].icon}
+        <form onSubmit={handleSubmit(onSubmit)} className="space-y-10">
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-10">
+            {/* LEFT: PRIMARY DATA */}
+            <div className="lg:col-span-8 space-y-10">
+              {/* Avatar Matrix */}
+              <section className="bg-white rounded-[32px] p-8 border border-slate-200 shadow-sm">
+                <div className="flex items-center gap-3 mb-8">
+                  <div className="w-10 h-10 bg-emerald-50 rounded-xl flex items-center justify-center">
+                    <User className="text-emerald-600" size={20} />
                   </div>
-                  <h3 className="text-sm font-semibold text-gray-800 mb-1">
-                    {helpSlides[helpSlide].title}
-                  </h3>
-                  <p className="text-xs text-gray-600">
-                    {helpSlides[helpSlide].description}
-                  </p>
-                </motion.div>
-              </AnimatePresence>
-
-              <div className="flex justify-center gap-2 mt-3">
-                {helpSlides.map((_, idx) => (
-                  <button
-                    key={idx}
-                    onClick={() => setHelpSlide(idx)}
+                  <h3
                     className={cn(
-                      "w-1.5 h-1.5 rounded-full transition",
-                      idx === helpSlide ? "bg-emerald-600 w-3" : "bg-gray-300",
+                      "text-3xl text-slate-900",
+                      bebasNeue.className,
                     )}
-                    aria-label={`Go to slide ${idx + 1}`}
-                  />
-                ))}
-              </div>
+                  >
+                    Visual Identifier
+                  </h3>
+                </div>
 
+                <div className="grid grid-cols-4 sm:grid-cols-8 gap-4">
+                  {AVATARS.map((avatar) => (
+                    <button
+                      key={avatar.id}
+                      type="button"
+                      onClick={() =>
+                        reset({ ...watch(), avatarId: avatar.id } as any)
+                      }
+                      className={cn(
+                        "aspect-square rounded-2xl overflow-hidden border-2 transition-all active:scale-90",
+                        watchedAvatar === avatar.id
+                          ? "border-emerald-500 ring-4 ring-emerald-50 scale-105 shadow-lg shadow-emerald-500/10"
+                          : "border-slate-100 opacity-50 grayscale hover:opacity-100 hover:grayscale-0",
+                      )}
+                    >
+                      <img
+                        src={avatar.src}
+                        className="w-full h-full object-cover"
+                        alt="avatar"
+                      />
+                    </button>
+                  ))}
+                </div>
+              </section>
+
+              {/* Registry Information */}
+              <section className="bg-white rounded-[32px] p-8 border border-slate-200 shadow-sm space-y-8">
+                <h3
+                  className={cn(
+                    "text-3xl text-slate-900 mb-2",
+                    bebasNeue.className,
+                  )}
+                >
+                  Registry Data
+                </h3>
+                <div className="grid md:grid-cols-2 gap-8">
+                  <InputGroup
+                    label="Full Display Name"
+                    error={errors.displayName?.message}
+                  >
+                    <User size={20} className="text-emerald-600" />
+                    <input
+                      {...register("displayName")}
+                      className="bg-transparent outline-none w-full text-base font-bold text-slate-800"
+                    />
+                  </InputGroup>
+                  <InputGroup label="Emergency Mobile">
+                    <Phone size={20} className="text-emerald-600" />
+                    <input
+                      {...register("phone")}
+                      placeholder="+234..."
+                      className="bg-transparent outline-none w-full text-base font-bold text-slate-800"
+                    />
+                  </InputGroup>
+                </div>
+
+                <div className="bg-slate-900 rounded-[24px] p-6 flex items-center justify-between group overflow-hidden relative">
+                  <div className="absolute right-0 top-0 h-full w-32 bg-emerald-500/5 -skew-x-12 translate-x-10" />
+                  <div className="relative z-10">
+                    <label className="text-[10px] font-black text-emerald-400 uppercase tracking-widest block mb-1">
+                      System Locked Email
+                    </label>
+                    <span className="text-lg font-bold text-white tracking-tight">
+                      {profile?.email}
+                    </span>
+                  </div>
+                  <ShieldCheck className="text-emerald-500 w-8 h-8 relative z-10" />
+                </div>
+              </section>
+            </div>
+
+            {/* RIGHT: BIOMETRICS */}
+            <div className="lg:col-span-4">
+              <section className="bg-white rounded-[32px] p-8 border border-slate-200 shadow-sm space-y-8 sticky top-8">
+                <div className="flex items-center justify-between">
+                  <h3
+                    className={cn(
+                      "text-3xl text-slate-900",
+                      bebasNeue.className,
+                    )}
+                  >
+                    Biometrics
+                  </h3>
+                  <Dna size={24} className="text-emerald-600" />
+                </div>
+
+                <div className="space-y-6">
+                  <MetricInput label="Blood Group">
+                    <HeartPulse className="w-4 h-4 text-rose-500" />
+                    <input
+                      {...register("bloodGroup")}
+                      placeholder="O+"
+                      className="bg-transparent outline-none w-full text-slate-900 font-black text-center"
+                    />
+                  </MetricInput>
+
+                  <MetricInput label="Gender Identity">
+                    <select
+                      {...register("gender")}
+                      className="bg-transparent outline-none w-full text-xs font-black text-slate-700 cursor-pointer appearance-none text-center"
+                    >
+                      <option value="male">MALE</option>
+                      <option value="female">FEMALE</option>
+                      <option value="prefer-not-to-say">NOT SET</option>
+                    </select>
+                  </MetricInput>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <MetricInput label="Height (cm)">
+                      <input
+                        type="number"
+                        {...register("height", { valueAsNumber: true })}
+                        className="bg-transparent outline-none w-full font-black text-sm text-center"
+                      />
+                    </MetricInput>
+                    <MetricInput label="Weight (kg)">
+                      <input
+                        type="number"
+                        {...register("weight", { valueAsNumber: true })}
+                        className="bg-transparent outline-none w-full font-black text-sm text-center"
+                      />
+                    </MetricInput>
+                  </div>
+                </div>
+
+                <div className="pt-6 border-t border-slate-100">
+                  <p className="text-[10px] text-slate-400 font-bold leading-relaxed">
+                    Clinical data is encrypted using AES-256 standards. Only
+                    authorized personnel can access these metrics.
+                  </p>
+                </div>
+              </section>
+            </div>
+          </div>
+
+          {/* EMERGENCY PROTOCOLS (Full Width) */}
+          <section className="bg-rose-50/30 rounded-[40px] p-8 md:p-12 border border-rose-100">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 mb-10">
+              <div>
+                <h3
+                  className={cn(
+                    "text-4xl text-rose-900 leading-none",
+                    bebasNeue.className,
+                  )}
+                >
+                  Emergency Protocols
+                </h3>
+                <p className="text-[10px] text-rose-600 font-black uppercase tracking-[0.2em] mt-2">
+                  Active Notification Nodes
+                </p>
+              </div>
               <button
+                type="button"
                 onClick={() =>
-                  setHelpSlide((prev) =>
-                    prev === 0 ? helpSlides.length - 1 : prev - 1,
-                  )
+                  append({
+                    id: Date.now().toString(),
+                    name: "",
+                    phone: "",
+                    relationship: "",
+                  })
                 }
-                className="absolute left-0 top-1/2 -translate-y-1/2 p-1 bg-gray-100 rounded-full hover:bg-gray-200"
-                aria-label="Previous slide"
+                className="flex items-center gap-3 bg-rose-600 text-white px-6 py-4 rounded-[20px] font-black text-[10px] uppercase tracking-widest shadow-xl shadow-rose-600/20 hover:bg-rose-700 transition-all active:scale-95"
               >
-                <ChevronLeft className="w-4 h-4 text-gray-600" />
-              </button>
-              <button
-                onClick={() =>
-                  setHelpSlide((prev) =>
-                    prev === helpSlides.length - 1 ? 0 : prev + 1,
-                  )
-                }
-                className="absolute right-0 top-1/2 -translate-y-1/2 p-1 bg-gray-100 rounded-full hover:bg-gray-200"
-                aria-label="Next slide"
-              >
-                <ChevronRight className="w-4 h-4 text-gray-600" />
+                <Plus size={18} /> Add Contact
               </button>
             </div>
 
-            <button
-              onClick={() => setShowHelp(false)}
-              className="mt-4 w-full px-4 py-2 bg-emerald-600 text-white rounded-xl hover:bg-emerald-700 text-sm"
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+              {fields.map((field, index) => (
+                <motion.div
+                  key={field.id}
+                  initial={{ opacity: 0, scale: 0.95 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  className="bg-white p-6 rounded-[28px] border border-rose-100 shadow-sm relative group transition-all hover:shadow-md"
+                >
+                  <button
+                    type="button"
+                    onClick={() => remove(index)}
+                    className="absolute top-4 right-4 w-9 h-9 bg-rose-50 text-rose-500 rounded-xl flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all"
+                  >
+                    <Trash2 size={16} />
+                  </button>
+
+                  <div className="space-y-4">
+                    <div className="space-y-1">
+                      <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">
+                        Contact Name
+                      </label>
+                      <input
+                        {...register(`emergencyContacts.${index}.name`)}
+                        placeholder="Full Name"
+                        className="w-full bg-slate-50 border border-slate-100 p-4 rounded-xl text-sm font-bold outline-none focus:bg-white focus:ring-2 focus:ring-rose-200"
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-1">
+                        <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">
+                          Phone
+                        </label>
+                        <input
+                          {...register(`emergencyContacts.${index}.phone`)}
+                          placeholder="Mobile"
+                          className="w-full bg-slate-50 border border-slate-100 p-4 rounded-xl text-sm font-bold outline-none focus:bg-white focus:ring-2 focus:ring-rose-200"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">
+                          Relation
+                        </label>
+                        <input
+                          {...register(
+                            `emergencyContacts.${index}.relationship`,
+                          )}
+                          placeholder="Spouse"
+                          className="w-full bg-slate-50 border border-slate-100 p-4 rounded-xl text-sm font-bold outline-none focus:bg-white focus:ring-2 focus:ring-rose-200"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </motion.div>
+              ))}
+            </div>
+
+            {fields.length === 0 && (
+              <div className="text-center py-16 border-2 border-dashed border-rose-200 rounded-[30px] bg-white/50">
+                <p className="text-rose-400 font-bold text-sm italic">
+                  No emergency protocols active. Please add a contact.
+                </p>
+              </div>
+            )}
+          </section>
+
+          {/* FLOATING ACTION BAR */}
+          <div className="fixed bottom-12 left-0 right-0 px-4 flex justify-center z-50 pointer-events-none">
+            <motion.button
+              type="submit"
+              disabled={!isDirty || isSaving}
+              className="pointer-events-auto w-full max-w-sm h-16 bg-slate-900 text-white rounded-[24px] shadow-2xl flex items-center justify-center gap-4 disabled:opacity-50 disabled:grayscale transition-all hover:bg-emerald-600 group"
             >
-              Get Started
-            </button>
-          </Modal>
-        )}
-      </AnimatePresence>
-    </motion.div>
+              {isSaving ? (
+                <Loader2 className="animate-spin" size={24} />
+              ) : (
+                <Save
+                  className="text-emerald-400 group-hover:text-white transition-colors"
+                  size={20}
+                />
+              )}
+              <span className="text-[11px] font-black uppercase tracking-[0.3em]">
+                {isSaving ? "Synchronizing..." : "Update Profile"}
+              </span>
+              {!isSaving && (
+                <ChevronRight
+                  size={16}
+                  className="text-slate-500 group-hover:text-white translate-x-0 group-hover:translate-x-1 transition-all"
+                />
+              )}
+            </motion.button>
+          </div>
+        </form>
+      </div>
+    </div>
   );
 }
 
-// Reusable Modal component
-const Modal = ({
+// --- SUB-COMPONENTS ---
+
+function InputGroup({
+  label,
   children,
-  onClose,
+  error,
 }: {
+  label: string;
   children: React.ReactNode;
-  onClose: () => void;
-}) => (
-  <motion.div
-    initial={{ opacity: 0 }}
-    animate={{ opacity: 1 }}
-    exit={{ opacity: 0 }}
-    className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-3"
-    onClick={onClose}
-  >
-    <motion.div
-      initial={{ scale: 0.95, y: 10 }}
-      animate={{ scale: 1, y: 0 }}
-      exit={{ scale: 0.95, y: 10 }}
-      className="bg-white rounded-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto p-4 shadow-2xl"
-      onClick={(e) => e.stopPropagation()}
-    >
-      {children}
-    </motion.div>
-  </motion.div>
-);
+  error?: string;
+}) {
+  return (
+    <div className="space-y-2">
+      <label className="text-[11px] font-black text-emerald-600 uppercase tracking-[0.2em] ml-1">
+        {label}
+      </label>
+      <div
+        className={cn(
+          "h-16 px-5 rounded-[20px] border flex items-center gap-4 transition-all",
+          error
+            ? "border-rose-500 bg-rose-50"
+            : "border-slate-200 bg-slate-50 focus-within:border-emerald-500 focus-within:bg-white focus-within:shadow-xl focus-within:shadow-emerald-500/5",
+        )}
+      >
+        {children}
+      </div>
+      {error && (
+        <p className="text-[10px] text-rose-600 font-bold ml-2 uppercase tracking-tighter">
+          {error}
+        </p>
+      )}
+    </div>
+  );
+}
+
+function MetricInput({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="space-y-2">
+      <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">
+        {label}
+      </label>
+      <div className="h-14 px-4 rounded-2xl bg-slate-50 border border-slate-200 flex items-center gap-3 focus-within:border-emerald-500 focus-within:bg-white transition-all">
+        {children}
+      </div>
+    </div>
+  );
+}

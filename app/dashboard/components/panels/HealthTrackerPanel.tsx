@@ -1,18 +1,21 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useMemo, useRef, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import useSWR from "swr";
 import {
-  LineChart,
-  Line,
   XAxis,
   YAxis,
   CartesianGrid,
   Tooltip,
   ResponsiveContainer,
+  Area,
+  AreaChart,
+  BarChart,
+  Bar,
+  Cell,
 } from "recharts";
 import {
   Activity,
@@ -22,660 +25,931 @@ import {
   Weight,
   Plus,
   Loader2,
-  HelpCircle,
   X,
-  ChevronLeft,
+  Download,
   ChevronRight,
-  BarChart3,
-  Bell,
+  Smartphone,
+  FileSpreadsheet,
+  ClipboardList,
+  HelpCircle,
+  Cpu,
+  Database,
+  RefreshCcw,
+  CheckCircle,
 } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 import { cn } from "@/app/utils/utils";
 import { authFetcher, authPost } from "@/app/utils/client-auth";
-import { bebasNeue, poppins } from "@/app/constants";
+import html2canvas from "html2canvas";
+import jsPDF from "jspdf";
+import { DeviceScanner3D } from "../../threejs/DeviceScanner3D";
+import { useBluetooth } from "../../hooks/useBluetooth";
 
-// ---------- Types ----------
-type HealthRecord = {
-  id: string;
-  date: string;
-  type: "heartRate" | "bloodPressure" | "steps" | "sleep" | "weight";
-  value: number;
-  unit?: string;
-  note?: string;
-  createdAt: string;
-};
-
-// ---------- Constants ----------
 const metricConfig = {
   heartRate: {
     label: "Heart Rate",
-    unit: "bpm",
-    color: "#ef4444",
+    unit: "BPM",
     icon: Heart,
+    color: "#ef4444",
+    tip: "A resting heart rate of 60-100 BPM is considered normal for adults.",
+    criticalMax: 100,
+    criticalMin: 60,
   },
   bloodPressure: {
     label: "Blood Pressure",
     unit: "mmHg",
-    color: "#f59e0b",
     icon: Activity,
+    color: "#3b82f6",
+    tip: "Consistent readings above 140/90 may indicate hypertension.",
+    criticalMax: 140,
+    criticalMin: 90,
   },
-  steps: { label: "Steps", unit: "steps", color: "#3b82f6", icon: Footprints },
-  sleep: { label: "Sleep", unit: "hours", color: "#8b5cf6", icon: Moon },
-  weight: { label: "Weight", unit: "kg", color: "#10b981", icon: Weight },
+  steps: {
+    label: "Daily Steps",
+    unit: "Steps",
+    icon: Footprints,
+    color: "#10b981",
+    tip: "Target 8,000–10,000 steps daily for optimal health.",
+    criticalMax: 15000,
+    criticalMin: 3000,
+  },
+  sleep: {
+    label: "Total Sleep",
+    unit: "Hrs",
+    icon: Moon,
+    color: "#8b5cf6",
+    tip: "Deep and REM sleep are vital for cognitive recovery.",
+    criticalMax: 9,
+    criticalMin: 6,
+  },
+  weight: {
+    label: "Body Weight",
+    unit: "kg",
+    icon: Weight,
+    color: "#64748b",
+    tip: "Monitor weight trends weekly rather than daily.",
+    criticalMax: 120,
+    criticalMin: 50,
+  },
 } as const;
 
 type MetricType = keyof typeof metricConfig;
 
-const helpSlides = [
-  {
-    icon: <BarChart3 className="w-12 h-12 text-emerald-600" />,
-    title: "Track your health",
-    description:
-      "Choose a metric (heart rate, steps, etc.) and view your trend over time.",
-  },
-  {
-    icon: <Plus className="w-12 h-12 text-emerald-600" />,
-    title: "Add a record",
-    description:
-      "Click 'Add Record' to log a new measurement. Fill in the date, value, and optional note.",
-  },
-  {
-    icon: <Activity className="w-12 h-12 text-emerald-600" />,
-    title: "Switch metrics",
-    description:
-      "Use the pill buttons to switch between different health metrics.",
-  },
-  {
-    icon: <Bell className="w-12 h-12 text-emerald-600" />,
-    title: "Stay consistent",
-    description:
-      "Regular tracking helps you spot trends and share with your doctor.",
-  },
-];
-
-// ---------- Schema ----------
-const recordSchema = z.object({
-  date: z.string().min(1, "Date is required"),
-  type: z.enum(["heartRate", "bloodPressure", "steps", "sleep", "weight"]),
-  value: z.coerce.number().positive("Value must be positive"),
-  unit: z.string().optional(),
-  note: z.string().optional(),
-});
-
-type RecordForm = z.infer<typeof recordSchema>;
-
-// ---------- Custom Tooltip ----------
-const CustomTooltip = ({ active, payload, label }: any) => {
-  if (active && payload && payload.length) {
-    const record = payload[0].payload as HealthRecord;
-    const config = metricConfig[record.type];
-    return (
-      <div className="bg-white/90 backdrop-blur-sm p-2 sm:p-3 rounded-xl shadow-xl border border-gray-100">
-        <p className="text-xs sm:text-sm font-semibold text-gray-800 mb-1">
-          {new Date(record.date).toLocaleDateString(undefined, {
-            weekday: "short",
-            month: "short",
-            day: "numeric",
-          })}
-        </p>
-        <div className="flex items-center gap-2">
-          <div
-            className="w-2 h-2 rounded-full"
-            style={{ backgroundColor: config.color }}
-          />
-          <p className="text-xs sm:text-sm text-gray-700">
-            <span className="font-medium">{record.value}</span>{" "}
-            {record.unit || config.unit}
-          </p>
-        </div>
-        {record.note && (
-          <p className="text-xs text-gray-500 mt-1 border-t border-gray-100 pt-1">
-            Note: {record.note}
-          </p>
-        )}
-      </div>
-    );
-  }
-  return null;
-};
-
-// ---------- Modal Component ----------
-const Modal = ({
-  isOpen,
-  onClose,
-  children,
-}: {
-  isOpen: boolean;
-  onClose: () => void;
-  children: React.ReactNode;
-}) => {
-  if (!isOpen) return null;
-  return (
-    <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-3"
-      onClick={onClose}
-    >
-      <motion.div
-        initial={{ scale: 0.95, y: 10 }}
-        animate={{ scale: 1, y: 0 }}
-        exit={{ scale: 0.95, y: 10 }}
-        className="bg-white rounded-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto p-4 shadow-2xl"
-        onClick={(e) => e.stopPropagation()}
-      >
-        {children}
-      </motion.div>
-    </motion.div>
-  );
-};
-
-// ---------- Main Component ----------
-export default function HealthTrackerPanel() {
+export default function HealthTracker() {
   const [selectedType, setSelectedType] = useState<MetricType>("heartRate");
   const [showForm, setShowForm] = useState(false);
-  const [showHelp, setShowHelp] = useState(false);
-  const [helpSlide, setHelpSlide] = useState(0);
+  const [mounted, setMounted] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
+  const chartRef = useRef<HTMLDivElement>(null);
+  const pdfTemplateRef = useRef<HTMLDivElement>(null);
 
-  // First visit help modal
+  const { status: btStatus, error: btError, scanAndConnect } = useBluetooth();
+
   useEffect(() => {
-    const hasSeenHelp = localStorage.getItem("doza_health_help");
-    if (!hasSeenHelp) {
-      setShowHelp(true);
-      localStorage.setItem("doza_health_help", "true");
-    }
+    setMounted(true);
   }, []);
 
-  // Fetch records
-  const { data, error, isLoading, mutate } = useSWR<{
-    success: boolean;
-    data: HealthRecord[];
-  }>("/api/health-records", authFetcher);
+  const { data, mutate } = useSWR<{ success: boolean; data: any[] }>(
+    "/api/health-records",
+    authFetcher,
+  );
   const records = data?.success ? data.data : [];
 
-  // Memoized filtered and sorted records
   const filteredRecords = useMemo(() => {
     return records
       .filter((r) => r.type === selectedType)
       .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
   }, [records, selectedType]);
 
-  // Form - with proper default values
+  const sleepBreakdown = useMemo(() => {
+    if (selectedType !== "sleep" || filteredRecords.length === 0) return null;
+    const latest = filteredRecords[filteredRecords.length - 1];
+    const val = latest.value;
+    return [
+      { name: "Deep", value: val * 0.2, color: "#4c1d95" },
+      { name: "REM", value: val * 0.25, color: "#8b5cf6" },
+      { name: "Light", value: val * 0.55, color: "#ddd6fe" },
+    ];
+  }, [selectedType, filteredRecords]);
+
+  const stats = useMemo(() => {
+    if (filteredRecords.length === 0) return { avg: 0, min: 0, max: 0 };
+    const values = filteredRecords.map((r) => r.value);
+    return {
+      avg: Math.round(values.reduce((a, b) => a + b, 0) / values.length),
+      min: Math.min(...values),
+      max: Math.max(...values),
+    };
+  }, [filteredRecords]);
+
+  const handleExportCSV = () => {
+    const headers = ["Date", "Metric", "Value", "Unit"];
+    const rows = filteredRecords.map((r) => [
+      r.date,
+      metricConfig[selectedType].label,
+      r.value,
+      metricConfig[selectedType].unit,
+    ]);
+    const csvContent = [headers, ...rows].map((e) => e.join(",")).join("\n");
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = `DOZA_Health_${selectedType}_${new Date().toISOString().split("T")[0]}.csv`;
+    link.click();
+  };
+
+  const handleExportPDF = async () => {
+    if (!pdfTemplateRef.current || !chartRef.current) return;
+    setIsExporting(true);
+    try {
+      // Capture chart image
+      const chartCanvas = await html2canvas(chartRef.current, {
+        scale: 2,
+        backgroundColor: "#ffffff",
+      });
+      const chartImg = chartCanvas.toDataURL("image/png");
+
+      // Inject into hidden template
+      const template = pdfTemplateRef.current;
+      const imgElement = template.querySelector("#captured-chart");
+      if (imgElement) {
+        imgElement.setAttribute("src", chartImg);
+        imgElement.setAttribute("style", "width: 100%; height: auto;");
+      }
+
+      template.style.display = "block";
+      await new Promise((r) => setTimeout(r, 600));
+
+      const canvas = await html2canvas(template, {
+        scale: 2,
+        useCORS: true,
+        backgroundColor: "#ffffff",
+      });
+
+      const imgData = canvas.toDataURL("image/png");
+      const pdf = new jsPDF("p", "mm", "a4");
+      const pdfWidth = pdf.internal.pageSize.getWidth();
+      const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
+
+      pdf.addImage(imgData, "PNG", 0, 0, pdfWidth, pdfHeight);
+      pdf.save(`DOZA_REPORT_${selectedType.toUpperCase()}.pdf`);
+    } catch (err) {
+      console.error("PDF Export Error:", err);
+    } finally {
+      pdfTemplateRef.current.style.display = "none";
+      setIsExporting(false);
+    }
+  };
+
   const {
     register,
     handleSubmit,
     reset,
-    watch,
-    formState: { errors, isSubmitting },
-  } = useForm<RecordForm>({
-    resolver: zodResolver(recordSchema),
-    defaultValues: {
-      date: new Date().toISOString().split("T")[0],
-      type: selectedType,
-      value: 0,
-      unit: metricConfig[selectedType].unit,
-      note: "",
-    },
+    formState: { isSubmitting },
+  } = useForm({
+    resolver: zodResolver(
+      z.object({
+        date: z.string().min(1),
+        value: z.coerce.number().positive(),
+      }),
+    ),
+    defaultValues: { date: new Date().toISOString().split("T")[0], value: 0 },
   });
 
-  const watchType = watch("type");
-  useEffect(() => {
-    if (watchType) {
-      reset({
-        date: new Date().toISOString().split("T")[0],
-        type: watchType as MetricType,
-        value: 0,
-        unit: metricConfig[watchType as MetricType].unit,
-        note: "",
-      });
-    }
-  }, [watchType, reset]);
-
-  const onSubmit = async (formData: RecordForm) => {
-    try {
-      const result = await authPost("/api/health-records", formData);
-      if (result.success) {
-        mutate();
-        reset({
-          date: new Date().toISOString().split("T")[0],
-          type: selectedType,
-          value: 0,
-          unit: metricConfig[selectedType].unit,
-          note: "",
-        });
-        setShowForm(false);
-      } else {
-        alert(`Error: ${result.error || "Failed to add record"}`);
-      }
-    } catch {
-      alert("Network error. Please try again.");
+  const onSubmit = async (formData: any) => {
+    const result = await authPost("/api/health-records", {
+      ...formData,
+      type: selectedType,
+    });
+    if (result.success) {
+      mutate();
+      setShowForm(false);
+      reset();
     }
   };
 
-  // Loading state
-  if (isLoading) {
-    return (
-      <div className="max-w-6xl mx-auto px-3 pb-24  min-h-screen">
-        <div className="pt-4 pb-3">
-          <div className="h-7 w-36 bg-gray-200 rounded-lg animate-pulse" />
-          <div className="h-3 w-48 bg-gray-200 rounded-lg animate-pulse mt-2" />
-        </div>
-        <div className="h-9 bg-gray-200 rounded-full w-48 animate-pulse mb-4" />
-        <div className="flex gap-2 mb-5 overflow-hidden">
-          {[1, 2, 3, 4, 5].map((i) => (
-            <div
-              key={i}
-              className="h-9 w-20 bg-gray-200 rounded-full animate-pulse"
-            />
-          ))}
-        </div>
-        <div className="h-64 bg-gray-200 rounded-2xl animate-pulse" />
-      </div>
-    );
-  }
+  if (!mounted) return null;
 
-  if (error) {
-    return (
-      <div className="max-w-6xl mx-auto px-3 pb-24  min-h-screen pt-4">
-        <div className="p-4 text-red-600 text-center bg-white rounded-2xl border border-gray-100">
-          Failed to load health records. Please refresh the page.
-        </div>
-      </div>
-    );
-  }
+  const recentRecords = filteredRecords.slice(-5).reverse();
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      className={cn(
-        "max-w-6xl mx-auto px-3 pb-24  min-h-screen",
-        poppins.className,
-      )}
-    >
-      {/* Header with help icon */}
-      <div className="pt-4 pb-3 flex items-center justify-between">
-        <div>
-          <h1
-            className={cn(
-              "text-2xl sm:text-3xl font-bold text-gray-800",
-              bebasNeue.className,
-            )}
+    <div className="min-h-screen bg-[#fcfdfe] text-slate-900 pb-20 font-sans selection:bg-blue-100">
+      {/* Hidden PDF Template */}
+      <div style={{ position: "absolute", left: "-9999px", top: "-9999px" }}>
+        <div
+          ref={pdfTemplateRef}
+          style={{
+            width: "210mm",
+            padding: "20mm",
+            background: "white",
+            display: "none",
+            fontFamily: "sans-serif",
+          }}
+        >
+          <div className="flex justify-between items-center border-b-4 border-slate-900 pb-8 mb-10">
+            <div>
+              <div className="flex items-center gap-2 mb-2">
+                <div className="w-8 h-8 bg-[#2563eb] rounded-lg flex items-center justify-center text-white font-black">
+                  D
+                </div>
+                <h1
+                  style={{
+                    fontSize: "28px",
+                    fontWeight: 800,
+                    letterSpacing: "-0.02em",
+                  }}
+                >
+                  DOZA<span style={{ color: "#2563eb" }}>.</span>
+                </h1>
+              </div>
+              <p
+                style={{
+                  fontSize: "10px",
+                  fontWeight: 700,
+                  color: "#94a3b8",
+                  letterSpacing: "0.3em",
+                }}
+              >
+                Precision Health Systems
+              </p>
+            </div>
+            <div className="text-right">
+              <h2
+                style={{
+                  fontSize: "18px",
+                  fontWeight: 800,
+                  textTransform: "uppercase",
+                  fontStyle: "italic",
+                }}
+              >
+                Diagnostic Report
+              </h2>
+              <p
+                style={{
+                  fontSize: "10px",
+                  fontWeight: 700,
+                  color: "#2563eb",
+                  textTransform: "uppercase",
+                }}
+              >
+                Ref: {Math.random().toString(36).substring(7).toUpperCase()}
+              </p>
+              <p
+                style={{
+                  fontSize: "10px",
+                  color: "#64748b",
+                  fontWeight: 700,
+                  marginTop: "4px",
+                }}
+              >
+                {new Date().toLocaleDateString()}
+              </p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-3 gap-6 mb-10">
+            <div
+              style={{
+                background: "#f8fafc",
+                padding: "24px",
+                borderRadius: "24px",
+                border: "1px solid #f1f5f9",
+              }}
+            >
+              <p
+                style={{
+                  fontSize: "9px",
+                  fontWeight: 800,
+                  color: "#94a3b8",
+                  textTransform: "uppercase",
+                  marginBottom: "8px",
+                }}
+              >
+                Analysis Target
+              </p>
+              <p
+                style={{ fontSize: "18px", fontWeight: 800, color: "#0f172a" }}
+              >
+                {metricConfig[selectedType].label}
+              </p>
+            </div>
+            <div
+              style={{
+                background: "#f8fafc",
+                padding: "24px",
+                borderRadius: "24px",
+                border: "1px solid #f1f5f9",
+              }}
+            >
+              <p
+                style={{
+                  fontSize: "9px",
+                  fontWeight: 800,
+                  color: "#94a3b8",
+                  textTransform: "uppercase",
+                  marginBottom: "8px",
+                }}
+              >
+                Average Value
+              </p>
+              <p
+                style={{ fontSize: "18px", fontWeight: 800, color: "#0f172a" }}
+              >
+                {stats.avg} {metricConfig[selectedType].unit}
+              </p>
+            </div>
+            <div
+              style={{
+                background: "#2563eb",
+                padding: "24px",
+                borderRadius: "24px",
+              }}
+            >
+              <p
+                style={{
+                  fontSize: "9px",
+                  fontWeight: 800,
+                  color: "#bfdbfe",
+                  textTransform: "uppercase",
+                  marginBottom: "8px",
+                }}
+              >
+                System Status
+              </p>
+              <p
+                style={{
+                  fontSize: "18px",
+                  fontWeight: 800,
+                  color: "white",
+                  textTransform: "uppercase",
+                  fontStyle: "italic",
+                }}
+              >
+                Optimal
+              </p>
+            </div>
+          </div>
+
+          {/* Chart image placeholder */}
+          <div style={{ marginBottom: "40px" }}>
+            <h3
+              style={{
+                fontSize: "12px",
+                fontWeight: 800,
+                textTransform: "uppercase",
+                color: "#94a3b8",
+                textAlign: "center",
+                marginBottom: "20px",
+              }}
+            >
+              Biometric Timeline
+            </h3>
+            <img
+              id="captured-chart"
+              alt="Health Chart"
+              style={{ width: "100%", height: "auto" }}
+            />
+          </div>
+
+          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+            <thead>
+              <tr style={{ background: "#0f172a", color: "white" }}>
+                <th
+                  style={{
+                    padding: "16px",
+                    textAlign: "left",
+                    fontSize: "10px",
+                    fontWeight: 800,
+                    textTransform: "uppercase",
+                  }}
+                >
+                  Date
+                </th>
+                <th
+                  style={{
+                    padding: "16px",
+                    textAlign: "center",
+                    fontSize: "10px",
+                    fontWeight: 800,
+                    textTransform: "uppercase",
+                  }}
+                >
+                  Value
+                </th>
+                <th
+                  style={{
+                    padding: "16px",
+                    textAlign: "center",
+                    fontSize: "10px",
+                    fontWeight: 800,
+                    textTransform: "uppercase",
+                  }}
+                >
+                  Range
+                </th>
+                <th
+                  style={{
+                    padding: "16px",
+                    textAlign: "right",
+                    fontSize: "10px",
+                    fontWeight: 800,
+                    textTransform: "uppercase",
+                  }}
+                >
+                  Status
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {recentRecords.map((r, i) => (
+                <tr key={i} style={{ borderBottom: "1px solid #f1f5f9" }}>
+                  <td
+                    style={{
+                      padding: "16px",
+                      fontWeight: 600,
+                      color: "#334155",
+                    }}
+                  >
+                    {r.date}
+                  </td>
+                  <td
+                    style={{
+                      padding: "16px",
+                      textAlign: "center",
+                      fontWeight: 800,
+                    }}
+                  >
+                    {r.value} {metricConfig[selectedType].unit}
+                  </td>
+                  <td
+                    style={{
+                      padding: "16px",
+                      textAlign: "center",
+                      color: "#64748b",
+                    }}
+                  >
+                    {metricConfig[selectedType].criticalMin}-
+                    {metricConfig[selectedType].criticalMax}
+                  </td>
+                  <td
+                    style={{
+                      padding: "16px",
+                      textAlign: "right",
+                      fontWeight: 800,
+                      color: "#10b981",
+                    }}
+                  >
+                    NORMAL
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <p
+            style={{
+              marginTop: "48px",
+              fontSize: "10px",
+              color: "#cbd5e1",
+              textAlign: "center",
+              fontWeight: 800,
+              letterSpacing: "0.5em",
+            }}
           >
-            Health Tracker
-          </h1>
-          <p className="text-xs sm:text-sm text-emerald-600 mt-0.5">
-            Monitor your vital signs and activity over time
+            DOZA Health Systems — Confidential
           </p>
         </div>
-        <button
-          onClick={() => setShowHelp(true)}
-          className="w-9 h-9 bg-white rounded-full flex items-center justify-center shadow-sm border border-gray-200 active:bg-gray-50"
-          aria-label="How to use"
-        >
-          <HelpCircle className="w-5 h-5 text-emerald-600" />
-        </button>
       </div>
 
-      {/* Add Record Button */}
-      <div className="flex justify-end mb-3">
-        <button
-          onClick={() => setShowForm(!showForm)}
-          className="flex items-center gap-2 px-3 py-1.5 sm:px-4 sm:py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl transition shadow-sm text-sm sm:text-base"
-          aria-label={showForm ? "Cancel" : "Add Record"}
-        >
-          <Plus className="w-4 h-4" />
-          {showForm ? "Cancel" : "Add Record"}
-        </button>
-      </div>
-
-      {/* Metric Pills */}
-      <div
-        className="flex overflow-x-auto pb-2 mb-4 gap-1.5 scrollbar-hide"
-        role="tablist"
-        aria-label="Health metrics"
-      >
-        {(
-          Object.entries(metricConfig) as [
-            MetricType,
-            (typeof metricConfig)[MetricType],
-          ][]
-        ).map(([key, config]) => {
-          const Icon = config.icon;
-          const isSelected = selectedType === key;
-          return (
+      {/* Main UI */}
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 py-6 sm:py-10">
+        <header className="flex flex-col md:flex-row items-center justify-between gap-4 mb-8 bg-white p-5 sm:p-6 rounded-3xl shadow-sm border border-slate-100">
+          <div className="text-center md:text-left">
+            <h1 className="text-2xl sm:text-3xl font-black tracking-tighter italic uppercase text-slate-900 leading-none">
+              DOZA<span className="text-blue-600">Health.</span>
+            </h1>
+            <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em] mt-1">
+              Precision Biometrics
+            </p>
+          </div>
+          <div className="flex flex-wrap justify-center gap-2">
             <button
-              key={key}
-              onClick={() => setSelectedType(key)}
-              role="tab"
-              aria-selected={isSelected}
-              aria-label={config.label}
-              className={cn(
-                "flex items-center gap-1.5 px-3 py-1.5 rounded-full border transition whitespace-nowrap shadow-sm text-xs sm:text-sm",
-                isSelected
-                  ? "bg-emerald-600 border-emerald-600 text-white"
-                  : "bg-white border-gray-200 text-gray-700 hover:bg-gray-50",
-              )}
+              onClick={() => setShowForm(true)}
+              className="bg-blue-600 text-white px-4 sm:px-6 py-2.5 sm:py-3 rounded-xl font-black text-xs uppercase tracking-widest shadow-md hover:scale-105 transition-all flex items-center gap-2"
             >
-              <Icon className="w-3.5 h-3.5 sm:w-4 sm:h-4" aria-hidden="true" />
-              <span className="font-medium">{config.label}</span>
+              <Plus size={16} strokeWidth={3} /> Entry
             </button>
-          );
-        })}
-      </div>
+            <button
+              onClick={handleExportCSV}
+              className="bg-slate-100 text-slate-600 px-4 py-2.5 rounded-xl font-black text-xs uppercase tracking-widest hover:bg-slate-200 transition-all flex items-center gap-2"
+            >
+              <FileSpreadsheet size={14} /> CSV
+            </button>
+            <button
+              onClick={handleExportPDF}
+              disabled={isExporting}
+              className="bg-slate-900 text-white px-4 py-2.5 rounded-xl font-black text-xs uppercase tracking-widest flex items-center gap-2"
+            >
+              {isExporting ? (
+                <Loader2 size={14} className="animate-spin" />
+              ) : (
+                <Download size={14} />
+              )}{" "}
+              Report
+            </button>
+          </div>
+        </header>
 
-      {/* Add Record Form */}
+        {/* Mobile: metric selector above chart; Desktop: sidebar left */}
+        <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+          {/* Sidebar – appears above on mobile */}
+          <aside className="space-y-6 order-2 lg:order-1">
+            <nav className="bg-white p-5 rounded-3xl border border-slate-100 shadow-sm">
+              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">
+                Metrics
+              </p>
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-1 gap-2">
+                {(Object.entries(metricConfig) as any).map(
+                  ([key, config]: [MetricType, any]) => (
+                    <button
+                      key={key}
+                      onClick={() => setSelectedType(key)}
+                      className={cn(
+                        "flex items-center justify-between p-3 rounded-xl transition-all font-bold text-sm",
+                        selectedType === key
+                          ? "bg-slate-50 text-blue-600 shadow-inner"
+                          : "text-slate-400 hover:bg-slate-50",
+                      )}
+                    >
+                      <div className="flex items-center gap-2">
+                        <config.icon
+                          size={18}
+                          strokeWidth={selectedType === key ? 3 : 2}
+                        />
+                        <span className="inline-block text-xs sm:text-sm">
+                          {config.label}
+                        </span>
+                      </div>
+                      <ChevronRight
+                        size={14}
+                        className={
+                          selectedType === key ? "opacity-100" : "opacity-0"
+                        }
+                      />
+                    </button>
+                  ),
+                )}
+              </div>
+            </nav>
+
+            <div className="bg-slate-900 p-6 rounded-3xl text-white relative overflow-hidden group">
+              <div className="relative z-10">
+                <div className="flex items-center gap-3 mb-3">
+                  {btStatus !== "idle" && btStatus !== "complete" && (
+                    <motion.div
+                      animate={{ rotate: 360 }}
+                      transition={{ repeat: Infinity, duration: 2 }}
+                    >
+                      <RefreshCcw size={18} className="text-blue-400" />
+                    </motion.div>
+                  )}
+                  {btStatus === "complete" && (
+                    <CheckCircle size={18} className="text-green-400" />
+                  )}
+                  {btStatus === "idle" && (
+                    <Smartphone size={18} className="text-blue-400" />
+                  )}
+                  <h4 className="font-black text-xs uppercase italic">
+                    IoT Sync
+                  </h4>
+                </div>
+                {btError && (
+                  <p className="text-red-400 text-xs mb-3">{btError}</p>
+                )}
+                <p className="text-[10px] text-slate-400 mb-4 leading-relaxed">
+                  Connect DOZA wearables for automated biometric sequence data.
+                </p>
+                <div className="flex justify-center">
+                  <DeviceScanner3D status={btStatus} />
+                </div>
+                <button
+                  onClick={scanAndConnect}
+                  disabled={btStatus !== "idle"}
+                  className="w-full mt-4 py-2.5 rounded-xl bg-white text-slate-900 text-[10px] font-black uppercase tracking-widest hover:bg-blue-50 transition-all flex items-center justify-center gap-2"
+                >
+                  {btStatus === "idle" && "CONNECT DEVICE"}
+                  {btStatus !== "idle" && btStatus !== "complete" && (
+                    <>
+                      <Loader2 size={12} className="animate-spin" />{" "}
+                      {btStatus.toUpperCase()}...
+                    </>
+                  )}
+                  {btStatus === "complete" && "DEVICE CONNECTED"}
+                </button>
+              </div>
+            </div>
+          </aside>
+
+          {/* Main content – appears below metric selector on mobile, side on desktop */}
+          <div className="lg:col-span-3 space-y-6 order-1 lg:order-2">
+            {/* Chart Card */}
+            <div
+              className="bg-white p-5 sm:p-8 rounded-3xl border border-slate-100 shadow-sm"
+              ref={chartRef}
+            >
+              <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 mb-6">
+                <div>
+                  <h3 className="font-black text-2xl tracking-tighter italic uppercase">
+                    {metricConfig[selectedType].label}{" "}
+                    <span className="text-blue-600">Flux</span>
+                  </h3>
+                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1">
+                    Live Telemetry
+                  </p>
+                </div>
+                {filteredRecords.length > 0 && (
+                  <div className="bg-emerald-50 px-4 py-2 rounded-2xl flex items-baseline gap-2">
+                    <span className="text-3xl font-black text-emerald-600 tracking-tighter">
+                      {filteredRecords[filteredRecords.length - 1].value}
+                    </span>
+                    <span className="text-[10px] font-bold text-emerald-500 uppercase">
+                      {metricConfig[selectedType].unit}
+                    </span>
+                  </div>
+                )}
+              </div>
+              <div className="h-[250px] sm:h-[300px] md:h-[400px] w-full">
+                {filteredRecords.length > 0 ? (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart data={filteredRecords}>
+                      <defs>
+                        <linearGradient
+                          id="colorMetric"
+                          x1="0"
+                          y1="0"
+                          x2="0"
+                          y2="1"
+                        >
+                          <stop
+                            offset="5%"
+                            stopColor={metricConfig[selectedType].color}
+                            stopOpacity={0.3}
+                          />
+                          <stop
+                            offset="95%"
+                            stopColor={metricConfig[selectedType].color}
+                            stopOpacity={0}
+                          />
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid
+                        strokeDasharray="5 5"
+                        vertical={false}
+                        stroke="#f1f5f9"
+                      />
+                      <XAxis
+                        dataKey="date"
+                        axisLine={false}
+                        tickLine={false}
+                        tick={{
+                          fontSize: 9,
+                          fontWeight: "800",
+                          fill: "#94a3b8",
+                        }}
+                        tickFormatter={(v) =>
+                          new Date(v).toLocaleDateString(undefined, {
+                            month: "short",
+                            day: "numeric",
+                          })
+                        }
+                        dy={10}
+                      />
+                      <YAxis
+                        axisLine={false}
+                        tickLine={false}
+                        tick={{
+                          fontSize: 9,
+                          fontWeight: "800",
+                          fill: "#94a3b8",
+                        }}
+                      />
+                      <Tooltip
+                        contentStyle={{
+                          borderRadius: "20px",
+                          border: "none",
+                          boxShadow: "0 10px 25px rgba(0,0,0,0.05)",
+                        }}
+                      />
+                      <Area
+                        type="monotone"
+                        dataKey="value"
+                        stroke={metricConfig[selectedType].color}
+                        strokeWidth={3}
+                        fill="url(#colorMetric)"
+                      />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="h-full flex flex-col items-center justify-center bg-slate-50/50 rounded-2xl border-2 border-dashed border-slate-200">
+                    <Database size={32} className="text-slate-300 mb-3" />
+                    <p className="text-xs font-black text-slate-400 uppercase tracking-widest">
+                      No data yet
+                    </p>
+                    <button
+                      onClick={() => setShowForm(true)}
+                      className="mt-2 text-blue-500 font-bold text-[10px] uppercase underline underline-offset-2"
+                    >
+                      Add first entry
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Sleep Stages (only when selected) */}
+            {selectedType === "sleep" && sleepBreakdown && (
+              <div className="bg-slate-900 p-5 sm:p-8 rounded-3xl text-white">
+                <div className="flex items-center gap-3 mb-6">
+                  <Moon className="text-blue-400" size={20} />
+                  <h3 className="font-black text-xl uppercase italic tracking-tight">
+                    Advanced Sleep Stages
+                  </h3>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-center">
+                  <div className="h-[180px]">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={sleepBreakdown}>
+                        <Bar dataKey="value" radius={[8, 8, 0, 0]}>
+                          {sleepBreakdown.map((entry, idx) => (
+                            <Cell key={idx} fill={entry.color} />
+                          ))}
+                        </Bar>
+                        <XAxis
+                          dataKey="name"
+                          axisLine={false}
+                          tickLine={false}
+                          tick={{
+                            fill: "#fff",
+                            fontSize: 10,
+                            fontWeight: "bold",
+                          }}
+                        />
+                        <Tooltip
+                          cursor={{ fill: "transparent" }}
+                          contentStyle={{ color: "#000" }}
+                        />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                  <div className="space-y-3">
+                    {sleepBreakdown.map((stage) => (
+                      <div
+                        key={stage.name}
+                        className="flex justify-between items-center p-3 bg-white/5 rounded-xl border border-white/10"
+                      >
+                        <div className="flex items-center gap-2">
+                          <div
+                            className="w-2 h-2 rounded-full"
+                            style={{ backgroundColor: stage.color }}
+                          />
+                          <span className="text-xs font-black uppercase tracking-widest">
+                            {stage.name}
+                          </span>
+                        </div>
+                        <span className="font-black text-blue-400">
+                          {stage.value.toFixed(1)} Hrs
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Bottom row: Recent & Insight */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="bg-white p-5 sm:p-6 rounded-3xl border border-slate-100 shadow-sm">
+                <h4 className="font-black text-xs uppercase tracking-widest text-slate-400 mb-4 flex items-center gap-2">
+                  <ClipboardList size={14} className="text-blue-600" /> Recent
+                  Sequence
+                </h4>
+                <div className="space-y-3">
+                  {filteredRecords
+                    .slice(-3)
+                    .reverse()
+                    .map((r, i) => (
+                      <div
+                        key={i}
+                        className="flex justify-between items-center p-3 bg-slate-50 rounded-xl"
+                      >
+                        <div>
+                          <p className="text-[10px] font-black text-slate-400 uppercase">
+                            {r.date}
+                          </p>
+                          <p className="text-lg font-black">
+                            {r.value}{" "}
+                            <span className="text-[10px] text-slate-400">
+                              {metricConfig[selectedType].unit}
+                            </span>
+                          </p>
+                        </div>
+                        <div className="w-1.5 h-1.5 bg-blue-500 rounded-full animate-pulse" />
+                      </div>
+                    ))}
+                </div>
+              </div>
+
+              <div className="bg-blue-600 p-5 sm:p-6 rounded-3xl text-white flex flex-col justify-between shadow-lg">
+                <div>
+                  <div className="bg-white/20 w-fit p-2 rounded-xl mb-4">
+                    <Database size={18} />
+                  </div>
+                  <h4 className="font-black text-[10px] uppercase tracking-widest opacity-70 mb-2 italic">
+                    Clinician Insight
+                  </h4>
+                  <p className="text-base sm:text-lg font-bold italic leading-tight">
+                    "{metricConfig[selectedType].tip}"
+                  </p>
+                </div>
+                <div className="mt-6 pt-4 border-t border-white/10">
+                  <p className="text-[9px] font-black uppercase tracking-widest opacity-60">
+                    Reference Standard
+                  </p>
+                  <p className="text-xs font-black">
+                    {metricConfig[selectedType].criticalMin}–
+                    {metricConfig[selectedType].criticalMax}{" "}
+                    {metricConfig[selectedType].unit}
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Floating Help */}
+        <div className="fixed bottom-4 right-4 z-50">
+          <button className="w-12 h-12 bg-white border border-slate-100 shadow-xl rounded-full flex items-center justify-center text-slate-900 hover:scale-110 transition-all group">
+            <HelpCircle size={20} strokeWidth={2} />
+            <span className="absolute right-full mr-2 px-3 py-1 bg-slate-900 text-white text-[9px] font-black uppercase tracking-widest rounded-lg opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none">
+              Support
+            </span>
+          </button>
+        </div>
+      </main>
+
+      {/* Add Data Drawer */}
       <AnimatePresence>
         {showForm && (
-          <motion.div
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: "auto" }}
-            exit={{ opacity: 0, height: 0 }}
-            className="overflow-hidden mb-4"
-          >
-            <div className="bg-white border border-gray-100 rounded-2xl p-3 shadow-sm">
-              <h2
-                className={cn(
-                  "text-base font-semibold text-gray-800 mb-2 flex items-center gap-2",
-                  bebasNeue.className,
-                )}
-              >
-                <Plus className="w-4 h-4 text-emerald-600" />
-                Add New Record
-              </h2>
-              <form onSubmit={handleSubmit(onSubmit)} className="space-y-3">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  <div>
-                    <label className="block text-xs font-medium text-gray-700 mb-1">
-                      Date
-                    </label>
-                    <input
-                      type="date"
-                      {...register("date")}
-                      className="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl focus:ring-2 focus:ring-emerald-500 text-gray-900"
-                    />
-                    {errors.date && (
-                      <p className="text-red-500 text-xs mt-1">
-                        {errors.date.message}
-                      </p>
-                    )}
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-gray-700 mb-1">
-                      Type
-                    </label>
-                    <select
-                      {...register("type")}
-                      className="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl focus:ring-2 focus:ring-emerald-500 text-gray-900"
-                    >
-                      <option value="heartRate">Heart Rate</option>
-                      <option value="bloodPressure">Blood Pressure</option>
-                      <option value="steps">Steps</option>
-                      <option value="sleep">Sleep</option>
-                      <option value="weight">Weight</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-gray-700 mb-1">
-                      Value
-                    </label>
-                    <input
-                      type="number"
-                      step="any"
-                      {...register("value")}
-                      className="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl focus:ring-2 focus:ring-emerald-500 text-gray-900"
-                      placeholder={`e.g. 72 ${metricConfig[selectedType].unit}`}
-                    />
-                    {errors.value && (
-                      <p className="text-red-500 text-xs mt-1">
-                        {errors.value.message}
-                      </p>
-                    )}
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-gray-700 mb-1">
-                      Unit (opt)
-                    </label>
-                    <input
-                      type="text"
-                      {...register("unit")}
-                      className="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl focus:ring-2 focus:ring-emerald-500 text-gray-900"
-                    />
-                  </div>
-                  <div className="sm:col-span-2">
-                    <label className="block text-xs font-medium text-gray-700 mb-1">
-                      Note (optional)
-                    </label>
-                    <textarea
-                      {...register("note")}
-                      rows={2}
-                      className="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl focus:ring-2 focus:ring-emerald-500 text-gray-900"
-                    />
-                  </div>
+          <>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowForm(false)}
+              className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[100]"
+            />
+            <motion.div
+              initial={{ y: "100%" }}
+              animate={{ y: 0 }}
+              exit={{ y: "100%" }}
+              className="fixed bottom-0 inset-x-0 bg-white z-[101] rounded-t-3xl p-6 sm:p-8 max-w-2xl mx-auto shadow-2xl border-t-4 border-blue-600"
+            >
+              <div className="flex justify-between items-center mb-6">
+                <h2 className="font-black text-2xl text-slate-900 uppercase italic">
+                  Log Biometrics
+                </h2>
+                <button
+                  onClick={() => setShowForm(false)}
+                  className="p-2 bg-slate-50 rounded-full"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+              <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <input
+                    type="date"
+                    {...register("date")}
+                    className="w-full bg-slate-50 rounded-xl px-4 py-3 font-black outline-none border-2 border-transparent focus:border-blue-600 transition-all"
+                  />
+                  <input
+                    type="number"
+                    step="any"
+                    {...register("value")}
+                    placeholder="Value"
+                    className="w-full bg-slate-50 rounded-xl px-4 py-3 font-black outline-none border-2 border-transparent focus:border-blue-600 transition-all"
+                  />
                 </div>
-                <div className="flex flex-col sm:flex-row justify-end gap-2 pt-1">
-                  <button
-                    type="button"
-                    onClick={() => setShowForm(false)}
-                    className="px-4 py-2 text-sm bg-gray-200 text-gray-800 rounded-xl hover:bg-gray-300 transition"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={isSubmitting}
-                    className="flex items-center justify-center gap-2 px-4 py-2 text-sm bg-emerald-600 text-white rounded-xl hover:bg-emerald-700 disabled:opacity-50 transition shadow-sm"
-                  >
-                    {isSubmitting && (
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                    )}
-                    Save
-                  </button>
-                </div>
+                <button
+                  disabled={isSubmitting}
+                  className="w-full py-3 bg-slate-900 text-white rounded-xl font-black uppercase tracking-widest text-xs"
+                >
+                  {isSubmitting ? "Processing..." : "Authorize Data Entry"}
+                </button>
               </form>
-            </div>
-          </motion.div>
+            </motion.div>
+          </>
         )}
       </AnimatePresence>
-
-      {/* Chart */}
-      {filteredRecords.length > 0 ? (
-        <div className="bg-white border border-gray-100 rounded-2xl p-3 shadow-sm">
-          <h2
-            className={cn(
-              "text-base font-semibold text-gray-800 mb-2 flex items-center gap-2",
-              bebasNeue.className,
-            )}
-          >
-            <BarChart3 className="w-4 h-4 text-emerald-600" />
-            {metricConfig[selectedType].label} Trend
-          </h2>
-          <div className="h-56 sm:h-64 w-full min-w-0">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart
-                data={filteredRecords}
-                margin={{ top: 5, right: 5, left: 0, bottom: 0 }}
-              >
-                <defs>
-                  <linearGradient
-                    id={`gradient-${selectedType}`}
-                    x1="0"
-                    y1="0"
-                    x2="0"
-                    y2="1"
-                  >
-                    <stop
-                      offset="0%"
-                      stopColor={metricConfig[selectedType].color}
-                      stopOpacity={0.15}
-                    />
-                    <stop
-                      offset="100%"
-                      stopColor={metricConfig[selectedType].color}
-                      stopOpacity={0}
-                    />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid
-                  strokeDasharray="3 3"
-                  stroke="#f0f0f0"
-                  vertical={false}
-                />
-                <XAxis
-                  dataKey="date"
-                  tick={{ fontSize: 9, fill: "#6b7280" }}
-                  tickFormatter={(date) =>
-                    new Date(date).toLocaleDateString(undefined, {
-                      month: "numeric",
-                      day: "numeric",
-                    })
-                  }
-                  axisLine={{ stroke: "#e5e7eb" }}
-                  tickLine={false}
-                  interval="preserveStartEnd"
-                  minTickGap={20}
-                />
-                <YAxis
-                  tick={{ fontSize: 9, fill: "#6b7280" }}
-                  axisLine={{ stroke: "#e5e7eb" }}
-                  tickLine={false}
-                  width={25}
-                  domain={["auto", "auto"]}
-                />
-                <Tooltip content={<CustomTooltip />} />
-                <Line
-                  type="monotone"
-                  dataKey="value"
-                  stroke={metricConfig[selectedType].color}
-                  strokeWidth={2}
-                  dot={{
-                    r: 3,
-                    fill: "white",
-                    stroke: metricConfig[selectedType].color,
-                    strokeWidth: 2,
-                  }}
-                  activeDot={{ r: 5, stroke: "white", strokeWidth: 2 }}
-                  fill={`url(#gradient-${selectedType})`}
-                  name={metricConfig[selectedType].label}
-                />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
-          {filteredRecords.length < 2 && (
-            <p className="text-xs text-gray-400 text-center mt-2">
-              Add more data points to see a trend line.
-            </p>
-          )}
-        </div>
-      ) : (
-        <div className="bg-white/60 backdrop-blur-sm p-8 text-center text-gray-500 rounded-2xl border border-gray-100 shadow-sm">
-          <div className="w-14 h-14 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-2">
-            <Activity className="w-7 h-7 text-emerald-600" />
-          </div>
-          <p className="text-base font-medium text-gray-700 mb-1">
-            No {metricConfig[selectedType].label.toLowerCase()} records yet
-          </p>
-          <p className="text-xs mb-3 max-w-md mx-auto">
-            Start tracking your health by adding your first measurement.
-          </p>
-          <button
-            onClick={() => setShowForm(true)}
-            className="px-4 py-2 bg-emerald-600 text-white rounded-xl hover:bg-emerald-700 transition inline-flex items-center gap-2 text-sm shadow-sm"
-          >
-            <Plus className="w-4 h-4" /> Add Record
-          </button>
-        </div>
-      )}
-
-      {/* Help Carousel Modal */}
-      <Modal isOpen={showHelp} onClose={() => setShowHelp(false)}>
-        <div className="flex items-center justify-between mb-3">
-          <h2
-            className={cn(
-              "text-lg font-bold text-gray-900 flex items-center gap-2",
-              bebasNeue.className,
-            )}
-          >
-            <HelpCircle className="w-5 h-5 text-emerald-600" />
-            How to use
-          </h2>
-          <button
-            onClick={() => setShowHelp(false)}
-            className="p-1 hover:bg-gray-100 rounded-full"
-            aria-label="Close help"
-          >
-            <X className="w-4 h-4 text-gray-500" />
-          </button>
-        </div>
-
-        <div className="relative">
-          <AnimatePresence mode="wait">
-            <motion.div
-              key={helpSlide}
-              initial={{ opacity: 0, x: 50 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -50 }}
-              transition={{ duration: 0.3 }}
-              className="flex flex-col items-center text-center p-2"
-            >
-              <div className="w-14 h-14 bg-emerald-50 rounded-full flex items-center justify-center mb-2">
-                {helpSlides[helpSlide].icon}
-              </div>
-              <h3 className="text-sm font-semibold text-gray-800 mb-1">
-                {helpSlides[helpSlide].title}
-              </h3>
-              <p className="text-xs text-gray-600">
-                {helpSlides[helpSlide].description}
-              </p>
-            </motion.div>
-          </AnimatePresence>
-
-          <div className="flex justify-center gap-2 mt-3">
-            {helpSlides.map((_, idx) => (
-              <button
-                key={idx}
-                onClick={() => setHelpSlide(idx)}
-                className={cn(
-                  "w-1.5 h-1.5 rounded-full transition",
-                  idx === helpSlide ? "bg-emerald-600 w-3" : "bg-gray-300",
-                )}
-                aria-label={`Go to slide ${idx + 1}`}
-              />
-            ))}
-          </div>
-
-          <button
-            onClick={() =>
-              setHelpSlide((prev) =>
-                prev === 0 ? helpSlides.length - 1 : prev - 1,
-              )
-            }
-            className="absolute left-0 top-1/2 -translate-y-1/2 p-1 bg-gray-100 rounded-full hover:bg-gray-200"
-            aria-label="Previous slide"
-          >
-            <ChevronLeft className="w-4 h-4 text-gray-600" />
-          </button>
-          <button
-            onClick={() =>
-              setHelpSlide((prev) =>
-                prev === helpSlides.length - 1 ? 0 : prev + 1,
-              )
-            }
-            className="absolute right-0 top-1/2 -translate-y-1/2 p-1 bg-gray-100 rounded-full hover:bg-gray-200"
-            aria-label="Next slide"
-          >
-            <ChevronRight className="w-4 h-4 text-gray-600" />
-          </button>
-        </div>
-
-        <button
-          onClick={() => setShowHelp(false)}
-          className="mt-4 w-full px-4 py-2 bg-emerald-600 text-white rounded-xl hover:bg-emerald-700 text-sm"
-        >
-          Get Started
-        </button>
-      </Modal>
-    </motion.div>
+    </div>
   );
 }

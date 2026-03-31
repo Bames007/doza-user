@@ -15,6 +15,7 @@ export type PanelId =
   | "help"
   | "doza-sport-shop"
   | "doza-medical-shop"
+  | "appointment"
   | "notifications";
 
 interface DashboardContextType {

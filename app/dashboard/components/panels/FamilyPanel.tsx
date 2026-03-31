@@ -1,8 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import React, { useState, useMemo } from "react";
 import useSWR, { mutate } from "swr";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion, AnimatePresence, LayoutGroup } from "framer-motion";
 import {
   Plus,
   Trash2,
@@ -10,13 +10,16 @@ import {
   Phone,
   AlertCircle,
   Loader2,
-  Heart,
   Users,
   HelpCircle,
   X,
   ChevronLeft,
   ChevronRight,
   UserPlus,
+  ShieldCheck,
+  Heart,
+  Info,
+  Activity,
 } from "lucide-react";
 import { useForm, SubmitHandler } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -38,27 +41,32 @@ const contactSchema = z.object({
 });
 
 type ContactForm = z.infer<typeof contactSchema>;
-
 interface FamilyFriend extends ContactForm {
   id: string;
 }
 
 export default function FamilyPanel() {
-  const { data, error, isLoading } = useSWR("/api/family", authFetcher);
+  const { data, isLoading } = useSWR("/api/family", authFetcher);
   const family: FamilyFriend[] = data?.success ? data.data : [];
+
   const [editingId, setEditingId] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
-  const [showHelp, setShowHelp] = useState(false);
   const [helpSlide, setHelpSlide] = useState(0);
 
-  // Check first visit
-  useState(() => {
-    const hasSeenHelp = localStorage.getItem("doza_family_help");
-    if (!hasSeenHelp) {
-      setShowHelp(true);
-      localStorage.setItem("doza_family_help", "true");
-    }
-  });
+  const helpContent = [
+    {
+      title: "Primary Circle",
+      text: "Trusted members who can view your basic health telemetry.",
+    },
+    {
+      title: "SOS Responders",
+      text: "Emergency contacts get instant alerts during critical events.",
+    },
+    {
+      title: "Data Privacy",
+      text: "Your health data is only shared with people you explicitly authorize.",
+    },
+  ];
 
   const {
     register,
@@ -77,446 +85,388 @@ export default function FamilyPanel() {
   });
 
   const onSubmit: SubmitHandler<ContactForm> = async (formData) => {
-    try {
-      let result;
-      if (editingId) {
-        result = await authPut(`/api/family/${editingId}`, formData);
-      } else {
-        result = await authPost("/api/family", {
+    const result = editingId
+      ? await authPut(`/api/family/${editingId}`, formData)
+      : await authPost("/api/family", {
           ...formData,
           id: Date.now().toString(),
         });
-      }
-      if (result.success) {
-        mutate("/api/family");
-        reset();
-        setEditingId(null);
-        setShowForm(false);
-      } else {
-        alert("Error: " + result.error);
-      }
-    } catch {
-      alert("Failed to save contact");
+    if (result.success) {
+      mutate("/api/family");
+      reset();
+      setEditingId(null);
+      setShowForm(false);
     }
   };
 
-  const handleDelete = async (id: string) => {
-    if (!confirm("Are you sure you want to delete this contact?")) return;
-    try {
-      const result = await authDelete(`/api/family/${id}`);
-      if (result.success) {
-        mutate("/api/family");
-      } else {
-        alert("Error: " + result.error);
-      }
-    } catch {
-      alert("Failed to delete contact");
-    }
-  };
-
-  const handleEdit = (contact: FamilyFriend) => {
-    setEditingId(contact.id);
-    setValue("name", contact.name);
-    setValue("phone", contact.phone);
-    setValue("relationship", contact.relationship);
-    setValue("isEmergency", contact.isEmergency);
-    setShowForm(true);
-  };
-
-  const helpSlides = [
-    {
-      icon: <UserPlus className="w-12 h-12 text-emerald-600" />,
-      title: "Add a contact",
-      description:
-        "Click the 'Add Contact' button and fill in their details. You can mark them as emergency.",
-    },
-    {
-      icon: <Edit2 className="w-12 h-12 text-emerald-600" />,
-      title: "Edit or delete",
-      description:
-        "Use the pencil and trash icons to update or remove a contact.",
-    },
-    {
-      icon: <AlertCircle className="w-12 h-12 text-emerald-600" />,
-      title: "Emergency contacts",
-      description:
-        "Emergency contacts are highlighted with a red border for quick access.",
-    },
-    {
-      icon: <Phone className="w-12 h-12 text-emerald-600" />,
-      title: "Call directly",
-      description: "Tap the phone number to call your contact instantly.",
-    },
-  ];
-
-  if (isLoading) {
+  if (isLoading)
     return (
-      <div className="max-w-6xl mx-auto px-3 pb-24  min-h-screen flex items-center justify-center">
-        <Loader2 className="w-8 h-8 animate-spin text-emerald-600" />
+      <div className="h-screen flex items-center justify-center bg-white animate-pulse text-[10px] font-black uppercase tracking-[0.3em]">
+        Syncing Circle...
       </div>
     );
-  }
-
-  if (error) {
-    return (
-      <div className="max-w-6xl mx-auto px-3 pb-24  min-h-screen pt-4">
-        <div className="p-4 text-red-600 text-center bg-white rounded-2xl border border-gray-100">
-          Error loading contacts.
-        </div>
-      </div>
-    );
-  }
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      className={cn(
-        "max-w-6xl mx-auto px-3 pb-24  min-h-screen",
-        poppins.className,
-      )}
+    <div
+      className={cn("min-h-screen bg-[#F8FAFC] pb-32 pt-6", poppins.className)}
     >
-      {/* Header with help icon */}
-      <div className="pt-4 pb-3 flex items-center justify-between">
-        <div>
-          <h1
-            className={cn(
-              "text-2xl sm:text-3xl font-bold text-gray-800",
-              bebasNeue.className,
-            )}
-          >
-            Family & Friends
-          </h1>
-          <p className="text-xs sm:text-sm text-emerald-600 mt-0.5">
-            Keep your loved ones close
-          </p>
-        </div>
-        <button
-          onClick={() => setShowHelp(true)}
-          className="w-9 h-9 bg-white rounded-full flex items-center justify-center shadow-sm border border-gray-200 active:bg-gray-50"
-          aria-label="How to use"
-        >
-          <HelpCircle className="w-5 h-5 text-emerald-600" />
-        </button>
-      </div>
-
-      {/* Add Contact Button */}
-      <div className="flex justify-end mb-3">
-        <button
-          onClick={() => {
-            setEditingId(null);
-            reset({
-              name: "",
-              phone: "",
-              relationship: "",
-              isEmergency: false,
-            });
-            setShowForm(!showForm);
-          }}
-          className="flex items-center gap-2 px-3 py-1.5 sm:px-4 sm:py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl transition shadow-sm text-sm sm:text-base"
-          aria-label={showForm ? "Cancel" : "Add Contact"}
-        >
-          <Plus className="w-4 h-4" />
-          {showForm ? "Cancel" : "Add Contact"}
-        </button>
-      </div>
-
-      {/* Add/Edit Form */}
-      <AnimatePresence>
-        {showForm && (
-          <motion.div
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: "auto" }}
-            exit={{ opacity: 0, height: 0 }}
-            className="overflow-hidden mb-4"
-          >
-            <div className="bg-white border border-gray-100 rounded-2xl p-3 shadow-sm">
-              <h2
-                className={cn(
-                  "text-base font-semibold text-gray-800 mb-2 flex items-center gap-2",
-                  bebasNeue.className,
-                )}
-              >
-                <Plus className="w-4 h-4 text-emerald-600" />
-                {editingId ? "Edit Contact" : "Add New Contact"}
-              </h2>
-              <form onSubmit={handleSubmit(onSubmit)} className="space-y-3">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  <div>
-                    <label className="block text-xs font-medium text-gray-700 mb-1">
-                      Name *
-                    </label>
-                    <input
-                      {...register("name")}
-                      className="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl focus:ring-2 focus:ring-emerald-500 text-gray-900"
-                    />
-                    {errors.name && (
-                      <p className="text-red-500 text-xs mt-1">
-                        {errors.name.message}
-                      </p>
-                    )}
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-gray-700 mb-1">
-                      Phone *
-                    </label>
-                    <input
-                      {...register("phone")}
-                      className="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl focus:ring-2 focus:ring-emerald-500 text-gray-900"
-                    />
-                    {errors.phone && (
-                      <p className="text-red-500 text-xs mt-1">
-                        {errors.phone.message}
-                      </p>
-                    )}
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-gray-700 mb-1">
-                      Relationship *
-                    </label>
-                    <input
-                      {...register("relationship")}
-                      className="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl focus:ring-2 focus:ring-emerald-500 text-gray-900"
-                    />
-                    {errors.relationship && (
-                      <p className="text-red-500 text-xs mt-1">
-                        {errors.relationship.message}
-                      </p>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-2 mt-2">
-                    <input
-                      type="checkbox"
-                      {...register("isEmergency")}
-                      className="w-4 h-4 text-emerald-600 border-gray-300 rounded focus:ring-emerald-500"
-                    />
-                    <label className="text-xs font-medium text-gray-700">
-                      Emergency contact
-                    </label>
-                  </div>
-                </div>
-                <div className="flex flex-col sm:flex-row justify-end gap-2 pt-1">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setShowForm(false);
-                      setEditingId(null);
-                    }}
-                    className="px-4 py-2 text-sm bg-gray-200 text-gray-800 rounded-xl hover:bg-gray-300 transition"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={isSubmitting}
-                    className="flex items-center justify-center gap-2 px-4 py-2 text-sm bg-emerald-600 text-white rounded-xl hover:bg-emerald-700 disabled:opacity-50 transition shadow-sm"
-                  >
-                    {isSubmitting && (
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                    )}
-                    {editingId ? "Update" : "Save"}
-                  </button>
-                </div>
-              </form>
+      <div className="max-w-7xl mx-auto px-4 md:px-6 space-y-6">
+        {/* --- HEADER --- */}
+        <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 bg-white p-6 md:p-8 rounded-[32px] border border-slate-200/60 shadow-sm transition-all">
+          <div>
+            <div className="flex items-center gap-2 mb-1">
+              <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.2em]">
+                Safety Protocol Active
+              </p>
             </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* Contact List */}
-      <div className="space-y-2">
-        {family.length === 0 ? (
-          <div className="bg-white/60 backdrop-blur-sm p-8 text-center text-gray-500 rounded-2xl border border-gray-100 shadow-sm">
-            <div className="w-14 h-14 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-2">
-              <Users className="w-7 h-7 text-emerald-600" />
-            </div>
-            <p className="text-base font-medium text-gray-700 mb-1">
-              No contacts yet
-            </p>
-            <p className="text-xs mb-3 max-w-md mx-auto">
-              Add your family and friends to stay connected.
-            </p>
-            <button
-              onClick={() => setShowForm(true)}
-              className="px-4 py-2 bg-emerald-600 text-white rounded-xl hover:bg-emerald-700 transition inline-flex items-center gap-2 text-sm shadow-sm"
-            >
-              <Plus className="w-4 h-4" /> Add Contact
-            </button>
-          </div>
-        ) : (
-          family.map((contact) => (
-            <motion.div
-              key={contact.id}
-              layout
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
+            <h1
               className={cn(
-                "bg-white border border-gray-100 rounded-2xl p-3 flex flex-wrap items-center justify-between gap-2 shadow-sm hover:shadow-md transition",
-                contact.isEmergency && "border-l-4 border-l-red-500",
+                "text-4xl md:text-5xl text-slate-900 leading-none",
+                bebasNeue.className,
               )}
             >
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <h3 className="font-semibold text-gray-900 text-sm sm:text-base">
-                    {contact.name}
-                  </h3>
-                  {contact.isEmergency && (
-                    <span className="inline-flex items-center gap-1 text-[10px] sm:text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded-full whitespace-nowrap">
-                      <AlertCircle className="w-3 h-3" /> Emergency
-                    </span>
-                  )}
+              DOZA <span className="text-emerald-600">FAMILY & FRIENDS</span>
+            </h1>
+            <p className="text-slate-500 font-medium text-xs md:text-sm mt-1">
+              Manage your inner circle and emergency responders.
+            </p>
+          </div>
+
+          <button
+            onClick={() => {
+              setEditingId(null);
+              reset();
+              setShowForm(true);
+            }}
+            className="w-full md:w-auto flex items-center justify-center gap-2 bg-slate-900 hover:bg-slate-800 text-white px-8 py-4 rounded-2xl font-bold text-[10px] uppercase tracking-widest transition-all active:scale-95 shadow-lg shadow-slate-200"
+          >
+            <UserPlus size={16} />
+            <span>Add Member</span>
+          </button>
+        </header>
+
+        <div className="grid grid-cols-1 md:grid-cols-12 gap-6">
+          {/* LEFT: HELP & STATS (Mobile: Order 2) */}
+          <div className="md:col-span-4 space-y-6 order-2 md:order-1">
+            <div className="bg-emerald-600 rounded-[32px] p-8 text-white relative overflow-hidden shadow-xl min-h-[300px] flex flex-col">
+              <div className="relative z-10 flex-1">
+                <div className="flex items-center gap-2 mb-6">
+                  <HelpCircle size={18} className="text-emerald-200" />
+                  <span className="text-[10px] font-bold uppercase tracking-widest text-emerald-100">
+                    Circle Guide
+                  </span>
                 </div>
-                <p className="text-xs sm:text-sm text-gray-600">
-                  {contact.relationship}
+                <AnimatePresence mode="wait">
+                  <motion.div
+                    key={helpSlide}
+                    initial={{ opacity: 0, x: 10 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    exit={{ opacity: 0, x: -10 }}
+                  >
+                    <h3 className="text-2xl font-bold mb-2">
+                      {helpContent[helpSlide].title}
+                    </h3>
+                    <p className="text-emerald-50 text-sm leading-relaxed opacity-90">
+                      {helpContent[helpSlide].text}
+                    </p>
+                  </motion.div>
+                </AnimatePresence>
+              </div>
+
+              <div className="relative z-10 flex justify-between items-center mt-6 pt-4 border-t border-white/10">
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setHelpSlide((s) => (s > 0 ? s - 1 : 2))}
+                    className="p-2 bg-white/10 rounded-lg hover:bg-white/20"
+                  >
+                    <ChevronLeft size={14} />
+                  </button>
+                  <button
+                    onClick={() => setHelpSlide((s) => (s < 2 ? s + 1 : 0))}
+                    className="p-2 bg-white/10 rounded-lg hover:bg-white/20"
+                  >
+                    <ChevronRight size={14} />
+                  </button>
+                </div>
+                <span className="text-[10px] font-bold opacity-50">
+                  {helpSlide + 1} / 3
+                </span>
+              </div>
+              <Activity
+                size={150}
+                className="absolute -bottom-10 -right-10 text-white/5 pointer-events-none"
+              />
+            </div>
+
+            <div className="bg-white border border-slate-200/60 rounded-[32px] p-6 flex items-center gap-4 shadow-sm">
+              <div className="h-12 w-12 bg-blue-50 rounded-2xl flex items-center justify-center text-blue-500">
+                <ShieldCheck size={24} />
+              </div>
+              <div>
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                  Network Security
                 </p>
-                <a
-                  href={`tel:${contact.phone}`}
-                  className="text-xs sm:text-sm text-emerald-600 hover:underline flex items-center gap-1 mt-1"
-                >
-                  <Phone className="w-3 h-3" /> {contact.phone}
-                </a>
+                <p className="text-sm font-bold text-slate-900 italic">
+                  End-to-End Encrypted
+                </p>
               </div>
-              <div className="flex gap-1">
-                <button
-                  onClick={() => handleEdit(contact)}
-                  className="p-2 hover:bg-gray-100 rounded-xl transition min-h-[36px] min-w-[36px] flex items-center justify-center"
-                  aria-label="Edit contact"
-                >
-                  <Edit2 className="w-4 h-4 text-gray-600" />
-                </button>
-                <button
-                  onClick={() => handleDelete(contact.id)}
-                  className="p-2 hover:bg-red-100 text-red-600 rounded-xl transition min-h-[36px] min-w-[36px] flex items-center justify-center"
-                  aria-label="Delete contact"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
-              </div>
-            </motion.div>
-          ))
-        )}
+            </div>
+          </div>
+
+          {/* RIGHT: CONTACT LIST (Mobile: Order 1) */}
+          <div className="md:col-span-8 space-y-6 order-1 md:order-2">
+            <LayoutGroup>
+              <motion.div
+                layout
+                className="grid grid-cols-1 sm:grid-cols-2 gap-4"
+              >
+                <AnimatePresence mode="popLayout">
+                  {family.length === 0 ? (
+                    <EmptyState onAdd={() => setShowForm(true)} />
+                  ) : (
+                    family.map((contact) => (
+                      <ContactCard
+                        key={contact.id}
+                        contact={contact}
+                        onEdit={() => {
+                          setEditingId(contact.id);
+                          setValue("name", contact.name);
+                          setValue("phone", contact.phone);
+                          setValue("relationship", contact.relationship);
+                          setValue("isEmergency", contact.isEmergency);
+                          setShowForm(true);
+                        }}
+                        onDelete={() =>
+                          authDelete(`/api/family/${contact.id}`).then(() =>
+                            mutate("/api/family"),
+                          )
+                        }
+                      />
+                    ))
+                  )}
+                </AnimatePresence>
+              </motion.div>
+            </LayoutGroup>
+          </div>
+        </div>
       </div>
 
-      {/* Help Carousel Modal */}
+      {/* --- FORM MODAL --- */}
       <AnimatePresence>
-        {showHelp && (
-          <Modal onClose={() => setShowHelp(false)}>
-            <div className="flex items-center justify-between mb-3">
-              <h2
-                className={cn(
-                  "text-lg font-bold text-gray-900 flex items-center gap-2",
-                  bebasNeue.className,
-                )}
-              >
-                <HelpCircle className="w-5 h-5 text-emerald-600" />
-                How to use
-              </h2>
-              <button
-                onClick={() => setShowHelp(false)}
-                className="p-1 hover:bg-gray-100 rounded-full"
-                aria-label="Close help"
-              >
-                <X className="w-4 h-4 text-gray-500" />
-              </button>
-            </div>
+        {showForm && (
+          <Modal
+            onClose={() => setShowForm(false)}
+            title={editingId ? "Update Member" : "New Member"}
+          >
+            <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
+              <FormInput
+                label="Full Name"
+                placeholder="e.g. John Doe"
+                {...register("name")}
+                error={errors.name?.message}
+              />
+              <FormInput
+                label="Phone Number"
+                placeholder="+1..."
+                {...register("phone")}
+                error={errors.phone?.message}
+              />
+              <FormInput
+                label="Relationship"
+                placeholder="e.g. Sister"
+                {...register("relationship")}
+                error={errors.relationship?.message}
+              />
 
-            <div className="relative">
-              <AnimatePresence mode="wait">
-                <motion.div
-                  key={helpSlide}
-                  initial={{ opacity: 0, x: 50 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  exit={{ opacity: 0, x: -50 }}
-                  transition={{ duration: 0.3 }}
-                  className="flex flex-col items-center text-center p-2"
-                >
-                  <div className="w-14 h-14 bg-emerald-50 rounded-full flex items-center justify-center mb-2">
-                    {helpSlides[helpSlide].icon}
-                  </div>
-                  <h3 className="text-sm font-semibold text-gray-800 mb-1">
-                    {helpSlides[helpSlide].title}
-                  </h3>
-                  <p className="text-xs text-gray-600">
-                    {helpSlides[helpSlide].description}
+              <label className="flex items-center gap-4 p-5 rounded-2xl border border-slate-100 bg-slate-50 hover:bg-white transition-all cursor-pointer has-[:checked]:border-rose-200 has-[:checked]:bg-rose-50/30">
+                <input
+                  type="checkbox"
+                  {...register("isEmergency")}
+                  className="w-5 h-5 rounded text-rose-600 focus:ring-rose-500 border-slate-300"
+                />
+                <div>
+                  <p className="font-bold text-slate-900 text-xs uppercase tracking-tight">
+                    Emergency Contact
                   </p>
-                </motion.div>
-              </AnimatePresence>
+                  <p className="text-[9px] text-slate-400 uppercase font-black tracking-widest mt-0.5">
+                    Priority responder for SOS events
+                  </p>
+                </div>
+              </label>
 
-              <div className="flex justify-center gap-2 mt-3">
-                {helpSlides.map((_, idx) => (
-                  <button
-                    key={idx}
-                    onClick={() => setHelpSlide(idx)}
-                    className={cn(
-                      "w-1.5 h-1.5 rounded-full transition",
-                      idx === helpSlide ? "bg-emerald-600 w-3" : "bg-gray-300",
-                    )}
-                    aria-label={`Go to slide ${idx + 1}`}
-                  />
-                ))}
+              <div className="flex gap-3 pt-4">
+                <button
+                  type="button"
+                  onClick={() => setShowForm(false)}
+                  className="flex-1 py-4 font-bold text-slate-400 bg-slate-100 rounded-2xl text-[10px] uppercase tracking-widest"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmitting}
+                  className="flex-1 py-4 font-bold text-white bg-slate-900 rounded-2xl text-[10px] uppercase tracking-widest shadow-xl shadow-slate-200"
+                >
+                  {isSubmitting ? (
+                    <Loader2 className="w-4 h-4 animate-spin mx-auto" />
+                  ) : (
+                    "Save Member"
+                  )}
+                </button>
               </div>
-
-              <button
-                onClick={() =>
-                  setHelpSlide((prev) =>
-                    prev === 0 ? helpSlides.length - 1 : prev - 1,
-                  )
-                }
-                className="absolute left-0 top-1/2 -translate-y-1/2 p-1 bg-gray-100 rounded-full hover:bg-gray-200"
-                aria-label="Previous slide"
-              >
-                <ChevronLeft className="w-4 h-4 text-gray-600" />
-              </button>
-              <button
-                onClick={() =>
-                  setHelpSlide((prev) =>
-                    prev === helpSlides.length - 1 ? 0 : prev + 1,
-                  )
-                }
-                className="absolute right-0 top-1/2 -translate-y-1/2 p-1 bg-gray-100 rounded-full hover:bg-gray-200"
-                aria-label="Next slide"
-              >
-                <ChevronRight className="w-4 h-4 text-gray-600" />
-              </button>
-            </div>
-
-            <button
-              onClick={() => setShowHelp(false)}
-              className="mt-4 w-full px-4 py-2 bg-emerald-600 text-white rounded-xl hover:bg-emerald-700 text-sm"
-            >
-              Get Started
-            </button>
+            </form>
           </Modal>
         )}
       </AnimatePresence>
+    </div>
+  );
+}
+
+/* --- SUB-COMPONENTS --- */
+
+function ContactCard({
+  contact,
+  onEdit,
+  onDelete,
+}: {
+  contact: FamilyFriend;
+  onEdit: () => void;
+  onDelete: () => void;
+}) {
+  return (
+    <motion.div
+      layout
+      initial={{ opacity: 0, scale: 0.95 }}
+      animate={{ opacity: 1, scale: 1 }}
+      exit={{ opacity: 0, scale: 0.95 }}
+      className={cn(
+        "bg-white p-5 rounded-[28px] border border-slate-100 shadow-sm flex items-center gap-4 group transition-all hover:shadow-md",
+        contact.isEmergency &&
+          "border-rose-100 bg-gradient-to-br from-white to-rose-50/20",
+      )}
+    >
+      <div
+        className={cn(
+          "w-16 h-16 rounded-2xl flex items-center justify-center font-black text-xl italic shadow-inner",
+          contact.isEmergency
+            ? "bg-rose-500 text-white"
+            : "bg-slate-100 text-slate-400",
+        )}
+      >
+        {contact.name
+          .split(" ")
+          .map((n) => n[0])
+          .join("")
+          .slice(0, 2)
+          .toUpperCase()}
+      </div>
+
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2">
+          <h3 className="font-bold text-slate-900 truncate">{contact.name}</h3>
+          {contact.isEmergency && (
+            <Heart size={12} className="text-rose-500 fill-rose-500" />
+          )}
+        </div>
+        <p className="text-[10px] font-black text-emerald-600 uppercase tracking-widest mb-2">
+          {contact.relationship}
+        </p>
+        <a
+          href={`tel:${contact.phone}`}
+          className="inline-flex items-center gap-2 px-3 py-1.5 bg-slate-50 rounded-xl text-[10px] font-bold text-slate-500 hover:bg-slate-900 hover:text-white transition-all"
+        >
+          <Phone size={12} /> {contact.phone}
+        </a>
+      </div>
+
+      <div className="flex flex-col gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+        <button
+          onClick={onEdit}
+          className="p-2 hover:bg-slate-100 text-slate-400 hover:text-emerald-600 rounded-lg"
+        >
+          <Edit2 size={14} />
+        </button>
+        <button
+          onClick={() => confirm("Remove contact?") && onDelete()}
+          className="p-2 hover:bg-rose-50 text-slate-400 hover:text-rose-500 rounded-lg"
+        >
+          <Trash2 size={14} />
+        </button>
+      </div>
     </motion.div>
   );
 }
 
-// Reusable Modal component
-const Modal = ({
-  children,
-  onClose,
-}: {
-  children: React.ReactNode;
-  onClose: () => void;
-}) => (
+const FormInput = React.forwardRef(
+  ({ label, error, ...props }: any, ref: any) => (
+    <div className="space-y-1.5">
+      <label className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-400 ml-1">
+        {label}
+      </label>
+      <input
+        ref={ref}
+        {...props}
+        className={cn(
+          "w-full px-5 py-4 bg-slate-50 border border-transparent rounded-2xl focus:bg-white focus:border-emerald-500 outline-none transition-all font-medium text-sm text-slate-900 placeholder:text-slate-300",
+          error && "border-rose-500 bg-rose-50",
+        )}
+      />
+    </div>
+  ),
+);
+
+const Modal = ({ children, onClose, title }: any) => (
   <motion.div
     initial={{ opacity: 0 }}
     animate={{ opacity: 1 }}
     exit={{ opacity: 0 }}
-    className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-3"
+    className="fixed inset-0 bg-slate-900/40 backdrop-blur-md z-[100] flex items-end sm:items-center justify-center p-4"
     onClick={onClose}
   >
     <motion.div
-      initial={{ scale: 0.95, y: 10 }}
-      animate={{ scale: 1, y: 0 }}
-      exit={{ scale: 0.95, y: 10 }}
-      className="bg-white rounded-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto p-4 shadow-2xl"
+      initial={{ y: 50, scale: 0.95 }}
+      animate={{ y: 0, scale: 1 }}
+      className="bg-white w-full max-w-lg rounded-[32px] p-8 shadow-2xl"
       onClick={(e) => e.stopPropagation()}
     >
+      <div className="flex justify-between items-center mb-6">
+        <h2
+          className={cn(
+            "text-3xl font-black text-slate-900 uppercase italic leading-none",
+            bebasNeue.className,
+          )}
+        >
+          {title}
+        </h2>
+        <button
+          onClick={onClose}
+          className="p-2 bg-slate-50 rounded-full hover:bg-rose-50 hover:text-rose-500 transition-colors"
+        >
+          <X size={18} />
+        </button>
+      </div>
       {children}
     </motion.div>
   </motion.div>
 );
+
+function EmptyState({ onAdd }: { onAdd: () => void }) {
+  return (
+    <div className="col-span-full py-20 bg-white border border-dashed border-slate-200 rounded-[32px] text-center">
+      <div className="w-16 h-16 bg-slate-50 rounded-2xl flex items-center justify-center mx-auto mb-4 text-slate-200">
+        <Users size={32} />
+      </div>
+      <h3 className="text-lg font-bold text-slate-900">Your circle is empty</h3>
+      <p className="text-slate-400 text-xs mb-8 max-w-xs mx-auto">
+        Establish secure connections with family and friends.
+      </p>
+      <button
+        onClick={onAdd}
+        className="bg-slate-900 text-white px-8 py-3 rounded-2xl text-[10px] font-bold uppercase tracking-widest shadow-lg"
+      >
+        Establish Connection
+      </button>
+    </div>
+  );
+}

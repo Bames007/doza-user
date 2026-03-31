@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import {
   Eye,
   EyeOff,
@@ -10,15 +10,21 @@ import {
   Shield,
   AlertCircle,
   Activity,
-  Clock,
+  ArrowRight,
+  ChevronLeft,
   Phone,
   RefreshCw,
-  User,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { bebasNeue, poppins } from "../constants";
 import Image from "next/image";
 import LoadingScreen from "../components/LoadingScreen";
+import { auth } from "../utils/firebaseConfig";
+import {
+  signInWithEmailAndPassword,
+  setPersistence,
+  browserLocalPersistence,
+} from "firebase/auth";
 
 const LoginPage: React.FC = () => {
   const [formData, setFormData] = useState({ email: "", password: "" });
@@ -30,6 +36,7 @@ const LoginPage: React.FC = () => {
 
   const router = useRouter();
 
+  // --- Validation Logic ---
   const validateField = (name: string, value: string): string => {
     switch (name) {
       case "email":
@@ -64,6 +71,7 @@ const LoginPage: React.FC = () => {
     !formData.email.trim() ||
     !formData.password.trim();
 
+  // --- Auth Logic ---
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
@@ -81,472 +89,300 @@ const LoginPage: React.FC = () => {
     }
 
     try {
-      // 1. Call user-login API
-      const loginRes = await fetch("/api/auth/user-login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          email: formData.email,
-          password: formData.password,
-          rememberMe,
-        }),
-      });
+      // Set persistence to LOCAL so user stays logged in
+      await setPersistence(auth, browserLocalPersistence);
 
-      const loginData = await loginRes.json();
+      const userCredential = await signInWithEmailAndPassword(
+        auth,
+        formData.email,
+        formData.password,
+      );
 
-      if (!loginRes.ok) {
-        throw new Error(loginData.error || "Login failed");
-      }
+      const user = userCredential.user;
+      const idToken = await user.getIdToken();
 
-      // 2. Set session cookie via set-session API
+      // Optional: Sync session with backend (if you use server-side sessions)
       const sessionRes = await fetch("/api/auth/set-session", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(loginData.data),
+        body: JSON.stringify({ idToken, rememberMe }),
       });
 
+      // If you want to ignore session failures, you can proceed anyway.
+      // But we'll still log errors.
       if (!sessionRes.ok) {
-        throw new Error("Failed to establish secure session");
+        console.warn("Session sync failed, but user is logged in locally.");
       }
 
-      // 3. Store in localStorage for client convenience
-      localStorage.setItem("userSession", JSON.stringify(loginData.data));
-      localStorage.setItem("loginTime", new Date().toISOString());
+      // Store user data in localStorage for quick client access
+      const sessionData = {
+        user: {
+          id: user.uid,
+          email: user.email,
+          fullName: user.displayName || "",
+          avatar: user.photoURL || "",
+          role: "user",
+          expiresAt:
+            Date.now() +
+            (rememberMe ? 30 * 24 * 60 * 60 * 1000 : 24 * 60 * 60 * 1000),
+        },
+        loginTime: new Date().toISOString(),
+      };
 
-      // 4. Redirect to dashboard
+      localStorage.setItem("userSession", JSON.stringify(sessionData));
       router.push("/dashboard");
     } catch (err: any) {
-      setError(err.message);
+      let errorMessage = "Login failed. Please try again.";
+      if (err.code === "auth/user-not-found")
+        errorMessage = "No account found with this email.";
+      else if (err.code === "auth/wrong-password")
+        errorMessage = "Incorrect password.";
+      else if (err.code === "auth/too-many-requests")
+        errorMessage = "Too many attempts. Try again later.";
+      else if (err.message) errorMessage = err.message;
+      setError(errorMessage);
     } finally {
       setLoading(false);
     }
   };
 
-  const clearFieldError = (field: string) => {
-    setFieldErrors((prev) => ({ ...prev, [field]: "" }));
-  };
-
   return (
-    <>
-      {loading && <LoadingScreen />}
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 flex items-center justify-center p-4">
-        <div className="w-full max-w-6xl">
-          <div className="grid grid-cols-1 lg:grid-cols-2 bg-white rounded-2xl shadow-xl border border-gray-100 overflow-hidden">
-            {/* Left side - unchanged */}
-            <div className="relative bg-gradient-to-br from-green-600 to-emerald-700 overflow-hidden">
-              <div className="absolute inset-0 bg-gradient-to-br from-green-800 to-emerald-900">
-                <div className="absolute inset-0 bg-[url('https://images.unsplash.com/photo-1519494026892-80bbd2d6fd0d')] bg-cover bg-center opacity-20"></div>
-                <div className="absolute inset-0 opacity-10 bg-[radial-gradient(circle_at_1px_1px,rgba(255,255,255,0.15)_1px,transparent_0)] bg-[length:20px_20px]"></div>
+    <div
+      className={`min-h-screen bg-slate-50 selection:bg-emerald-100 ${poppins.className}`}
+    >
+      <AnimatePresence>{loading && <LoadingScreen />}</AnimatePresence>
+
+      {/* Dynamic Background Blurs */}
+      <div className="fixed inset-0 overflow-hidden pointer-events-none">
+        <div className="absolute -top-[10%] -left-[10%] w-[40%] h-[40%] bg-emerald-100/40 rounded-full blur-[120px]" />
+        <div className="absolute -bottom-[10%] -right-[10%] w-[40%] h-[40%] bg-blue-100/40 rounded-full blur-[120px]" />
+      </div>
+
+      <div className="relative min-h-screen flex items-center justify-center p-4 md:p-8 lg:p-12">
+        <motion.div
+          initial={{ opacity: 0, y: 30 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="w-full max-w-6xl grid grid-cols-1 lg:grid-cols-12 bg-white/90 backdrop-blur-2xl rounded-[2.5rem] shadow-[0_32px_64px_-15px_rgba(0,0,0,0.05)] border border-white overflow-hidden"
+        >
+          {/* LEFT COLUMN: BRANDING (Desktop Only) */}
+          <div className="hidden lg:flex lg:col-span-5 bg-emerald-600 p-16 flex-col justify-between relative overflow-hidden">
+            <div className="absolute inset-0 bg-gradient-to-br from-emerald-500 to-teal-700" />
+
+            {/* Texture/Pattern */}
+            <div className="absolute inset-0 opacity-10 bg-[radial-gradient(circle_at_1px_1px,white_1px,transparent_0)] bg-[length:32px_32px]" />
+
+            <div className="relative z-10">
+              <div className="flex items-center gap-3 mb-16">
+                <div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center shadow-lg">
+                  <Image src="/logo.png" alt="Logo" width={28} height={28} />
+                </div>
+                <span
+                  className={`text-2xl tracking-tighter font-bold text-white ${bebasNeue.className}`}
+                >
+                  DOZA
+                </span>
               </div>
 
-              <div className="relative z-10 h-full flex flex-col justify-between p-8 lg:p-12 text-white">
-                <motion.div
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className="flex items-center gap-3 mb-8"
-                >
-                  <div className="w-12 h-12 bg-white/80 rounded-xl flex items-center justify-center backdrop-blur-sm">
-                    <Image
-                      alt="Doza Logo"
-                      src="/logo.png"
-                      height={30}
-                      width={30}
-                      className="w-10 h-10"
-                    />
+              <h1
+                className={`text-6xl font-bold text-white leading-[0.95] mb-8 ${bebasNeue.className}`}
+              >
+                PRECISION <br />{" "}
+                <span className="text-emerald-200 text-7xl">HEALTHCARE.</span>
+              </h1>
+              <p className="text-emerald-50/70 text-lg leading-relaxed max-w-sm">
+                Access your medical history, book appointments, and track
+                wellness metrics in one secure place.
+              </p>
+            </div>
+
+            <div className="relative z-10 space-y-8">
+              <div className="p-6 bg-white/10 backdrop-blur-md rounded-3xl border border-white/10">
+                <div className="flex items-center gap-4 text-white">
+                  <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center">
+                    <Shield size={20} />
                   </div>
                   <div>
-                    <span
-                      className={`text-2xl font-bold ${bebasNeue.className}`}
-                    >
-                      DOZA
-                    </span>
-                    <p className={`text-white/60 text-sm ${poppins.className}`}>
-                      Personal Health Assistant
+                    <p className="text-sm font-bold">HIPAA Compliant</p>
+                    <p className="text-xs text-emerald-100/60">
+                      Your data is encrypted end-to-end.
                     </p>
                   </div>
-                </motion.div>
-
-                <div className="flex-1 flex flex-col justify-center">
-                  <motion.h1
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: 0.1 }}
-                    className={`text-4xl lg:text-5xl font-bold mb-6 ${bebasNeue.className}`}
-                  >
-                    Your Health Journey
-                  </motion.h1>
-
-                  <motion.p
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: 0.2 }}
-                    className={`text-xl text-white/90 mb-8 leading-relaxed ${poppins.className}`}
-                  >
-                    Securely access your health records, track progress, and
-                    connect with healthcare providers.
-                  </motion.p>
-
-                  <motion.div
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    transition={{ delay: 0.3 }}
-                    className="space-y-4"
-                  >
-                    {[
-                      {
-                        icon: Shield,
-                        title: "Secure & Private",
-                        description:
-                          "Your health data is encrypted and protected",
-                      },
-                      {
-                        icon: Activity,
-                        title: "Personal Dashboard",
-                        description:
-                          "Track your health metrics and appointments",
-                      },
-                      {
-                        icon: Clock,
-                        title: "24/7 Access",
-                        description: "Access your records anytime, anywhere",
-                      },
-                    ].map((feature, index) => (
-                      <motion.div
-                        key={feature.title}
-                        initial={{ opacity: 0, x: -20 }}
-                        animate={{ opacity: 1, x: 0 }}
-                        transition={{ delay: 0.4 + index * 0.1 }}
-                        className="flex items-center gap-4"
-                      >
-                        <div className="w-12 h-12 bg-white/20 rounded-xl flex items-center justify-center backdrop-blur-sm">
-                          <feature.icon className="w-6 h-6" />
-                        </div>
-                        <div>
-                          <div
-                            className={`font-semibold text-lg ${poppins.className}`}
-                          >
-                            {feature.title}
-                          </div>
-                          <div
-                            className={`text-white/80 text-sm ${poppins.className}`}
-                          >
-                            {feature.description}
-                          </div>
-                        </div>
-                      </motion.div>
-                    ))}
-                  </motion.div>
                 </div>
               </div>
             </div>
+          </div>
 
-            {/* Right side - Login Form */}
-            <div className="p-8 lg:p-12">
-              <div className="max-w-md mx-auto w-full">
-                {/* Header */}
+          {/* RIGHT COLUMN: LOGIN FORM */}
+          <div className="lg:col-span-7 p-8 md:p-16 lg:p-20 flex flex-col justify-center bg-white/50">
+            <div className="max-w-md mx-auto w-full">
+              {/* Mobile Branding */}
+              <div className="lg:hidden flex items-center justify-between mb-12">
+                <div className="flex items-center gap-2">
+                  <Image src="/logo.png" alt="Logo" width={32} height={32} />
+                  <span className={`text-2xl font-bold ${bebasNeue.className}`}>
+                    DOZA
+                  </span>
+                </div>
+              </div>
+
+              <header className="mb-10 text-left">
+                <h2
+                  className={`text-5xl font-bold text-slate-900 mb-2 ${bebasNeue.className}`}
+                >
+                  SIGN IN
+                </h2>
+                <p className="text-slate-500 font-medium">
+                  Manage your health journey with Doza.
+                </p>
+              </header>
+
+              {/* Error Handling */}
+              {error && (
                 <motion.div
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className="text-center mb-8"
+                  initial={{ opacity: 0, scale: 0.95 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  className="mb-8 p-4 bg-red-50 border border-red-100 rounded-2xl flex items-start gap-3 text-red-600 text-sm"
                 >
-                  <motion.div
-                    whileHover={{ scale: 1.05 }}
-                    className="w-16 h-16 bg-gradient-to-br from-white-500 to-emerald-300 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg"
-                  >
-                    <Image
-                      src="/logo.png"
-                      alt="Doza Logo"
-                      height={45}
-                      width={45}
-                      className="w-16 h-16"
-                    />
-                  </motion.div>
-                  <h2
-                    className={`text-2xl font-bold text-gray-900 mb-2 ${bebasNeue.className}`}
-                  >
-                    Welcome Back
-                  </h2>
-                  <p className={`text-gray-600 ${poppins.className}`}>
-                    Sign in to your Doza health account
-                  </p>
+                  <AlertCircle size={18} className="mt-0.5 shrink-0" />
+                  <div>
+                    <p className="font-bold">Authentication Error</p>
+                    <p className="opacity-80">{error}</p>
+                  </div>
                 </motion.div>
+              )}
 
-                {/* Error Display */}
-                {(error || Object.values(fieldErrors).some((err) => err)) && (
-                  <motion.div
-                    initial={{ opacity: 0, scale: 0.95 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    className="space-y-3 mb-6"
-                  >
-                    {error && (
-                      <div className="flex items-start gap-3 p-4 bg-red-50 border border-red-200 rounded-xl text-red-700">
-                        <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5" />
-                        <div className="flex-1">
-                          <p
-                            className={`text-sm font-medium ${poppins.className}`}
-                          >
-                            Login Failed
-                          </p>
-                          <p className={`text-sm mt-1 ${poppins.className}`}>
-                            {error}
-                          </p>
-                          <button
-                            onClick={() => setError("")}
-                            className="text-xs bg-red-100 hover:bg-red-200 text-red-700 px-3 py-1 rounded-lg mt-2 transition-colors"
-                          >
-                            Dismiss
-                          </button>
-                        </div>
-                      </div>
-                    )}
-                    {Object.values(fieldErrors).some((err) => err) && (
-                      <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
-                        <p
-                          className={`text-sm font-medium text-amber-800 ${poppins.className} flex items-center gap-2`}
-                        >
-                          <AlertCircle className="w-4 h-4" />
-                          Please fix the following:
-                        </p>
-                        <ul className="text-xs text-amber-700 mt-1 list-disc list-inside">
-                          {fieldErrors.email && (
-                            <li>Email: {fieldErrors.email}</li>
-                          )}
-                          {fieldErrors.password && (
-                            <li>Password: {fieldErrors.password}</li>
-                          )}
-                        </ul>
-                      </div>
-                    )}
-                  </motion.div>
-                )}
-
-                {/* Form */}
-                <motion.form
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 0.2 }}
-                  onSubmit={handleLogin}
-                  className="space-y-6"
-                  noValidate
-                >
-                  {/* Email */}
-                  <div>
-                    <label
-                      htmlFor="email"
-                      className={`block text-sm font-medium text-gray-700 mb-2 ${poppins.className}`}
-                    >
-                      Email Address *
+              <form onSubmit={handleLogin} className="space-y-6">
+                {/* Email Field */}
+                <div>
+                  <div className="flex justify-between items-end mb-2 ml-1">
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                      Email Address
                     </label>
-                    <div className="relative">
-                      <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                        <Mail className="h-5 w-5 text-gray-400" />
-                      </div>
-                      <input
-                        type="email"
-                        id="email"
-                        name="email"
-                        value={formData.email}
-                        onChange={handleInputChange}
-                        onBlur={handleBlur}
-                        required
-                        className={`block w-full text-gray-900 pl-10 pr-4 py-3 border rounded-xl focus:ring-2 focus:border-green-500 transition-colors duration-200 bg-white ${
-                          fieldErrors.email
-                            ? "border-red-300 focus:ring-red-500"
-                            : "border-gray-300 focus:ring-green-500"
-                        }`}
-                        placeholder="you@example.com"
-                        disabled={loading}
-                      />
-                      {fieldErrors.email && (
-                        <button
-                          type="button"
-                          onClick={() => clearFieldError("email")}
-                          className="absolute right-2 top-1/2 transform -translate-y-1/2 text-red-500 hover:text-red-700"
-                        >
-                          <RefreshCw className="w-4 h-4" />
-                        </button>
-                      )}
-                    </div>
-                    {fieldErrors.email ? (
-                      <p className="text-red-600 text-xs mt-1 flex items-center gap-1">
-                        <AlertCircle className="w-3 h-3" />
+                    {fieldErrors.email && (
+                      <span className="text-[10px] font-bold text-red-500 uppercase italic">
                         {fieldErrors.email}
-                      </p>
-                    ) : (
-                      <p className="text-gray-500 text-xs mt-1">
-                        Enter the email you used to register
-                      </p>
-                    )}
-                  </div>
-
-                  {/* Password */}
-                  <div>
-                    <label
-                      htmlFor="password"
-                      className={`block text-sm font-medium text-gray-700 mb-2 ${poppins.className}`}
-                    >
-                      Password *
-                    </label>
-                    <div className="relative">
-                      <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                        <Lock className="h-5 w-5 text-gray-400" />
-                      </div>
-                      <input
-                        type={showPassword ? "text" : "password"}
-                        id="password"
-                        name="password"
-                        value={formData.password}
-                        onChange={handleInputChange}
-                        onBlur={handleBlur}
-                        required
-                        className={`block w-full text-gray-900 pl-10 pr-12 py-3 border rounded-xl focus:ring-2 focus:border-green-500 transition-colors duration-200 bg-white ${
-                          fieldErrors.password
-                            ? "border-red-300 focus:ring-red-500"
-                            : "border-gray-300 focus:ring-green-500"
-                        }`}
-                        placeholder="••••••••"
-                        disabled={loading}
-                      />
-                      <div className="absolute inset-y-0 right-0 flex items-center">
-                        {fieldErrors.password && (
-                          <button
-                            type="button"
-                            onClick={() => clearFieldError("password")}
-                            className="p-2 text-red-500 hover:text-red-700"
-                          >
-                            <RefreshCw className="w-4 h-4" />
-                          </button>
-                        )}
-                        <button
-                          type="button"
-                          onClick={() => setShowPassword(!showPassword)}
-                          className="p-2 text-gray-400 hover:text-gray-600 transition-colors duration-200"
-                          disabled={loading}
-                        >
-                          {showPassword ? (
-                            <EyeOff className="h-5 w-5" />
-                          ) : (
-                            <Eye className="h-5 w-5" />
-                          )}
-                        </button>
-                      </div>
-                    </div>
-                    {fieldErrors.password ? (
-                      <p className="text-red-600 text-xs mt-1 flex items-center gap-1">
-                        <AlertCircle className="w-3 h-3" />
-                        {fieldErrors.password}
-                      </p>
-                    ) : (
-                      <p className="text-gray-500 text-xs mt-1">
-                        Minimum 6 characters
-                      </p>
-                    )}
-                  </div>
-
-                  {/* Remember Me */}
-                  <div className="flex items-center justify-between">
-                    <label className="flex items-center gap-2 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={rememberMe}
-                        onChange={(e) => setRememberMe(e.target.checked)}
-                        className="w-4 h-4 rounded border-gray-300 text-green-600 focus:ring-green-500"
-                      />
-                      <span
-                        className={`text-sm text-gray-700 ${poppins.className}`}
-                      >
-                        Remember me
                       </span>
+                    )}
+                  </div>
+                  <div className="relative group">
+                    <Mail
+                      className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300 group-focus-within:text-emerald-500 transition-colors"
+                      size={18}
+                    />
+                    <input
+                      type="email"
+                      name="email"
+                      value={formData.email}
+                      onChange={handleInputChange}
+                      onBlur={handleBlur}
+                      className={`w-full bg-slate-100 border-2 rounded-2xl py-4 pl-12 pr-4 text-sm font-bold text-slate-900 transition-all outline-none 
+                        ${fieldErrors.email ? "border-red-200 bg-red-50/30" : "border-transparent focus:bg-white focus:border-emerald-500"}`}
+                      placeholder="e.g. name@company.com"
+                      required
+                    />
+                  </div>
+                </div>
+
+                {/* Password Field */}
+                <div>
+                  <div className="flex justify-between items-end mb-2 ml-1">
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                      Password
                     </label>
                     <a
                       href="/forgot-password"
-                      className={`text-sm text-green-600 hover:text-green-700 ${poppins.className}`}
+                      className="text-[10px] font-bold text-emerald-600 hover:text-emerald-700 uppercase tracking-widest transition-colors"
                     >
-                      Forgot password?
+                      Forgot?
                     </a>
                   </div>
+                  <div className="relative group">
+                    <Lock
+                      className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300 group-focus-within:text-emerald-500 transition-colors"
+                      size={18}
+                    />
+                    <input
+                      type={showPassword ? "text" : "password"}
+                      name="password"
+                      value={formData.password}
+                      onChange={handleInputChange}
+                      onBlur={handleBlur}
+                      className={`w-full bg-slate-100 border-2 rounded-2xl py-4 pl-12 pr-12 text-sm font-bold text-slate-900 transition-all outline-none 
+                        ${fieldErrors.password ? "border-red-200 bg-red-50/30" : "border-transparent focus:bg-white focus:border-emerald-500"}`}
+                      placeholder="••••••••"
+                      required
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-300 hover:text-slate-600 transition-colors"
+                    >
+                      {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                    </button>
+                  </div>
+                </div>
 
-                  {/* Submit Button */}
-                  <motion.button
-                    type="submit"
-                    disabled={loading || hasErrors()}
-                    whileHover={{ scale: loading || hasErrors() ? 1 : 1.02 }}
-                    whileTap={{ scale: loading || hasErrors() ? 1 : 0.98 }}
-                    className="w-full bg-gradient-to-r from-green-600 to-emerald-600 text-white py-4 px-6 rounded-xl font-semibold disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 shadow-lg hover:shadow-xl"
+                <div className="flex items-center gap-3 py-2">
+                  <input
+                    type="checkbox"
+                    id="remember"
+                    checked={rememberMe}
+                    onChange={(e) => setRememberMe(e.target.checked)}
+                    className="w-5 h-5 rounded-lg border-slate-200 text-emerald-600 focus:ring-emerald-500 transition-all cursor-pointer"
+                  />
+                  <label
+                    htmlFor="remember"
+                    className="text-xs font-bold text-slate-500 cursor-pointer select-none"
                   >
-                    <span
-                      className={`${poppins.className} flex items-center justify-center gap-2`}
-                    >
-                      {loading ? (
-                        <>
-                          <motion.div
-                            animate={{ rotate: 360 }}
-                            transition={{
-                              duration: 1,
-                              repeat: Infinity,
-                              ease: "linear",
-                            }}
-                            className="w-5 h-5 border-2 border-white border-t-transparent rounded-full"
-                          />
-                          Signing in...
-                        </>
-                      ) : (
-                        "Sign In"
-                      )}
-                    </span>
-                  </motion.button>
-                </motion.form>
+                    Remember this device
+                  </label>
+                </div>
 
-                {/* Register Link */}
-                <motion.div
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  transition={{ delay: 0.3 }}
-                  className="mt-6 text-center"
+                <motion.button
+                  whileTap={{ scale: 0.98 }}
+                  type="submit"
+                  disabled={loading || hasErrors()}
+                  className="w-full bg-slate-900 hover:bg-emerald-600 text-white font-black py-5 rounded-2xl transition-all duration-300 flex items-center justify-center gap-3 group shadow-2xl shadow-slate-900/10 disabled:opacity-50 disabled:bg-slate-300 disabled:shadow-none"
                 >
-                  <p className={`text-sm text-gray-600 ${poppins.className}`}>
-                    Don't have an account?{" "}
-                    <a
-                      href="/register"
-                      className="text-green-600 font-medium hover:text-green-700"
-                    >
-                      Create one now
-                    </a>
-                  </p>
-                </motion.div>
+                  {loading ? (
+                    <RefreshCw className="animate-spin" size={20} />
+                  ) : (
+                    <>
+                      SIGN IN{" "}
+                      <ArrowRight
+                        size={18}
+                        className="group-hover:translate-x-1 transition-transform"
+                      />
+                    </>
+                  )}
+                </motion.button>
+              </form>
 
-                {/* Support */}
-                <motion.div
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  transition={{ delay: 0.4 }}
-                  className="mt-8 pt-6 border-t border-gray-200"
-                >
-                  <div className="flex items-center justify-center gap-4 text-sm">
-                    <a
-                      href="mailto:support@doza.com"
-                      className="flex items-center gap-2 text-gray-600 hover:text-green-600 transition-colors"
-                    >
-                      <Mail className="w-4 h-4" />
-                      <span className={poppins.className}>
-                        support@doza.com
-                      </span>
-                    </a>
-                    <a
-                      href="tel:+2348127728084"
-                      className="flex items-center gap-2 text-gray-600 hover:text-green-600 transition-colors"
-                    >
-                      <Phone className="w-4 h-4" />
-                      <span className={poppins.className}>Call Support</span>
-                    </a>
-                  </div>
-                </motion.div>
-              </div>
+              <footer className="mt-12 text-center">
+                <p className="text-slate-500 text-sm font-medium">
+                  Don't have an account?{" "}
+                  <a
+                    href="/register"
+                    className="text-emerald-600 font-black hover:underline underline-offset-4"
+                  >
+                    CREATE ONE
+                  </a>
+                </p>
+
+                <div className="mt-12 pt-8 border-t border-slate-100 flex items-center justify-center gap-6">
+                  <button
+                    onClick={() => router.push("/")}
+                    className="text-[10px] font-black text-slate-400 hover:text-slate-900 uppercase tracking-[0.2em] flex items-center gap-2 transition-colors"
+                  >
+                    <ChevronLeft size={14} /> Back to Site
+                  </button>
+                </div>
+              </footer>
             </div>
           </div>
-        </div>
+        </motion.div>
       </div>
-    </>
+    </div>
   );
 };
 

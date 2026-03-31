@@ -1,20 +1,27 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useMemo, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import { Canvas, useFrame } from "@react-three/fiber";
+import {
+  Float,
+  MeshDistortMaterial,
+  PerspectiveCamera,
+} from "@react-three/drei";
+import * as THREE from "three";
 import {
   ChevronDown,
   ChevronUp,
   Mail,
   Send,
   Loader2,
-  HelpCircle,
   X,
-  ChevronLeft,
-  ChevronRight,
   MessageCircle,
-  BookOpen,
   Phone,
+  Search,
+  LifeBuoy,
+  BookOpen,
+  ArrowRight,
 } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -23,72 +30,111 @@ import { authPost } from "@/app/utils/client-auth";
 import { cn } from "@/app/utils/utils";
 import { poppins, bebasNeue } from "@/app/constants";
 
+// --- THREE.JS COMPONENTS ---
+function MedicalCross() {
+  const meshRef = useRef<THREE.Group>(null);
+
+  useFrame((state) => {
+    if (!meshRef.current) return;
+    meshRef.current.rotation.y = state.clock.getElapsedTime() * 0.5;
+  });
+
+  return (
+    <group ref={meshRef}>
+      {/* Vertical Bar */}
+      <mesh>
+        <boxGeometry args={[0.5, 1.5, 0.5]} />
+        <meshStandardMaterial
+          color="#10b981"
+          emissive="#059669"
+          emissiveIntensity={0.5}
+        />
+      </mesh>
+      {/* Horizontal Bar */}
+      <mesh rotation={[0, 0, Math.PI / 2]}>
+        <boxGeometry args={[0.5, 1.5, 0.5]} />
+        <meshStandardMaterial
+          color="#10b981"
+          emissive="#059669"
+          emissiveIntensity={0.5}
+        />
+      </mesh>
+    </group>
+  );
+}
+
+function MedicalScene() {
+  return (
+    <div className="w-full h-full min-h-[300px]">
+      <Canvas>
+        <PerspectiveCamera makeDefault position={[0, 0, 4]} />
+        <ambientLight intensity={0.5} />
+        <pointLight position={[10, 10, 10]} intensity={1} />
+        <Float speed={2} rotationIntensity={1} floatIntensity={2}>
+          <MedicalCross />
+        </Float>
+      </Canvas>
+    </div>
+  );
+}
+
+// --- DATA & SCHEMAS ---
 const faqs = [
   {
-    category: "General",
+    category: "System Navigation",
     questions: [
       {
         q: "How do I add health records?",
-        a: 'Go to Health Tracker and click "Add Record". Fill in the details and save.',
+        a: 'Navigate to the Health Tracker module and click "Add Record". Fill in the clinical details and sync to your profile.',
       },
       {
         q: "Can I share my data with family?",
-        a: "Yes, in Settings you can enable sharing with family members.",
+        a: "Yes. Within Core Settings, you can authorize family members to view specific health data streams.",
       },
     ],
   },
   {
-    category: "Appointments",
+    category: "Medical Services",
     questions: [
       {
         q: "How do I book an appointment?",
-        a: 'Visit Doza Medics, search for a doctor, and click "Book Appointment".',
+        a: "Visit the Doza Medics portal, filter by specialization, and select an available slot for booking.",
       },
       {
         q: "How do I cancel an appointment?",
-        a: "Go to Appointments, select the appointment, and click Cancel.",
-      },
-    ],
-  },
-  {
-    category: "Privacy & Security",
-    questions: [
-      {
-        q: "Is my data secure?",
-        a: "Absolutely. We use Firebase security rules and encryption.",
-      },
-      {
-        q: "Can I delete my account?",
-        a: "Yes, contact support and we'll assist you.",
+        a: "Locate your scheduled slot in the Appointments panel and initiate the 'Revoke' action.",
       },
     ],
   },
 ];
 
 const supportSchema = z.object({
-  name: z.string().min(1, "Name is required"),
-  email: z.string().email("Invalid email"),
-  message: z.string().min(10, "Message must be at least 10 characters"),
+  name: z.string().min(1, "Identity required"),
+  email: z.string().email("Invalid communication address"),
+  message: z.string().min(10, "Detail required (min 10 chars)"),
 });
 
 type SupportForm = z.infer<typeof supportSchema>;
 
 export default function HelpPanel() {
-  const [openFaq, setOpenFaq] = useState<{
-    categoryIdx: number;
-    qIdx: number;
-  } | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [openFaq, setOpenFaq] = useState<string | null>(null);
   const [submitted, setSubmitted] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
-  const [helpSlide, setHelpSlide] = useState(0);
 
-  useEffect(() => {
-    const hasSeenHelp = localStorage.getItem("doza_help_help");
-    if (!hasSeenHelp) {
-      setShowHelp(true);
-      localStorage.setItem("doza_help_help", "true");
-    }
-  }, []);
+  const filteredFaqs = useMemo(() => {
+    if (!searchQuery) return faqs;
+    return faqs
+      .map((cat) => ({
+        ...cat,
+        questions: cat.questions.filter(
+          (q) =>
+            q.q.toLowerCase().includes(searchQuery.toLowerCase()) ||
+            q.a.toLowerCase().includes(searchQuery.toLowerCase()),
+        ),
+      }))
+      .filter((cat) => cat.questions.length > 0);
+  }, [searchQuery]);
 
   const {
     register,
@@ -106,336 +152,239 @@ export default function HelpPanel() {
         setSubmitted(true);
         reset();
         setTimeout(() => setSubmitted(false), 5000);
-      } else {
-        alert("Error: " + result.error);
       }
     } catch {
-      alert("Failed to send message");
+      alert("Transmission failed");
     }
   };
 
-  const helpSlides = [
-    {
-      icon: <BookOpen className="w-12 h-12 text-emerald-600" />,
-      title: "Browse FAQs",
-      description: "Find answers to common questions, organized by category.",
-    },
-    {
-      icon: <MessageCircle className="w-12 h-12 text-emerald-600" />,
-      title: "Contact support",
-      description:
-        "Fill out the form and we'll get back to you within 24 hours.",
-    },
-    {
-      icon: <Phone className="w-12 h-12 text-emerald-600" />,
-      title: "Emergency?",
-      description:
-        "For urgent issues, please call emergency services directly.",
-    },
-  ];
-
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      className={cn("min-h-screen px-4 py-6 md:p-6 pb-28", poppins.className)}
+    <div
+      className={cn("min-h-screen bg-[#F8FAFC] pb-40 pt-6", poppins.className)}
     >
-      <div className="max-w-5xl mx-auto">
-        {/* Top Banner */}
-        <div className="relative mb-8 overflow-hidden rounded-2xl bg-gradient-to-r from-emerald-600 to-teal-500 text-white shadow-lg">
-          <div className="absolute inset-0 bg-black/10" />
-          <div className="relative z-10 flex flex-col md:flex-row items-center justify-between p-6 md:p-8">
-            <div className="flex items-center gap-4 mb-4 md:mb-0">
-              <HelpCircle className="w-12 h-12 text-white/90" />
+      <div className="max-w-6xl mx-auto px-4 md:px-6">
+        {/* --- HERO SECTION --- */}
+        <section className="relative rounded-[32px] md:rounded-[40px] bg-slate-900 overflow-hidden mb-12 shadow-2xl border border-white/5">
+          <div className="absolute top-0 right-0 w-1/2 h-full bg-gradient-to-l from-emerald-500/10 to-transparent" />
+
+          <div className="relative z-10 p-8 md:p-16 flex flex-col lg:flex-row items-center justify-between gap-8">
+            <div className="flex-1 text-center lg:text-left w-full">
+              <div className="flex items-center gap-2 mb-6 justify-center lg:justify-start">
+                <span className="h-[2px] w-6 bg-emerald-500" />
+                <span className="text-[10px] font-black text-emerald-400 uppercase tracking-[0.3em]">
+                  Support Protocol
+                </span>
+              </div>
+              <h1
+                className={cn(
+                  "text-5xl md:text-7xl lg:text-8xl text-white mb-8 leading-[0.9]",
+                  bebasNeue.className,
+                )}
+              >
+                HOW CAN WE <span className="text-emerald-500">ASSIST?</span>
+              </h1>
+
+              <div className="relative max-w-xl group mx-auto lg:mx-0">
+                <Search className="absolute left-5 top-1/2 -translate-y-1/2 w-5 h-5 text-emerald-500" />
+                <input
+                  type="text"
+                  placeholder="Search documentation..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full bg-white/10 border border-white/20 rounded-2xl py-5 pl-14 pr-6 text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white/15 transition-all text-base"
+                />
+              </div>
+            </div>
+
+            {/* 3D Visual - Hidden on small mobile for performance */}
+            <div className="hidden lg:block w-full lg:w-[400px] h-[300px]">
+              <MedicalScene />
+            </div>
+          </div>
+        </section>
+
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-10">
+          {/* --- LEFT: FAQ ACCORDION --- */}
+          <div className="lg:col-span-8 space-y-8 order-2 lg:order-1">
+            <div className="flex items-end justify-between px-2">
               <div>
                 <h2
-                  className={cn(
-                    "text-3xl md:text-5xl font-bold",
-                    bebasNeue.className,
-                  )}
+                  className={cn("text-4xl text-slate-900", bebasNeue.className)}
                 >
-                  Help & Support
+                  Knowledge Base
                 </h2>
-                <p className="text-white/80 text-sm max-w-md">
-                  Find answers to common questions or get in touch with our
-                  support team.
+                <p className="text-sm text-slate-500 font-bold">
+                  Common Inquiries & Resolutions
                 </p>
               </div>
             </div>
-            <button
-              onClick={() => setShowHelp(true)}
-              className="flex items-center gap-2 px-4 py-2 bg-white/20 backdrop-blur-sm rounded-xl hover:bg-white/30 transition min-h-[44px]"
-            >
-              <HelpCircle className="w-4 h-4" />
-              <span>How to use</span>
-            </button>
-          </div>
-        </div>
 
-        <h1
-          className={cn(
-            "text-2xl font-bold text-gray-800 mb-6 flex items-center gap-2",
-            bebasNeue.className,
-          )}
-        >
-          <MessageCircle className="w-6 h-6 text-emerald-600" />
-          How can we help you?
-        </h1>
-
-        {/* FAQ Accordion by Category */}
-        <div className="bg-white border border-gray-200 rounded-xl p-6 shadow-md mb-6">
-          <h2
-            className={cn(
-              "text-lg font-semibold mb-4 flex items-center gap-2 text-gray-800",
-              bebasNeue.className,
-            )}
-          >
-            <BookOpen className="w-5 h-5 text-emerald-600" /> Frequently Asked
-            Questions
-          </h2>
-          <div className="space-y-4">
-            {faqs.map((category, catIdx) => (
-              <div
-                key={catIdx}
-                className="border border-gray-100 rounded-lg overflow-hidden"
-              >
-                <h3 className="bg-gray-50 px-4 py-2 font-medium text-gray-700 text-sm">
-                  {category.category}
-                </h3>
-                <div className="divide-y divide-gray-100">
-                  {category.questions.map((faq, qIdx) => {
-                    const isOpen =
-                      openFaq?.categoryIdx === catIdx && openFaq?.qIdx === qIdx;
-                    return (
-                      <div key={qIdx} className="px-4">
-                        <button
-                          onClick={() =>
-                            setOpenFaq(
-                              isOpen ? null : { categoryIdx: catIdx, qIdx },
-                            )
-                          }
-                          className="flex justify-between items-center w-full text-left py-3 font-medium text-gray-900"
-                        >
-                          {faq.q}
-                          {isOpen ? (
-                            <ChevronUp className="w-4 h-4 text-gray-500" />
-                          ) : (
-                            <ChevronDown className="w-4 h-4 text-gray-500" />
+            <div className="space-y-8">
+              {filteredFaqs.map((category, catIdx) => (
+                <div key={catIdx} className="space-y-4">
+                  <h3 className="text-[11px] font-black text-emerald-600 uppercase tracking-[0.2em] flex items-center gap-2 ml-2">
+                    <BookOpen size={14} /> {category.category}
+                  </h3>
+                  <div className="grid gap-3">
+                    {category.questions.map((faq, qIdx) => {
+                      const id = `${catIdx}-${qIdx}`;
+                      const isOpen = openFaq === id;
+                      return (
+                        <div
+                          key={qIdx}
+                          className={cn(
+                            "bg-white border rounded-[24px] transition-all duration-300",
+                            isOpen
+                              ? "border-emerald-500 shadow-xl shadow-emerald-500/5 ring-1 ring-emerald-500"
+                              : "border-slate-200 hover:border-slate-300",
                           )}
-                        </button>
-                        {isOpen && (
-                          <motion.div
-                            initial={{ opacity: 0, height: 0 }}
-                            animate={{ opacity: 1, height: "auto" }}
-                            className="text-gray-600 pb-3"
+                        >
+                          <button
+                            onClick={() => setOpenFaq(isOpen ? null : id)}
+                            className="w-full flex items-center justify-between p-5 md:p-6 text-left"
                           >
-                            {faq.a}
-                          </motion.div>
-                        )}
-                      </div>
-                    );
-                  })}
+                            <span className="font-bold text-slate-800 text-sm md:text-base pr-4 leading-tight">
+                              {faq.q}
+                            </span>
+                            <div
+                              className={cn(
+                                "flex-shrink-0 w-8 h-8 rounded-xl flex items-center justify-center transition-all",
+                                isOpen
+                                  ? "bg-emerald-500 text-white rotate-180"
+                                  : "bg-slate-100 text-slate-500",
+                              )}
+                            >
+                              <ChevronDown size={18} />
+                            </div>
+                          </button>
+                          <AnimatePresence>
+                            {isOpen && (
+                              <motion.div
+                                initial={{ height: 0, opacity: 0 }}
+                                animate={{ height: "auto", opacity: 1 }}
+                                exit={{ height: 0, opacity: 0 }}
+                                className="overflow-hidden"
+                              >
+                                <div className="px-6 pb-6 pt-2 text-slate-600 text-sm md:text-base leading-relaxed border-t border-slate-50 mx-6">
+                                  {faq.a}
+                                </div>
+                              </motion.div>
+                            )}
+                          </AnimatePresence>
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
+              ))}
+            </div>
+          </div>
+
+          {/* --- RIGHT: CONTACT SIDEBAR --- */}
+          <div className="lg:col-span-4 order-1 lg:order-2">
+            <div className="bg-white rounded-[32px] md:rounded-[40px] p-6 md:p-8 border border-slate-200 shadow-xl sticky top-8">
+              <div className="mb-8 text-center">
+                <div className="w-16 h-16 bg-slate-900 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg">
+                  <Send className="w-6 h-6 text-emerald-400 -rotate-12" />
+                </div>
+                <h2
+                  className={cn("text-3xl text-slate-900", bebasNeue.className)}
+                >
+                  Direct Support
+                </h2>
+                <p className="text-emerald-600 text-[10px] font-black uppercase tracking-widest mt-1">
+                  24/7 Response Guaranteed
+                </p>
               </div>
-            ))}
+
+              {submitted ? (
+                <motion.div
+                  initial={{ scale: 0.9 }}
+                  animate={{ scale: 1 }}
+                  className="text-center py-10 bg-emerald-50 rounded-3xl border border-emerald-200"
+                >
+                  <Mail className="w-8 h-8 text-emerald-600 mx-auto mb-3" />
+                  <p className="font-black text-emerald-900 text-[10px] uppercase tracking-widest px-4">
+                    Ticket Synchronized
+                  </p>
+                </motion.div>
+              ) : (
+                <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+                  <div className="space-y-1">
+                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-2">
+                      Your Name
+                    </label>
+                    <input
+                      {...register("name")}
+                      className="w-full bg-slate-50 border border-slate-100 rounded-xl p-4 focus:bg-white focus:ring-2 focus:ring-emerald-500 outline-none text-sm font-bold transition-all"
+                    />
+                    {errors.name && (
+                      <p className="text-rose-600 text-[9px] font-bold ml-2 uppercase">
+                        {errors.name.message}
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-2">
+                      Email Address
+                    </label>
+                    <input
+                      type="email"
+                      {...register("email")}
+                      className="w-full bg-slate-50 border border-slate-100 rounded-xl p-4 focus:bg-white focus:ring-2 focus:ring-emerald-500 outline-none text-sm font-bold transition-all"
+                    />
+                    {errors.email && (
+                      <p className="text-rose-600 text-[9px] font-bold ml-2 uppercase">
+                        {errors.email.message}
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-2">
+                      Detailed Inquiry
+                    </label>
+                    <textarea
+                      {...register("message")}
+                      rows={4}
+                      className="w-full bg-slate-50 border border-slate-100 rounded-xl p-4 focus:bg-white focus:ring-2 focus:ring-emerald-500 outline-none text-sm font-bold transition-all resize-none"
+                    />
+                    {errors.message && (
+                      <p className="text-rose-600 text-[9px] font-bold ml-2 uppercase">
+                        {errors.message.message}
+                      </p>
+                    )}
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={isSubmitting}
+                    className="w-full bg-slate-900 text-white font-black py-5 rounded-2xl hover:bg-emerald-600 transition-all shadow-lg active:scale-95 disabled:opacity-50 flex items-center justify-center gap-3"
+                  >
+                    {isSubmitting ? (
+                      <Loader2 className="w-5 h-5 animate-spin" />
+                    ) : (
+                      <>
+                        <span className="text-[11px] uppercase tracking-[0.2em]">
+                          Open Ticket
+                        </span>
+                        <ArrowRight size={16} />
+                      </>
+                    )}
+                  </button>
+                </form>
+              )}
+
+              <div className="mt-8 pt-6 border-t border-slate-100 flex justify-around text-slate-400">
+                <Phone className="w-5 h-5 cursor-pointer hover:text-emerald-600 transition-colors" />
+                <MessageCircle className="w-5 h-5 cursor-pointer hover:text-emerald-600 transition-colors" />
+                <Mail className="w-5 h-5 cursor-pointer hover:text-emerald-600 transition-colors" />
+              </div>
+            </div>
           </div>
         </div>
-
-        {/* Contact Form */}
-        <div className="bg-white border border-gray-200 rounded-xl p-6 shadow-md">
-          <h2
-            className={cn(
-              "text-lg font-semibold mb-4 flex items-center gap-2 text-gray-800",
-              bebasNeue.className,
-            )}
-          >
-            <Send className="w-5 h-5 text-emerald-600" /> Contact Support
-          </h2>
-          {submitted ? (
-            <div className="bg-green-100 text-green-700 p-6 rounded-lg text-center">
-              <Mail className="w-12 h-12 mx-auto mb-3 text-green-600" />
-              <p className="font-medium text-lg">Your message has been sent!</p>
-              <p className="text-sm mt-1">
-                We'll get back to you within 24 hours.
-              </p>
-            </div>
-          ) : (
-            <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Name
-                  </label>
-                  <input
-                    {...register("name")}
-                    className="w-full px-4 py-2 border border-gray-200 rounded-xl focus:ring-2 focus:ring-emerald-500 text-gray-900"
-                  />
-                  {errors.name && (
-                    <p className="text-red-500 text-sm mt-1">
-                      {errors.name.message}
-                    </p>
-                  )}
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Email
-                  </label>
-                  <input
-                    type="email"
-                    {...register("email")}
-                    className="w-full px-4 py-2 border border-gray-200 rounded-xl focus:ring-2 focus:ring-emerald-500 text-gray-900"
-                  />
-                  {errors.email && (
-                    <p className="text-red-500 text-sm mt-1">
-                      {errors.email.message}
-                    </p>
-                  )}
-                </div>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Message
-                </label>
-                <textarea
-                  {...register("message")}
-                  rows={4}
-                  className="w-full px-4 py-2 border border-gray-200 rounded-xl focus:ring-2 focus:ring-emerald-500 text-gray-900"
-                />
-                {errors.message && (
-                  <p className="text-red-500 text-sm mt-1">
-                    {errors.message.message}
-                  </p>
-                )}
-              </div>
-              <button
-                type="submit"
-                disabled={isSubmitting}
-                className="flex items-center gap-2 px-6 py-3 bg-emerald-600 text-white rounded-xl hover:bg-emerald-700 disabled:opacity-50 transition shadow-md min-h-[44px]"
-              >
-                {isSubmitting && <Loader2 className="w-4 h-4 animate-spin" />}
-                Send Message
-              </button>
-            </form>
-          )}
-        </div>
-
-        {/* Help Carousel Modal */}
-        <AnimatePresence>
-          {showHelp && (
-            <Modal onClose={() => setShowHelp(false)}>
-              <div className="flex items-center justify-between mb-6">
-                <h2
-                  className={cn(
-                    "text-2xl font-bold text-gray-900 flex items-center gap-2",
-                    bebasNeue.className,
-                  )}
-                >
-                  <HelpCircle className="w-6 h-6 text-emerald-600" />
-                  How to use
-                </h2>
-                <button
-                  onClick={() => setShowHelp(false)}
-                  className="p-1 hover:bg-gray-100 rounded-full"
-                >
-                  <X className="w-5 h-5 text-gray-500" />
-                </button>
-              </div>
-
-              <div className="relative">
-                <AnimatePresence mode="wait">
-                  <motion.div
-                    key={helpSlide}
-                    initial={{ opacity: 0, x: 50 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    exit={{ opacity: 0, x: -50 }}
-                    transition={{ duration: 0.3 }}
-                    className="flex flex-col items-center text-center p-4"
-                  >
-                    <div className="w-20 h-20 bg-emerald-50 rounded-full flex items-center justify-center mb-4">
-                      {helpSlides[helpSlide].icon}
-                    </div>
-                    <h3 className="text-xl font-semibold text-gray-800 mb-2">
-                      {helpSlides[helpSlide].title}
-                    </h3>
-                    <p className="text-gray-600">
-                      {helpSlides[helpSlide].description}
-                    </p>
-                  </motion.div>
-                </AnimatePresence>
-
-                <div className="flex justify-center gap-2 mt-6">
-                  {helpSlides.map((_, idx) => (
-                    <button
-                      key={idx}
-                      onClick={() => setHelpSlide(idx)}
-                      className={cn(
-                        "w-2 h-2 rounded-full transition",
-                        idx === helpSlide
-                          ? "bg-emerald-600 w-4"
-                          : "bg-gray-300",
-                      )}
-                    />
-                  ))}
-                </div>
-
-                <button
-                  onClick={() =>
-                    setHelpSlide((prev) =>
-                      prev === 0 ? helpSlides.length - 1 : prev - 1,
-                    )
-                  }
-                  className="absolute left-0 top-1/2 -translate-y-1/2 p-1 bg-gray-100 rounded-full hover:bg-gray-200"
-                >
-                  <ChevronLeft className="w-5 h-5 text-gray-600" />
-                </button>
-                <button
-                  onClick={() =>
-                    setHelpSlide((prev) =>
-                      prev === helpSlides.length - 1 ? 0 : prev + 1,
-                    )
-                  }
-                  className="absolute right-0 top-1/2 -translate-y-1/2 p-1 bg-gray-100 rounded-full hover:bg-gray-200"
-                >
-                  <ChevronRight className="w-5 h-5 text-gray-600" />
-                </button>
-              </div>
-
-              <button
-                onClick={() => setShowHelp(false)}
-                className="mt-8 w-full px-4 py-2 bg-emerald-600 text-white rounded-xl hover:bg-emerald-700 min-h-[44px]"
-              >
-                Get Started
-              </button>
-            </Modal>
-          )}
-        </AnimatePresence>
       </div>
-    </motion.div>
+    </div>
   );
 }
-
-const Modal = ({
-  children,
-  onClose,
-}: {
-  children: React.ReactNode;
-  onClose: () => void;
-}) => (
-  <motion.div
-    initial={{ opacity: 0 }}
-    animate={{ opacity: 1 }}
-    exit={{ opacity: 0 }}
-    className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4"
-    onClick={onClose}
-  >
-    <motion.div
-      initial={{ scale: 0.95, y: 10 }}
-      animate={{ scale: 1, y: 0 }}
-      exit={{ scale: 0.95, y: 10 }}
-      className="bg-white rounded-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto p-6 shadow-2xl"
-      onClick={(e) => e.stopPropagation()}
-    >
-      {children}
-    </motion.div>
-  </motion.div>
-);

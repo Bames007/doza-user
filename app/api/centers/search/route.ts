@@ -1,158 +1,162 @@
 import { NextRequest, NextResponse } from "next/server";
 import { adminDb } from "@/app/utils/firebaseAdmin";
 
-// Simple in‑memory cache with TTL
-const cache = new Map();
-const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
-
-const haversineDistance = (
+// ----------------------------------------------------------------------
+// Haversine distance (km)
+// ----------------------------------------------------------------------
+function getDistance(
   lat1: number,
-  lon1: number,
+  lng1: number,
   lat2: number,
-  lon2: number,
-) => {
+  lng2: number,
+): number {
+  const toRad = (val: number) => (val * Math.PI) / 180;
   const R = 6371;
-  const dLat = ((lat2 - lat1) * Math.PI) / 180;
-  const dLon = ((lon2 - lon1) * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
   const a =
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos((lat1 * Math.PI) / 180) *
-      Math.cos((lat2 * Math.PI) / 180) *
-      Math.sin(dLon / 2) *
-      Math.sin(dLon / 2);
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   return R * c;
-};
+}
 
-export async function GET(req: NextRequest) {
+// ----------------------------------------------------------------------
+// Main search endpoint
+// ----------------------------------------------------------------------
+export async function GET(request: NextRequest) {
+  const { searchParams } = new URL(request.url);
+  const query = searchParams.get("query")?.trim().toLowerCase() || "";
+  const type = searchParams.get("type") || "service"; // service | drug | test
+  const lat = parseFloat(searchParams.get("lat") || "0");
+  const lng = parseFloat(searchParams.get("lng") || "0");
+  const radius = parseInt(searchParams.get("radius") || "50");
+
+  if (isNaN(lat) || isNaN(lng)) {
+    return NextResponse.json(
+      { success: false, error: "Invalid location" },
+      { status: 400 },
+    );
+  }
+
   try {
-    const { searchParams } = new URL(req.url);
-    const query = searchParams.get("q")?.toLowerCase().trim() || "";
-    const type = searchParams.get("type") || "service";
-    const lat = parseFloat(searchParams.get("lat") || "0");
-    const lng = parseFloat(searchParams.get("lng") || "0");
-    const maxDistance = parseFloat(searchParams.get("maxDistance") || "50");
-
-    const hasValidLocation =
-      lat !== 0 && lng !== 0 && !isNaN(lat) && !isNaN(lng);
-
-    // 1. Check cache for centers data
-    let centers = cache.get("centers");
-    if (!centers) {
-      console.log("Fetching centers from Firebase...");
-      const centersRef = adminDb.ref("doza_centers");
-      const snapshot = await centersRef.get();
-      centers = snapshot.val() || {};
-      cache.set("centers", centers);
-      setTimeout(() => cache.delete("centers"), CACHE_TTL);
-    } else {
-      console.log("Using cached centers");
-    }
+    // Fetch all centers once
+    const centersRef = adminDb.ref("doza_centers");
+    const snapshot = await centersRef.get();
+    const allCenters = snapshot.val() || {};
 
     const results: any[] = [];
 
-    // 2. Iterate over centers (same as before)
-    Object.entries(centers).forEach(([centerId, center]: [string, any]) => {
-      if (!center.location) return;
+    // Iterate through each registered center
+    for (const [centerId, center] of Object.entries(allCenters) as any) {
+      // Skip malformed entries (must have location and name)
+      const centerLat = center.location?.lat;
+      const centerLng = center.location?.lng;
+      if (!centerLat || !centerLng || !center.centerName) continue;
 
-      const centerLat = center.location.lat;
-      const centerLng = center.location.lng;
+      // Filter by distance
+      const distance = getDistance(lat, lng, centerLat, centerLng);
+      if (distance > radius) continue;
 
-      let distance = null;
-      if (
-        hasValidLocation &&
-        centerLat &&
-        centerLng &&
-        centerLat !== 0 &&
-        centerLng !== 0
-      ) {
-        distance = haversineDistance(lat, lng, centerLat, centerLng);
-        if (distance > maxDistance) return;
-      }
+      let matches: any[] = [];
 
-      const matches: any[] = [];
-
-      // Search drugs
-      if (type === "drug" && center.products) {
-        Object.entries(center.products).forEach(
-          ([productId, product]: [string, any]) => {
-            const name = (product.name || "").toLowerCase();
-            const generic = (product.genericName || "").toLowerCase();
-            if (name.includes(query) || generic.includes(query)) {
-              matches.push({
-                type: "drug",
-                id: productId,
-                name: product.name,
-                price: product.sellingPrice,
-                unit: product.unit,
-                inStock: (product.quantity || 0) > 0,
-              });
-            }
-          },
-        );
-      }
-
-      // Search services
+      // ------------------------------------------------------------------
+      // 1. Services (any center can have services)
+      // ------------------------------------------------------------------
       if (type === "service" && center.services) {
-        Object.entries(center.services).forEach(
-          ([serviceId, service]: [string, any]) => {
-            const name = (service.name || "").toLowerCase();
-            const desc = (service.description || "").toLowerCase();
-            if (name.includes(query) || desc.includes(query)) {
-              matches.push({
-                type: "service",
-                id: serviceId,
-                name: service.name,
-                price: service.price,
-                duration: service.duration,
-              });
-            }
-          },
-        );
+        for (const [serviceId, service] of Object.entries(
+          center.services,
+        ) as any) {
+          const name = (service.name || "").toLowerCase();
+          const desc = (service.description || "").toLowerCase();
+          const category = (service.category || "").toLowerCase();
+          if (
+            name.includes(query) ||
+            desc.includes(query) ||
+            category.includes(query)
+          ) {
+            matches.push({
+              id: serviceId,
+              name: service.name,
+              price: service.price,
+              description: service.description,
+              type: "service",
+            });
+          }
+        }
       }
 
-      // Search lab tests
-      if (type === "test" && center.lab_tests) {
-        Object.entries(center.lab_tests).forEach(
-          ([testId, test]: [string, any]) => {
-            const testName = (test.testType || "").toLowerCase();
-            if (testName.includes(query)) {
+      // ------------------------------------------------------------------
+      // 2. Drugs (products)
+      // ------------------------------------------------------------------
+      if (type === "drug" && center.products) {
+        for (const [productId, product] of Object.entries(
+          center.products,
+        ) as any) {
+          const name = (product.name || "").toLowerCase();
+          const generic = (product.genericName || "").toLowerCase();
+          const category = (product.category || "").toLowerCase();
+          const brand = (product.brand || "").toLowerCase();
+          if (
+            name.includes(query) ||
+            generic.includes(query) ||
+            category.includes(query) ||
+            brand.includes(query)
+          ) {
+            matches.push({
+              id: productId,
+              name: product.name,
+              price: product.sellingPrice || product.unitPrice,
+              description: product.description,
+              type: "drug",
+              unit: product.unit,
+              prescriptionRequired: product.prescriptionRequired,
+            });
+          }
+        }
+      }
+
+      // ------------------------------------------------------------------
+      // 3. Lab Tests
+      // ------------------------------------------------------------------
+      if (type === "test") {
+        const labTests = center.lab_tests || center.labTests;
+        if (labTests) {
+          for (const [testId, test] of Object.entries(labTests) as any) {
+            const testName = (test.testType || test.name || "").toLowerCase();
+            const description = (test.description || "").toLowerCase();
+            if (testName.includes(query) || description.includes(query)) {
               matches.push({
-                type: "test",
                 id: testId,
-                name: test.testType,
+                name: test.testType || test.name,
                 price: test.price,
+                description: test.description,
+                type: "test",
               });
             }
-          },
-        );
+          }
+        }
       }
 
-      if (matches.length === 0) return;
+      // If this center has matches, add it to the results
+      if (matches.length > 0) {
+        results.push({
+          centerId,
+          centerName: center.centerName,
+          centerType: center.centerType,
+          location: { lat: centerLat, lng: centerLng },
+          address: center.location?.address,
+          phone: center.contact?.phone,
+          email: center.contact?.email,
+          operatingHours: center.operatingHours,
+          distance: Math.round(distance * 10) / 10,
+          matches: matches.slice(0, 5), // limit to 5 per center
+        });
+      }
+    }
 
-      results.push({
-        centerId,
-        centerName: center.centerName,
-        centerType: center.centerType,
-        address: center.location.address,
-        phone: center.contact?.phone,
-        email: center.contact?.email,
-        website: center.contact?.website,
-        logo: center.logo,
-        operatingHours: center.operatingHours,
-        distance: distance ? Math.round(distance * 10) / 10 : null,
-        location: { lat: centerLat, lng: centerLng },
-        matches,
-      });
-    });
-
-    // 3. Sort results
-    results.sort((a, b) => {
-      if (a.distance === null && b.distance === null) return 0;
-      if (a.distance === null) return 1;
-      if (b.distance === null) return -1;
-      return a.distance - b.distance;
-    });
+    // Sort by distance (nearest first)
+    results.sort((a, b) => a.distance - b.distance);
 
     return NextResponse.json({ success: true, data: results });
   } catch (error) {

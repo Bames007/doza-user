@@ -1,4 +1,5 @@
 // This file defines the API routes for handling individual challenge operations such as fetching details and deleting a challenge. It ensures that only authenticated users can access these routes and that only the creator of a challenge can delete it.
+//api/challenges/[id]/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { verifyIdToken } from "@/app/utils/auth";
 import { adminDb } from "@/app/utils/firebaseAdmin";

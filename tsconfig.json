@@ -2,6 +2,7 @@
   "compilerOptions": {
     "target": "ES2017",
     "lib": ["dom", "dom.iterable", "esnext"],
+    "types": ["web-bluetooth"],
     "allowJs": true,
     "skipLibCheck": true,
     "strict": true,
@@ -29,6 +30,6 @@
     ".next/types/**/*.ts",
     ".next/dev/types/**/*.ts",
     "**/*.mts"
-, "app/api/health-records"  ],
+  ],
   "exclude": ["node_modules"]
 }

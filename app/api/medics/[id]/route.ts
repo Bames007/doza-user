@@ -1,3 +1,4 @@
+//app/api/medics/[id]/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { adminDb } from "@/app/utils/firebaseAdmin";
 

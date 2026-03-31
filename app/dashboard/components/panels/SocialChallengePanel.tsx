@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useEffect, useRef, useMemo, Suspense } from "react";
 import useSWR, { mutate } from "swr";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion, AnimatePresence, Transition } from "framer-motion";
 import {
   Trophy,
   Users,
@@ -31,6 +31,10 @@ import {
   Sparkles,
   Camera,
   Upload,
+  ShieldCheck,
+  Crown,
+  ArrowUpRight,
+  ChevronDown,
 } from "lucide-react";
 import { SubmitHandler, useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -50,7 +54,17 @@ import { cn } from "@/app/utils/utils";
 import { authFetcher, authPost } from "@/app/utils/client-auth";
 import { useUser } from "@/app/dashboard/hooks/useProfile";
 import { poppins, bebasNeue } from "@/app/constants";
+import { Canvas, useFrame } from "@react-three/fiber";
 import { useDashboard } from "../../DashboardContext";
+import * as THREE from "three";
+import { Float, MeshDistortMaterial } from "@react-three/drei";
+
+// ---------- Spring Transition ----------
+const spring: Transition = {
+  type: "spring",
+  stiffness: 200,
+  damping: 20,
+};
 
 // ---------- Types ----------
 type Participant = {
@@ -182,6 +196,36 @@ const badges = [
   },
 ];
 
+// ---------- Helper Components ----------
+const BentoTile = ({ children, className, onClick }: any) => (
+  <motion.div
+    whileHover={{ y: -4 }}
+    transition={spring}
+    onClick={onClick}
+    className={cn(
+      "p-7 rounded-[32px] border border-slate-100 transition-all cursor-pointer bg-white",
+      className,
+    )}
+  >
+    {children}
+  </motion.div>
+);
+
+const StatCard = ({ icon: Icon, label, value, unit, color, bg }: any) => (
+  <div className="p-5 rounded-2xl bg-slate-50 border border-slate-100 flex flex-col">
+    <div className={cn("p-2 rounded-xl w-fit mb-4", bg)}>
+      <Icon size={18} className={color} />
+    </div>
+    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter mb-1">
+      {label}
+    </span>
+    <div className="flex items-baseline gap-1">
+      <span className="text-2xl font-black text-slate-900">{value}</span>
+      <span className="text-[10px] font-bold text-slate-400">{unit}</span>
+    </div>
+  </div>
+);
+
 // ---------- Main Component ----------
 export default function SocialChallengesPanel() {
   const { user, isLoading: userLoading } = useUser();
@@ -213,7 +257,7 @@ export default function SocialChallengesPanel() {
     }
   }, []);
 
-  // Fetch challenges
+  // Data fetching
   const { data: myChallengesData, isLoading: myLoading } = useSWR(
     activeTab === "my" ? "/api/challenges?type=my" : null,
     authFetcher,
@@ -232,7 +276,6 @@ export default function SocialChallengesPanel() {
     { revalidateOnFocus: false, errorRetryCount: 1 },
   );
 
-  // Filter my challenges (safety filter)
   const myChallenges: Challenge[] = myChallengesData?.success
     ? myChallengesData.data.filter(
         (c: Challenge) =>
@@ -246,12 +289,11 @@ export default function SocialChallengesPanel() {
     : [];
   const pendingRequests: any[] = requestsData?.success ? requestsData.data : [];
 
-  // Helper functions
   const isCreator = (challenge: Challenge) => challenge.creatorId === user?.id;
   const isParticipant = (challenge: Challenge) =>
     challenge.participants && !!challenge.participants[user?.id || ""];
 
-  // Filter and sort challenges
+  // Filter challenges
   const now = new Date();
   const filteredChallenges = useMemo(() => {
     let filtered = [
@@ -304,7 +346,33 @@ export default function SocialChallengesPanel() {
     return { joined, created, ongoing, points, badges: earnedBadges };
   }, [myChallenges, user, now]);
 
-  // Create challenge form
+  const leaderboard = useMemo(() => {
+    const userMap = new Map<
+      string,
+      { uid: string; name: string; photo?: string; totalPoints: number }
+    >();
+    [...myChallenges, ...discoverChallenges].forEach((challenge) => {
+      Object.entries(challenge.participants || {}).forEach(([uid, p]) => {
+        const progress = typeof p.progress === "number" ? p.progress : 0;
+        const points = progress * 10;
+        const existing = userMap.get(uid);
+        if (existing) {
+          existing.totalPoints += points;
+        } else {
+          userMap.set(uid, {
+            uid, // ✅ include uid
+            name: p.name || "Anonymous",
+            photo: p.photo,
+            totalPoints: points,
+          });
+        }
+      });
+    });
+    return Array.from(userMap.values())
+      .sort((a, b) => b.totalPoints - a.totalPoints)
+      .slice(0, 5);
+  }, [myChallenges, discoverChallenges]);
+
   const {
     register,
     handleSubmit,
@@ -313,7 +381,7 @@ export default function SocialChallengesPanel() {
     setValue,
     formState: { errors, isSubmitting },
   } = useForm<ChallengeForm>({
-    resolver: zodResolver(challengeSchema),
+    resolver: zodResolver(challengeSchema) as any,
     mode: "onBlur",
     defaultValues: {
       isPublic: true,
@@ -337,7 +405,7 @@ export default function SocialChallengesPanel() {
     }
   }, [watchActivity, setValue]);
 
-  // Mock Unsplash images
+  // Image picker
   const unsplashImages = [
     "https://images.unsplash.com/photo-1530549387789-4c1017266635?w=400",
     "https://images.unsplash.com/photo-1571008887538-b36bb32f1bc6?w=400",
@@ -357,6 +425,32 @@ export default function SocialChallengesPanel() {
     };
     reader.readAsDataURL(file);
   };
+
+  function FloatingTrophy() {
+    // Use null as initial value and specify the Three.js type for better intellisense
+    const mesh = useRef<THREE.Mesh>(null!);
+
+    useFrame((state) => {
+      if (!mesh.current) return; // Safety check
+      const t = state.clock.getElapsedTime();
+      mesh.current.rotation.y = t * 0.5;
+    });
+
+    return (
+      <Float speed={2} rotationIntensity={1} floatIntensity={1}>
+        <mesh ref={mesh}>
+          <octahedronGeometry args={[1, 0]} />
+          <MeshDistortMaterial
+            color="#10b981"
+            speed={2}
+            distort={0.4}
+            radius={1}
+            emissive="#059669"
+          />
+        </mesh>
+      </Float>
+    );
+  }
 
   const onCreateChallenge: SubmitHandler<ChallengeForm> = async (data) => {
     try {
@@ -457,7 +551,6 @@ export default function SocialChallengesPanel() {
   const commentForm = useForm<CommentForm>({
     resolver: zodResolver(commentSchema),
   });
-
   const onAddComment = async (data: CommentForm) => {
     if (!selectedChallenge) return;
     try {
@@ -557,7 +650,7 @@ export default function SocialChallengesPanel() {
 
   if (isLoading) {
     return (
-      <div className="max-w-6xl mx-auto px-3 pb-24  min-h-screen flex items-center justify-center">
+      <div className="max-w-6xl mx-auto px-3 pb-24 min-h-screen flex items-center justify-center">
         <Loader2 className="w-8 h-8 animate-spin text-emerald-600" />
       </div>
     );
@@ -565,367 +658,651 @@ export default function SocialChallengesPanel() {
 
   if (!user) {
     return (
-      <div className="max-w-6xl mx-auto px-3 pb-24  min-h-screen pt-4 text-center">
+      <div className="max-w-6xl mx-auto px-3 pb-24 min-h-screen pt-4 text-center">
         Unable to load user data
       </div>
     );
   }
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      className={cn(
-        "max-w-6xl mx-auto px-3 pb-24  min-h-screen",
-        poppins.className,
-      )}
-    >
-      {/* Header with help icon */}
-      <div className="pt-4 pb-3 flex items-center justify-between">
-        <div>
-          <h1
-            className={cn(
-              "text-2xl sm:text-3xl font-bold text-gray-800",
-              bebasNeue.className,
-            )}
-          >
-            Social Challenges
-          </h1>
-          <p className="text-xs sm:text-sm text-emerald-600 mt-0.5">
-            Compete, connect, conquer
-          </p>
-        </div>
-        <button
-          onClick={() => setShowHelp(true)}
-          className="w-9 h-9 bg-white rounded-full flex items-center justify-center shadow-sm border border-gray-200 active:bg-gray-50"
-          aria-label="How to use"
-        >
-          <HelpCircle className="w-5 h-5 text-emerald-600" />
-        </button>
-      </div>
-
-      {/* User Stats Card */}
-      <div className="bg-white border border-gray-100 rounded-2xl p-3 shadow-sm mb-4">
-        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
-          {user.avatar ? (
-            <img
-              src={user.avatar}
-              alt={user.fullName}
-              className="w-12 h-12 rounded-full border-2 border-emerald-200 object-cover"
-            />
-          ) : (
-            <div className="w-12 h-12 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-700 text-xl font-bold border-2 border-emerald-200">
-              {user.fullName.charAt(0)}
+    <div className="min-h-screen bg-[#F8FAFC] pb-32 pt-6">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 space-y-6">
+        {/* Header */}
+        <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white p-8 rounded-[32px] border border-slate-200/60 shadow-sm">
+          <div>
+            <div className="flex items-center gap-2 mb-1">
+              <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.2em]">
+                Challenge Sync Active
+              </p>
             </div>
-          )}
-          <div className="flex-1 w-full">
-            <h3
+            <h1
               className={cn(
-                "text-base font-semibold text-gray-900",
+                "text-4xl md:text-5xl text-slate-900 leading-none",
                 bebasNeue.className,
               )}
             >
-              {user.fullName}
-            </h3>
-            <div className="grid grid-cols-4 gap-1 mt-2 text-xs">
-              <div className="bg-gray-50 p-1.5 rounded-lg text-center">
-                <p className="text-gray-500">Joined</p>
-                <p className="font-bold text-gray-900">{userStats.joined}</p>
-              </div>
-              <div className="bg-gray-50 p-1.5 rounded-lg text-center">
-                <p className="text-gray-500">Created</p>
-                <p className="font-bold text-gray-900">{userStats.created}</p>
-              </div>
-              <div className="bg-gray-50 p-1.5 rounded-lg text-center">
-                <p className="text-gray-500">Ongoing</p>
-                <p className="font-bold text-gray-900">{userStats.ongoing}</p>
-              </div>
-              <div className="bg-gray-50 p-1.5 rounded-lg text-center">
-                <p className="text-gray-500">Points</p>
-                <p className="font-bold text-emerald-600">{userStats.points}</p>
-              </div>
-            </div>
-            <div className="mt-2 flex flex-wrap gap-1">
-              {userStats.badges.length > 0 ? (
-                userStats.badges.map((b) => {
-                  const badge = badges.find((bd) => bd.name === b);
-                  if (!badge) return null;
-                  const Icon = badge.icon;
-                  return (
-                    <span
-                      key={b}
-                      className={cn(
-                        "flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px]",
-                        badge.bg,
-                        badge.color,
-                      )}
-                    >
-                      <Icon className="w-3 h-3" />
-                      {b}
-                    </span>
-                  );
-                })
-              ) : (
-                <span className="text-xs text-gray-400">No badges yet</span>
-              )}
-            </div>
+              Social <span className="text-emerald-600">Challenges</span>
+            </h1>
           </div>
-        </div>
-      </div>
+          <button
+            onClick={() => setShowHelp(true)}
+            className="h-12 w-12 flex items-center justify-center bg-slate-50 rounded-2xl text-slate-400 hover:text-emerald-600 transition-colors border border-slate-100"
+          >
+            <HelpCircle size={20} />
+          </button>
+        </header>
 
-      {/* Shop Banner */}
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.1 }}
-        onClick={() => setActivePanel("doza-sport-shop")}
-        className="relative mb-4 overflow-hidden rounded-2xl bg-gradient-to-r from-emerald-600/80 to-teal-500/80 shadow-md cursor-pointer active:scale-[0.98] transition-transform"
-        style={{ height: 100 }}
-      >
+        {/* Stats & Leaderboard Row */}
         <div
-          className="absolute inset-0 bg-cover bg-center opacity-20"
-          style={{ backgroundImage: "url('/assets/shop/smart_watch.jpg')" }}
-        />
-        <div className="absolute inset-0 bg-gradient-to-r from-emerald-600 to-teal-500 opacity-40 group-hover:opacity-50 transition" />
-        <div className="relative z-10 h-full flex items-center justify-between px-4 text-white">
-          <div className="flex items-center gap-3 min-w-0">
-            <div className="truncate">
-              <h2
-                className={cn(
-                  "text-lg font-bold truncate",
-                  bebasNeue.className,
-                )}
-              >
-                Doza Sport Shop
-              </h2>
-              <p className="text-sm text-white/80 truncate">
-                Gear up with the latest sport equipment
-              </p>
-            </div>
-          </div>
-          <ChevronRight className="w-5 h-5 shrink-0" />
-        </div>
-      </motion.div>
-
-      {/* Header with actions */}
-      <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
-        <h2
           className={cn(
-            "text-base font-semibold text-gray-800 flex items-center gap-2",
-            bebasNeue.className,
+            "grid grid-cols-1 lg:grid-cols-12 gap-6 p-4",
+            poppins.className,
           )}
         >
-          <Activity className="w-4 h-4 text-emerald-600" />
-          Challenge Hub
-        </h2>
-        <div className="flex gap-2">
-          <button
-            onClick={() => setShowJoinCodeModal(true)}
-            className="flex items-center gap-2 px-3 py-1.5 bg-white border border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 transition shadow-sm text-xs"
-          >
-            <Lock className="w-4 h-4" />
-            <span className="hidden xs:inline">Join with Code</span>
-          </button>
-          <button
-            onClick={() => setShowCreateModal(true)}
-            className="flex items-center gap-2 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl transition shadow-sm text-xs"
-          >
-            <Plus className="w-4 h-4" />
-            <span className="hidden xs:inline">Create</span>
-          </button>
-        </div>
-      </div>
-
-      {/* Tabs */}
-      <div className="flex border-b border-gray-200 mb-3 overflow-x-auto pb-1">
-        {[
-          { id: "discover", label: "Discover", icon: Globe, badge: 0 },
-          { id: "my", label: "My Challenges", icon: Users, badge: 0 },
-          {
-            id: "requests",
-            label: "Requests",
-            icon: UserPlus,
-            badge: pendingRequests.length,
-          },
-        ].map((tab) => {
-          const Icon = tab.icon;
-          return (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id as any)}
-              className={cn(
-                "flex items-center gap-2 px-3 py-2 text-xs font-medium border-b-2 transition whitespace-nowrap relative",
-                activeTab === tab.id
-                  ? "border-emerald-600 text-emerald-700"
-                  : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300",
-              )}
+          {/* LEFT: USER PERFORMANCE PANEL (8 Columns) */}
+          <div className="lg:col-span-8 space-y-6">
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="relative bg-white rounded-[32px] p-8 border border-slate-100 shadow-xl overflow-hidden group"
             >
-              <Icon className="w-4 h-4" />
-              {tab.label}
-              {tab.badge > 0 && (
-                <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] rounded-full w-4 h-4 flex items-center justify-center">
-                  {tab.badge}
-                </span>
-              )}
-            </button>
-          );
-        })}
-      </div>
+              {/* 3D Visual Element inside the Bento Tile */}
+              <div className="absolute top-0 right-0 w-48 h-48 opacity-40 group-hover:opacity-100 transition-opacity pointer-events-none">
+                <Canvas camera={{ position: [0, 0, 4] }}>
+                  <ambientLight intensity={0.5} />
+                  <pointLight position={[10, 10, 10]} />
+                  <Suspense fallback={null}>
+                    <FloatingTrophy />
+                  </Suspense>
+                </Canvas>
+              </div>
 
-      {/* Search & filter (discover) */}
-      {activeTab === "discover" && (
-        <div className="bg-white border border-gray-100 rounded-2xl p-3 shadow-sm mb-4">
-          <div className="flex flex-col md:flex-row gap-2">
-            <div className="flex-1 relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
-              <input
-                type="text"
-                placeholder="Search challenges..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="w-full pl-9 pr-3 py-2 text-sm border border-gray-200 rounded-xl focus:ring-2 focus:ring-emerald-500 text-gray-900 placeholder:text-gray-400"
-              />
-            </div>
-            <div className="w-full md:w-36">
-              <select
-                value={selectedActivity}
-                onChange={(e) => setSelectedActivity(e.target.value)}
-                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl focus:ring-2 focus:ring-emerald-500 text-gray-900"
-              >
-                <option value="">All activities</option>
-                {activityOptions.map((act) => (
-                  <option key={act.value} value={act.value}>
-                    {act.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="w-full md:w-32">
-              <select
-                value={monthFilter}
-                onChange={(e) => setMonthFilter(e.target.value)}
-                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl focus:ring-2 focus:ring-emerald-500 text-gray-900"
-              >
-                <option value="all">All months</option>
-                {Array.from({ length: 12 }, (_, i) => {
-                  const date = new Date(now.getFullYear(), i, 1);
+              <div className="relative z-10 flex flex-col md:flex-row items-center md:items-start gap-8">
+                {/* Avatar Section */}
+                <div className="relative">
+                  <div className="w-24 h-24 rounded-[28px] bg-emerald-50 border-4 border-white shadow-lg overflow-hidden flex items-center justify-center">
+                    {user.avatar ? (
+                      <img
+                        src={user.avatar}
+                        className="w-full h-full object-cover"
+                        alt=""
+                      />
+                    ) : (
+                      <span
+                        className={cn(
+                          "text-4xl text-emerald-600 font-bold",
+                          bebasNeue.className,
+                        )}
+                      >
+                        {user.fullName.charAt(0)}
+                      </span>
+                    )}
+                  </div>
+                  <div className="absolute -bottom-2 -right-2 bg-slate-900 text-white p-2 rounded-xl shadow-lg border-2 border-white">
+                    <Crown className="w-4 h-4 text-yellow-400" />
+                  </div>
+                </div>
+
+                {/* User Bio */}
+                <div className="flex-1 text-center md:text-left">
+                  <div className="flex flex-col md:flex-row md:items-center gap-2 md:gap-4 mb-4">
+                    <h2
+                      className={cn(
+                        "text-4xl font-bold text-slate-900",
+                        bebasNeue.className,
+                      )}
+                    >
+                      {user.fullName}
+                    </h2>
+                    <span className="px-3 py-1 bg-emerald-500 text-white text-[10px] font-bold uppercase tracking-widest rounded-full self-center">
+                      PRO LEVEL
+                    </span>
+                  </div>
+
+                  {/* Stat Cards Grid */}
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                    {[
+                      {
+                        icon: Target,
+                        label: "Points",
+                        value: userStats.points,
+                        color: "text-emerald-600",
+                        bg: "bg-emerald-50",
+                      },
+                      {
+                        icon: Activity,
+                        label: "Active",
+                        value: userStats.ongoing,
+                        color: "text-blue-600",
+                        bg: "bg-blue-50",
+                      },
+                      {
+                        icon: Trophy,
+                        label: "Won",
+                        value: userStats.created,
+                        color: "text-amber-600",
+                        bg: "bg-amber-50",
+                      },
+                      {
+                        icon: Users,
+                        label: "Friends",
+                        value: userStats.joined,
+                        color: "text-purple-600",
+                        bg: "bg-purple-50",
+                      },
+                    ].map((stat, i) => (
+                      <div
+                        key={i}
+                        className={cn(
+                          "p-4 rounded-3xl border border-white shadow-sm flex flex-col items-center md:items-start",
+                          stat.bg,
+                        )}
+                      >
+                        <stat.icon className={cn("w-5 h-5 mb-2", stat.color)} />
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter">
+                          {stat.label}
+                        </span>
+                        <span className="text-xl font-bold text-slate-900">
+                          {stat.value}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+
+          {/* RIGHT: ELITE LEADERBOARD (4 Columns) */}
+          <div className="lg:col-span-4">
+            <div className="bg-slate-900 rounded-[32px] p-6 shadow-2xl h-full border border-slate-800 flex flex-col">
+              <div className="flex items-center justify-between mb-8">
+                <div className="flex items-center gap-3">
+                  <div className="bg-emerald-500/20 p-2 rounded-xl">
+                    <Medal className="w-6 h-6 text-emerald-400" />
+                  </div>
+                  <h3
+                    className={cn(
+                      "text-xl text-white font-bold",
+                      bebasNeue.className,
+                    )}
+                  >
+                    Global Elite
+                  </h3>
+                </div>
+                <ArrowUpRight className="w-5 h-5 text-slate-500" />
+              </div>
+
+              <div className="space-y-4 flex-1">
+                {leaderboard.map((entry: any, idx: number) => {
+                  const isTop3 = idx < 3;
+                  const isMe = entry.uid === user.id;
+
                   return (
-                    <option key={i} value={i}>
-                      {date.toLocaleString("default", { month: "short" })}
-                    </option>
+                    <motion.div
+                      key={entry.uid}
+                      whileHover={{ x: 8 }}
+                      className={cn(
+                        "flex items-center gap-4 p-3 rounded-2xl transition-all border",
+                        isMe
+                          ? "bg-emerald-500/10 border-emerald-500/40"
+                          : "bg-white/5 border-transparent",
+                      )}
+                    >
+                      {/* Rank Logic */}
+                      <div className="w-8 flex justify-center">
+                        {idx === 0 ? (
+                          <Star className="w-5 h-5 text-yellow-400 fill-yellow-400" />
+                        ) : idx === 1 ? (
+                          <div className="text-slate-400 font-bold">2</div>
+                        ) : idx === 2 ? (
+                          <div className="text-amber-600 font-bold">3</div>
+                        ) : (
+                          <div className="text-slate-600 text-xs">
+                            {idx + 1}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Avatar */}
+                      <div className="w-10 h-10 rounded-full border-2 border-slate-700 overflow-hidden shrink-0">
+                        <img
+                          src={
+                            entry.photo ||
+                            `https://ui-avatars.com/api/?name=${entry.name}`
+                          }
+                          alt=""
+                        />
+                      </div>
+
+                      {/* Name & Points */}
+                      <div className="flex-1 min-w-0">
+                        <p
+                          className={cn(
+                            "text-sm font-bold truncate",
+                            isMe ? "text-emerald-400" : "text-white",
+                          )}
+                        >
+                          {entry.name}
+                        </p>
+                        <div className="flex items-center gap-1">
+                          <TrendingUp className="w-3 h-3 text-emerald-500" />
+                          <span className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">
+                            Hot Streak
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="text-right">
+                        <p className="text-sm font-black text-white">
+                          {entry.totalPoints}
+                        </p>
+                        <p className="text-[10px] font-bold text-emerald-500 uppercase">
+                          Pts
+                        </p>
+                      </div>
+                    </motion.div>
                   );
                 })}
-              </select>
+              </div>
+
+              <button className="mt-6 w-full py-4 bg-emerald-600 hover:bg-emerald-500 text-white rounded-2xl text-xs font-bold uppercase tracking-widest transition-colors">
+                View Full Rankings
+              </button>
             </div>
           </div>
         </div>
-      )}
 
-      {/* Ongoing Challenges */}
-      {filteredChallenges.ongoing.length > 0 && (
-        <div className="mb-4">
-          <h2
-            className={cn(
-              "text-sm font-semibold text-gray-800 mb-2 flex items-center gap-2",
-              bebasNeue.className,
-            )}
-          >
-            <span className="w-1 h-4 bg-emerald-500 rounded-full" />
-            Ongoing Challenges
-          </h2>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-            {filteredChallenges.ongoing.map((challenge) => (
-              <ChallengeCard
-                key={challenge.id}
-                challenge={challenge}
-                profile={user}
-                isCreator={isCreator(challenge)}
-                isParticipant={isParticipant(challenge)}
-                onJoin={() => handleJoin(challenge.id, challenge.isPublic)}
-                onView={() => setSelectedChallenge(challenge)}
-                onLeave={() => handleLeave(challenge.id)}
-              />
-            ))}
+        {/* Shop Banner */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.1 }}
+          onClick={() => setActivePanel("doza-sport-shop")}
+          className="relative mb-4 overflow-hidden rounded-2xl bg-gradient-to-r from-emerald-600/80 to-teal-500/80 shadow-md cursor-pointer active:scale-[0.98] transition-transform"
+          style={{ height: 100 }}
+        >
+          <div
+            className="absolute inset-0 bg-cover bg-center opacity-20"
+            style={{ backgroundImage: "url('/assets/shop/smart_watch.jpg')" }}
+          />
+          <div className="absolute inset-0 bg-gradient-to-r from-emerald-600 to-teal-500 opacity-40 group-hover:opacity-50 transition" />
+          <div className="relative z-10 h-full flex items-center justify-between px-4 text-white">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="truncate">
+                <h2
+                  className={cn(
+                    "text-lg font-bold truncate",
+                    bebasNeue.className,
+                  )}
+                >
+                  Doza Sport Shop
+                </h2>
+                <p className="text-sm text-white/80 truncate">
+                  Gear up with the latest sport equipment
+                </p>
+              </div>
+            </div>
+            <ChevronRight className="w-5 h-5 shrink-0" />
+          </div>
+        </motion.div>
+
+        {/* Action Buttons */}
+        <div className="space-y-6">
+          {/* TOP TOOLBAR: Slimmer & More Sophisticated */}
+          <div className="flex items-center justify-between px-1">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 bg-slate-50 rounded-xl border border-slate-200/60 flex items-center justify-center shadow-sm">
+                <Activity className="w-5 h-5 text-emerald-500" />
+              </div>
+              <div className="flex flex-col">
+                <h2
+                  className={cn(
+                    "text-xl tracking-tight text-slate-900 leading-none",
+                    bebasNeue.className,
+                  )}
+                >
+                  Challenge Hub
+                </h2>
+                <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-1">
+                  Network Live
+                </span>
+              </div>
+            </div>
+
+            {/* Buttons: Using Ghost/Outline style for secondary to reduce "thickness" */}
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setShowJoinCodeModal(true)}
+                className="p-2.5 bg-white border border-slate-200 text-slate-600 rounded-xl hover:bg-slate-50 active:scale-95 transition-all shadow-sm"
+              >
+                <Lock className="w-4 h-4" />
+              </button>
+
+              <button
+                onClick={() => setShowCreateModal(true)}
+                className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-xl text-[10px] font-bold uppercase tracking-wider shadow-md shadow-emerald-600/20 active:scale-95 transition-all"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>Create</span>
+              </button>
+            </div>
+          </div>
+
+          {/* TABS: Ultra-Thin "Glass" Pill */}
+          <div className="bg-slate-100/40 backdrop-blur-md p-1 rounded-2xl flex items-center border border-slate-200/50">
+            {[
+              { id: "discover", label: "Discover", icon: Globe, badge: 0 },
+              { id: "my", label: "Active", icon: Users, badge: 0 },
+              {
+                id: "requests",
+                label: "Inbox",
+                icon: UserPlus,
+                badge: pendingRequests.length,
+              },
+            ].map((tab) => {
+              const isActive = activeTab === tab.id;
+              const Icon = tab.icon;
+
+              return (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id as any)}
+                  className={cn(
+                    "relative flex-1 flex items-center justify-center gap-2 py-2 rounded-xl text-[10px] font-bold uppercase tracking-wider transition-all duration-300",
+                    isActive
+                      ? "text-slate-900"
+                      : "text-slate-400 hover:text-slate-600",
+                  )}
+                >
+                  {/* Subtle Indicator: Instead of a heavy block, use a white floating pill */}
+                  {isActive && (
+                    <motion.div
+                      layoutId="activeTabPill"
+                      className="absolute inset-0 bg-white border border-slate-200/50 shadow-sm rounded-[10px]"
+                      transition={{
+                        type: "spring",
+                        bounce: 0.15,
+                        duration: 0.5,
+                      }}
+                    />
+                  )}
+
+                  <span className="relative z-10 flex items-center gap-1.5">
+                    <Icon
+                      className={cn(
+                        "w-3.5 h-3.5",
+                        isActive ? "text-emerald-600" : "text-slate-400",
+                      )}
+                    />
+                    {tab.label}
+                    {tab.badge > 0 && (
+                      <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
+                    )}
+                  </span>
+                </button>
+              );
+            })}
           </div>
         </div>
-      )}
-
-      {/* Ended Challenges */}
-      {filteredChallenges.ended.length > 0 && (
-        <div className="mb-4">
-          <h2
-            className={cn(
-              "text-sm font-semibold text-gray-800 mb-2 flex items-center gap-2",
-              bebasNeue.className,
-            )}
+        {/* Search & Filter (discover only) */}
+        {activeTab === "discover" && (
+          <motion.div
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="relative z-20 mb-8 px-1"
           >
-            <span className="w-1 h-4 bg-gray-400 rounded-full" />
-            Ended Challenges
-          </h2>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 opacity-75">
-            {filteredChallenges.ended.map((challenge) => (
-              <ChallengeCard
-                key={challenge.id}
-                challenge={challenge}
-                profile={user}
-                isCreator={isCreator(challenge)}
-                isParticipant={isParticipant(challenge)}
-                onJoin={() => handleJoin(challenge.id, challenge.isPublic)}
-                onView={() => setSelectedChallenge(challenge)}
-                onLeave={() => handleLeave(challenge.id)}
-              />
-            ))}
+            {/* Elite Glass Container */}
+            <div className="bg-white/80 backdrop-blur-2xl rounded-[28px] p-2 border border-slate-200/60 shadow-2xl shadow-emerald-900/5">
+              <div className="flex flex-col md:flex-row items-stretch gap-2">
+                {/* Search Input */}
+                <div className="flex-1 relative group">
+                  <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none">
+                    <Search className="text-slate-400 group-focus-within:text-emerald-500 transition-colors w-4 h-4" />
+                  </div>
+                  <input
+                    type="text"
+                    placeholder="Search elite challenges..."
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    className={cn(
+                      "w-full pl-11 pr-4 py-3.5 text-sm bg-slate-100/50 border border-transparent rounded-[20px]",
+                      "focus:bg-white focus:border-emerald-500/30 focus:ring-4 focus:ring-emerald-500/5",
+                      "transition-all duration-300 outline-none text-slate-900 placeholder:text-slate-500 font-semibold",
+                    )}
+                  />
+                </div>
+
+                {/* Filters Wrapper */}
+                <div className="flex gap-2 flex-1 md:flex-none">
+                  {/* Activity Filter Pill */}
+                  <div className="relative flex-1 md:w-40 flex items-center gap-2 px-3 bg-slate-100/50 border border-transparent rounded-[20px] hover:bg-white hover:shadow-sm transition-all h-12 md:h-auto overflow-hidden group">
+                    <Activity className="w-4 h-4 text-emerald-600 shrink-0" />
+
+                    <select
+                      value={selectedActivity}
+                      onChange={(e) => setSelectedActivity(e.target.value)}
+                      className="absolute inset-0 w-full h-full opacity-0 z-20 cursor-pointer appearance-none bg-white text-slate-900"
+                    >
+                      <option value="" className="text-slate-900">
+                        All Activities
+                      </option>
+                      {activityOptions.map((act) => (
+                        <option
+                          key={act.value}
+                          value={act.value}
+                          className="text-slate-900"
+                        >
+                          {act.label}
+                        </option>
+                      ))}
+                    </select>
+
+                    <div className="flex flex-col min-w-0 pointer-events-none">
+                      <span className="text-[10px] font-black text-slate-500 uppercase tracking-tighter leading-none mb-0.5">
+                        Activity
+                      </span>
+                      <span className="text-xs font-bold text-slate-900 truncate">
+                        {selectedActivity
+                          ? activityOptions.find(
+                              (a) => a.value === selectedActivity,
+                            )?.label
+                          : "All"}
+                      </span>
+                    </div>
+
+                    <ChevronDown className="ml-auto w-3.5 h-3.5 text-slate-500 group-hover:text-emerald-500 transition-colors pointer-events-none" />
+                  </div>
+
+                  {/* Month Filter Pill */}
+                  <div className="relative flex-1 md:w-36 flex items-center gap-2 px-3 bg-slate-100/50 border border-transparent rounded-[20px] hover:bg-white hover:shadow-sm transition-all h-12 md:h-auto overflow-hidden group">
+                    <Calendar className="w-4 h-4 text-blue-600 shrink-0" />
+
+                    <select
+                      value={monthFilter}
+                      onChange={(e) => setMonthFilter(e.target.value)}
+                      className="absolute inset-0 w-full h-full opacity-0 z-20 cursor-pointer appearance-none bg-white text-slate-900"
+                    >
+                      <option value="all" className="text-slate-900">
+                        Full Season
+                      </option>
+                      {Array.from({ length: 12 }, (_, i) => (
+                        <option key={i} value={i} className="text-slate-900">
+                          {new Date(0, i).toLocaleString("default", {
+                            month: "long",
+                          })}
+                        </option>
+                      ))}
+                    </select>
+
+                    <div className="flex flex-col min-w-0 pointer-events-none">
+                      <span className="text-[10px] font-black text-slate-500 uppercase tracking-tighter leading-none mb-0.5">
+                        Season
+                      </span>
+                      <span className="text-xs font-bold text-slate-900 truncate">
+                        {monthFilter === "all"
+                          ? "All"
+                          : new Date(0, parseInt(monthFilter)).toLocaleString(
+                              "default",
+                              { month: "short" },
+                            )}
+                      </span>
+                    </div>
+
+                    <ChevronDown className="ml-auto w-3.5 h-3.5 text-slate-500 group-hover:text-blue-500 transition-colors pointer-events-none" />
+                  </div>
+                </div>
+
+                {/* Reset Action */}
+                <button
+                  onClick={() => {
+                    setSearch("");
+                    setSelectedActivity("");
+                    setMonthFilter("all");
+                  }}
+                  className="hidden md:flex px-6 py-3.5 bg-slate-900 text-white rounded-[20px] text-[11px] font-black uppercase tracking-widest hover:bg-emerald-600 transition-all active:scale-95 shadow-lg shadow-slate-900/10"
+                >
+                  Reset
+                </button>
+              </div>
+            </div>
+
+            {/* Live Status Indicator */}
+            <div className="mt-3 px-5 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="relative flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                </div>
+                <span
+                  className={cn(
+                    "text-[11px] font-bold text-slate-500 uppercase tracking-widest",
+                    bebasNeue.className,
+                  )}
+                >
+                  Showing {discoverChallenges.length} Active Rounds
+                </span>
+              </div>
+              {search && (
+                <motion.span
+                  initial={{ opacity: 0, scale: 0.9 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  className="text-[10px] font-black text-emerald-700 bg-emerald-100 px-3 py-1 rounded-full uppercase tracking-tight"
+                >
+                  Query: {search}
+                </motion.span>
+              )}
+            </div>
+          </motion.div>
+        )}
+
+        {/* Ongoing Challenges */}
+        {filteredChallenges.ongoing.length > 0 && (
+          <div className="space-y-3">
+            <h2
+              className={cn(
+                "text-sm font-semibold text-slate-800 flex items-center gap-2",
+                bebasNeue.className,
+              )}
+            >
+              <span className="w-1 h-4 bg-emerald-500 rounded-full" /> Ongoing
+              Challenges
+            </h2>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              {filteredChallenges.ongoing.map((challenge) => (
+                <ChallengeCard
+                  key={challenge.id}
+                  challenge={challenge}
+                  profile={user}
+                  isCreator={isCreator(challenge)}
+                  isParticipant={isParticipant(challenge)}
+                  onJoin={() => handleJoin(challenge.id, challenge.isPublic)}
+                  onView={() => setSelectedChallenge(challenge)}
+                  onLeave={() => handleLeave(challenge.id)}
+                />
+              ))}
+            </div>
           </div>
-        </div>
-      )}
-
-      {/* Empty states */}
-      {activeTab === "discover" &&
-        filteredChallenges.ongoing.length === 0 &&
-        filteredChallenges.ended.length === 0 && (
-          <EmptyState
-            icon={<Globe className="w-10 h-10 text-gray-400" />}
-            title="No challenges found"
-            description="Try adjusting your search or create a new challenge."
-            action={() => setShowCreateModal(true)}
-            actionLabel="Create Challenge"
-          />
         )}
 
-      {activeTab === "my" &&
-        filteredChallenges.ongoing.length === 0 &&
-        filteredChallenges.ended.length === 0 && (
-          <EmptyState
-            icon={<Users className="w-10 h-10 text-gray-400" />}
-            title="You haven't joined any challenges"
-            description="Join a public challenge or create your own to get started."
-            action={() => setActiveTab("discover")}
-            actionLabel="Discover Challenges"
-          />
+        {/* Ended Challenges */}
+        {filteredChallenges.ended.length > 0 && (
+          <div className="space-y-3">
+            <h2
+              className={cn(
+                "text-sm font-semibold text-slate-800 flex items-center gap-2",
+                bebasNeue.className,
+              )}
+            >
+              <span className="w-1 h-4 bg-slate-400 rounded-full" /> Ended
+              Challenges
+            </h2>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 opacity-75">
+              {filteredChallenges.ended.map((challenge) => (
+                <ChallengeCard
+                  key={challenge.id}
+                  challenge={challenge}
+                  profile={user}
+                  isCreator={isCreator(challenge)}
+                  isParticipant={isParticipant(challenge)}
+                  onJoin={() => handleJoin(challenge.id, challenge.isPublic)}
+                  onView={() => setSelectedChallenge(challenge)}
+                  onLeave={() => handleLeave(challenge.id)}
+                />
+              ))}
+            </div>
+          </div>
         )}
 
-      {activeTab === "requests" && pendingRequests.length === 0 && (
-        <EmptyState
-          icon={<UserPlus className="w-10 h-10 text-gray-400" />}
-          title="No pending requests"
-          description="When someone requests to join your private challenge, you'll see it here."
-        />
-      )}
-
-      {/* Requests cards */}
-      {activeTab === "requests" && pendingRequests.length > 0 && (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-          {pendingRequests.map((req: any) => (
-            <RequestCard
-              key={req.id}
-              request={req}
-              onApprove={() => handleApprove(req.challengeId, req.userId)}
+        {/* Empty States */}
+        {activeTab === "discover" &&
+          filteredChallenges.ongoing.length === 0 &&
+          filteredChallenges.ended.length === 0 && (
+            <EmptyState
+              icon={<Globe className="w-10 h-10 text-slate-400" />}
+              title="No challenges found"
+              description="Try adjusting your search or create a new challenge."
+              action={() => setShowCreateModal(true)}
+              actionLabel="Create Challenge"
             />
-          ))}
-        </div>
-      )}
+          )}
+        {activeTab === "my" &&
+          filteredChallenges.ongoing.length === 0 &&
+          filteredChallenges.ended.length === 0 && (
+            <EmptyState
+              icon={<Users className="w-10 h-10 text-slate-400" />}
+              title="You haven't joined any challenges"
+              description="Join a public challenge or create your own to get started."
+              action={() => setActiveTab("discover")}
+              actionLabel="Discover Challenges"
+            />
+          )}
+        {activeTab === "requests" && pendingRequests.length === 0 && (
+          <EmptyState
+            icon={<UserPlus className="w-10 h-10 text-slate-400" />}
+            title="No pending requests"
+            description="When someone requests to join your private challenge, you'll see it here."
+          />
+        )}
 
-      {/* Modals */}
+        {/* Requests Cards */}
+        {activeTab === "requests" && pendingRequests.length > 0 && (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+            {pendingRequests.map((req: any) => (
+              <RequestCard
+                key={req.id}
+                request={req}
+                onApprove={() => handleApprove(req.challengeId, req.userId)}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* --- MODALS (unchanged, placed outside the main container to avoid overflow) --- */}
+
+      {/* Create Challenge Modal */}
       <AnimatePresence>
         {showCreateModal && (
           <Modal onClose={() => setShowCreateModal(false)} size="lg">
@@ -938,7 +1315,7 @@ export default function SocialChallengesPanel() {
               Create a New Challenge
             </h2>
             <form
-              onSubmit={handleSubmit(onCreateChallenge as any)}
+              onSubmit={handleSubmit(onCreateChallenge)}
               className="space-y-3"
             >
               <div>
@@ -947,7 +1324,7 @@ export default function SocialChallengesPanel() {
                 </label>
                 <input
                   {...register("name")}
-                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl focus:ring-2 focus:ring-emerald-500 text-gray-900 placeholder:text-gray-400"
+                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl focus:ring-2 focus:ring-emerald-500"
                   placeholder="e.g., April Marathon"
                 />
                 {errors.name && (
@@ -956,7 +1333,6 @@ export default function SocialChallengesPanel() {
                   </p>
                 )}
               </div>
-
               <div>
                 <label className="block text-xs font-medium text-gray-700 mb-1">
                   Description *
@@ -964,7 +1340,7 @@ export default function SocialChallengesPanel() {
                 <textarea
                   {...register("description")}
                   rows={2}
-                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl focus:ring-2 focus:ring-emerald-500 text-gray-900 placeholder:text-gray-400"
+                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl focus:ring-2 focus:ring-emerald-500"
                   placeholder="What's the goal? Any rules?"
                 />
                 {errors.description && (
@@ -973,7 +1349,6 @@ export default function SocialChallengesPanel() {
                   </p>
                 )}
               </div>
-
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 <div>
                   <label className="block text-xs font-medium text-gray-700 mb-1">
@@ -981,7 +1356,7 @@ export default function SocialChallengesPanel() {
                   </label>
                   <select
                     {...register("activity")}
-                    className="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl focus:ring-2 focus:ring-emerald-500 text-gray-900"
+                    className="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl focus:ring-2 focus:ring-emerald-500"
                   >
                     <option value="">Select</option>
                     {activityOptions.map((act) => (
@@ -996,7 +1371,6 @@ export default function SocialChallengesPanel() {
                     </p>
                   )}
                 </div>
-
                 <div>
                   <label className="block text-xs font-medium text-gray-700 mb-1">
                     Target *
@@ -1006,13 +1380,12 @@ export default function SocialChallengesPanel() {
                       type="number"
                       step="0.1"
                       {...register("targetValue")}
-                      className="flex-1 px-3 py-2 text-sm border border-gray-200 rounded-xl focus:ring-2 focus:ring-emerald-500 text-gray-900 placeholder:text-gray-400"
+                      className="flex-1 px-3 py-2 text-sm border border-gray-200 rounded-xl"
                       placeholder="20"
                     />
                     <input
                       {...register("targetUnit")}
-                      className="w-16 px-3 py-2 text-sm border border-gray-200 rounded-xl bg-gray-50 text-gray-900"
-                      placeholder="unit"
+                      className="w-16 px-3 py-2 text-sm border border-gray-200 rounded-xl bg-gray-50"
                       readOnly
                     />
                   </div>
@@ -1023,7 +1396,6 @@ export default function SocialChallengesPanel() {
                   )}
                 </div>
               </div>
-
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 <div>
                   <label className="block text-xs font-medium text-gray-700 mb-1">
@@ -1032,7 +1404,7 @@ export default function SocialChallengesPanel() {
                   <input
                     type="date"
                     {...register("startDate")}
-                    className="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl focus:ring-2 focus:ring-emerald-500 text-gray-900"
+                    className="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl"
                   />
                   {errors.startDate && (
                     <p className="text-red-500 text-xs mt-1">
@@ -1047,7 +1419,7 @@ export default function SocialChallengesPanel() {
                   <input
                     type="date"
                     {...register("endDate")}
-                    className="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl focus:ring-2 focus:ring-emerald-500 text-gray-900"
+                    className="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl"
                   />
                   {errors.endDate && (
                     <p className="text-red-500 text-xs mt-1">
@@ -1056,35 +1428,30 @@ export default function SocialChallengesPanel() {
                   )}
                 </div>
               </div>
-
               <div className="flex items-center gap-3">
                 <label className="flex items-center gap-2 text-xs text-gray-700">
                   <input
                     type="checkbox"
                     {...register("isPublic")}
                     className="w-4 h-4 text-emerald-600 rounded"
-                  />
+                  />{" "}
                   Public
                 </label>
                 <span className="text-xs text-gray-400">or</span>
                 <label className="flex items-center gap-2 text-xs text-gray-700">
-                  <Lock className="w-4 h-4" />
-                  Private
+                  <Lock className="w-4 h-4" /> Private
                 </label>
               </div>
-
               <div>
                 <label className="block text-xs font-medium text-gray-700 mb-1">
                   Invite by email (optional, comma separated)
                 </label>
                 <input
                   {...register("invitedEmails")}
-                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl text-gray-900 placeholder:text-gray-400"
+                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl"
                   placeholder="friend@example.com, another@example.com"
                 />
               </div>
-
-              {/* Image picker */}
               <div>
                 <label className="block text-xs font-medium text-gray-700 mb-1">
                   Challenge Image
@@ -1093,18 +1460,17 @@ export default function SocialChallengesPanel() {
                   <button
                     type="button"
                     onClick={() => setShowImagePicker(!showImagePicker)}
-                    className="px-3 py-1.5 bg-gray-100 text-gray-700 rounded-xl hover:bg-gray-200 transition flex items-center gap-2 text-xs"
+                    className="px-3 py-1.5 bg-gray-100 text-gray-700 rounded-xl hover:bg-gray-200 transition text-xs"
                   >
-                    <Camera className="w-4 h-4" />
+                    <Camera className="w-4 h-4 inline mr-1" />{" "}
                     {selectedImage ? "Change" : "Choose"}
                   </button>
                   <button
                     type="button"
                     onClick={() => fileInputRef.current?.click()}
-                    className="px-3 py-1.5 bg-gray-100 text-gray-700 rounded-xl hover:bg-gray-200 transition flex items-center gap-2 text-xs"
+                    className="px-3 py-1.5 bg-gray-100 text-gray-700 rounded-xl hover:bg-gray-200 transition text-xs"
                   >
-                    <Upload className="w-4 h-4" />
-                    Upload
+                    <Upload className="w-4 h-4 inline mr-1" /> Upload
                   </button>
                   <input
                     ref={fileInputRef}
@@ -1157,7 +1523,6 @@ export default function SocialChallengesPanel() {
                   </motion.div>
                 )}
               </div>
-
               <div className="flex justify-end gap-2 pt-2">
                 <button
                   type="button"
@@ -1171,7 +1536,7 @@ export default function SocialChallengesPanel() {
                   disabled={isSubmitting}
                   className="flex items-center gap-2 px-4 py-2 text-sm bg-emerald-600 text-white rounded-xl hover:bg-emerald-700 disabled:opacity-50"
                 >
-                  {isSubmitting && <Loader2 className="w-4 h-4 animate-spin" />}
+                  {isSubmitting && <Loader2 className="w-4 h-4 animate-spin" />}{" "}
                   Create
                 </button>
               </div>
@@ -1201,7 +1566,7 @@ export default function SocialChallengesPanel() {
                 value={joinCode}
                 onChange={(e) => setJoinCode(e.target.value)}
                 placeholder="e.g., SPRINT2025"
-                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl text-gray-900 placeholder:text-gray-400"
+                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl"
               />
               <div className="flex gap-2">
                 <button
@@ -1258,8 +1623,7 @@ export default function SocialChallengesPanel() {
                   bebasNeue.className,
                 )}
               >
-                <HelpCircle className="w-5 h-5 text-emerald-600" />
-                How to use
+                <HelpCircle className="w-5 h-5 text-emerald-600" /> How to use
               </h2>
               <button
                 onClick={() => setShowHelp(false)}
@@ -1268,7 +1632,6 @@ export default function SocialChallengesPanel() {
                 <X className="w-4 h-4 text-gray-500" />
               </button>
             </div>
-
             <div className="relative">
               <AnimatePresence mode="wait">
                 <motion.div
@@ -1290,7 +1653,6 @@ export default function SocialChallengesPanel() {
                   </p>
                 </motion.div>
               </AnimatePresence>
-
               <div className="flex justify-center gap-2 mt-3">
                 {helpSlides.map((_, idx) => (
                   <button
@@ -1303,7 +1665,6 @@ export default function SocialChallengesPanel() {
                   />
                 ))}
               </div>
-
               <button
                 onClick={() =>
                   setHelpSlide((prev) =>
@@ -1325,7 +1686,6 @@ export default function SocialChallengesPanel() {
                 <ChevronRight className="w-4 h-4 text-gray-600" />
               </button>
             </div>
-
             <button
               onClick={() => setShowHelp(false)}
               className="mt-4 w-full px-4 py-2 bg-emerald-600 text-white rounded-xl hover:bg-emerald-700 text-sm"
@@ -1335,25 +1695,13 @@ export default function SocialChallengesPanel() {
           </Modal>
         )}
       </AnimatePresence>
-    </motion.div>
+    </div>
   );
 }
 
 // ---------- Subcomponents ----------
 
-const EmptyState = ({
-  icon,
-  title,
-  description,
-  action,
-  actionLabel,
-}: {
-  icon: React.ReactNode;
-  title: string;
-  description: string;
-  action?: () => void;
-  actionLabel?: string;
-}) => (
+const EmptyState = ({ icon, title, description, action, actionLabel }: any) => (
   <div className="bg-white/60 backdrop-blur-sm p-6 text-center text-gray-500 rounded-2xl border border-gray-100 shadow-sm">
     <div className="w-12 h-12 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-2">
       {icon}
@@ -1379,15 +1727,7 @@ const ChallengeCard = ({
   onJoin,
   onView,
   onLeave,
-}: {
-  challenge: Challenge;
-  profile: any;
-  isCreator: boolean;
-  isParticipant: boolean;
-  onJoin: () => void;
-  onView: () => void;
-  onLeave: () => void;
-}) => {
+}: any) => {
   const start = new Date(challenge.startDate);
   const end = new Date(challenge.endDate);
   const now = new Date();
@@ -1402,21 +1742,16 @@ const ChallengeCard = ({
     typeof rawProgress === "number"
       ? `${rawProgress} / ${challenge.targetValue} ${challenge.targetUnit}`
       : "Multi-target";
-
   const percent =
     typeof rawProgress === "number"
       ? Math.min(100, (rawProgress / challenge.targetValue) * 100)
       : 0;
-
   const activity = activityOptions.find((a) => a.value === challenge.activity);
 
   return (
     <motion.div
       layout
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      whileHover={{ y: -2 }}
+      whileHover={{ y: -4 }}
       className="bg-white border border-gray-100 rounded-2xl shadow-sm hover:shadow-md transition-all overflow-hidden cursor-pointer"
       onClick={onView}
     >
@@ -1462,7 +1797,6 @@ const ChallengeCard = ({
             <Users className="w-3 h-3" /> {challenge.participantCount}
           </span>
         </div>
-
         {isParticipant && (
           <div className="mb-2">
             <div className="flex justify-between text-[10px] text-gray-600 mb-1">
@@ -1480,7 +1814,6 @@ const ChallengeCard = ({
             )}
           </div>
         )}
-
         <div className="flex items-center justify-between flex-wrap gap-1">
           <div className="flex items-center gap-1">
             {challenge.creatorPhoto ? (
@@ -1523,7 +1856,6 @@ const ChallengeCard = ({
             ) : null}
           </div>
         </div>
-
         {!isCreator && !isParticipant && challenge.isPublic && isActive && (
           <button
             onClick={(e) => {
@@ -1540,13 +1872,7 @@ const ChallengeCard = ({
   );
 };
 
-const RequestCard = ({
-  request,
-  onApprove,
-}: {
-  request: any;
-  onApprove: () => void;
-}) => (
+const RequestCard = ({ request, onApprove }: any) => (
   <div className="bg-white border border-gray-100 rounded-2xl p-3 shadow-sm">
     <div className="flex items-center gap-2">
       {request.photo ? (
@@ -1595,29 +1921,12 @@ const ChallengeDetail = ({
   commentForm,
   shareBadge,
   badgeRef,
-}: {
-  challenge: Challenge;
-  profile: any;
-  isCreator: boolean;
-  isParticipant: boolean;
-  onJoin: () => void;
-  onLeave: () => void;
-  onProgressUpdate: (challengeId: string) => void;
-  progressValue: number;
-  setProgressValue: (val: number) => void;
-  onAddComment: (data: CommentForm) => void;
-  commentForm: any;
-  shareBadge: () => void;
-  badgeRef: React.RefObject<HTMLDivElement | null>;
-}) => {
+}: any) => {
   const [showProgressInput, setShowProgressInput] = useState(false);
 
   const participants = useMemo(() => {
     return Object.entries(challenge.participants || {})
-      .map(([uid, data]) => ({
-        uid,
-        ...data,
-      }))
+      .map(([uid, data]) => ({ uid, ...(data as Participant) })) // ✅ cast to Participant
       .sort((a, b) => {
         const aVal = typeof a.progress === "number" ? a.progress : 0;
         const bVal = typeof b.progress === "number" ? b.progress : 0;
@@ -1634,15 +1943,17 @@ const ChallengeDetail = ({
     });
   }, [participants]);
 
-  const comments = useMemo(() => {
-    return Object.values(challenge.comments || {}).sort(
-      (a, b) => b.timestamp - a.timestamp,
-    );
-  }, [challenge.comments]);
+  const comments = useMemo(
+    () =>
+      Object.values(challenge.comments || {}).sort(
+        (a, b) => (b as Comment).timestamp - (a as Comment).timestamp,
+      ),
+    [challenge.comments],
+  );
 
   const rawProgress = challenge.participants?.[profile?.id || ""]?.progress;
-  let userProgress = 0;
-  let progressDisplay = "";
+  let userProgress = 0,
+    progressDisplay = "";
   if (typeof rawProgress === "number") {
     userProgress = rawProgress;
     progressDisplay = `${userProgress} / ${challenge.targetValue} ${challenge.targetUnit}`;
@@ -1779,7 +2090,7 @@ const ChallengeDetail = ({
                       onChange={(e) =>
                         setProgressValue(parseFloat(e.target.value) || 0)
                       }
-                      className="flex-1 px-3 py-2 text-xs border border-gray-200 rounded-lg text-gray-900 placeholder:text-gray-400"
+                      className="flex-1 px-3 py-2 text-xs border border-gray-200 rounded-lg"
                       placeholder="New value"
                     />
                     <div className="flex gap-2">
@@ -1831,8 +2142,7 @@ const ChallengeDetail = ({
                     earned ? badge.color : "",
                   )}
                 >
-                  <Icon className="w-3 h-3" />
-                  {badge.name}
+                  <Icon className="w-3 h-3" /> {badge.name}
                 </div>
               );
             })}
@@ -1845,7 +2155,6 @@ const ChallengeDetail = ({
               <Share2 className="w-3 h-3" /> Share your badge
             </button>
           )}
-          {/* Hidden badge for capture */}
           <div ref={badgeRef} className="hidden">
             <div className="w-[300px] p-4 bg-emerald-600 rounded-2xl text-white shadow-2xl">
               <div className="flex items-center gap-2 mb-2">
@@ -1910,7 +2219,7 @@ const ChallengeDetail = ({
           </div>
         )}
 
-      {/* Participants leaderboard */}
+      {/* Participants */}
       <div>
         <h3 className="font-semibold text-gray-800 text-xs mb-2 flex items-center gap-2">
           <Users className="w-4 h-4" /> Participants ({participants.length})
@@ -1974,7 +2283,7 @@ const ChallengeDetail = ({
             <input
               {...commentForm.register("text")}
               placeholder="Add a comment..."
-              className="flex-1 px-3 py-2 text-xs border border-gray-200 rounded-lg text-gray-900 placeholder:text-gray-400"
+              className="flex-1 px-3 py-2 text-xs border border-gray-200 rounded-lg"
             />
             <button
               type="submit"
@@ -1988,7 +2297,7 @@ const ChallengeDetail = ({
           {comments.length === 0 ? (
             <p className="text-xs text-gray-400">No comments yet.</p>
           ) : (
-            comments.map((c) => (
+            comments.map((c: any) => (
               <div key={c.timestamp} className="flex gap-2">
                 {c.authorImage ? (
                   <img
@@ -2018,7 +2327,7 @@ const ChallengeDetail = ({
         </div>
       </div>
 
-      {/* Action buttons */}
+      {/* Actions */}
       <div className="flex flex-wrap gap-2 pt-2 border-t border-gray-100">
         {isCreator ? (
           <>

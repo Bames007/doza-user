@@ -1,6 +1,6 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import { adminDb } from "@/app/utils/firebaseAdmin";
+import { adminAuth, adminDb } from "@/app/utils/firebaseAdmin";
 import DashboardClientWrapper from "./DashboardClientWrapper";
 
 export default async function DashboardLayout({
@@ -8,22 +8,23 @@ export default async function DashboardLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const cookieStore = cookies();
-  const sessionCookie = (await cookieStore).get("session")?.value;
+  const cookieStore = await cookies();
+  const sessionCookie = cookieStore.get("__session")?.value;
 
   if (!sessionCookie) {
     redirect("/");
   }
 
-  let session;
+  let uid: string;
   try {
-    session = JSON.parse(sessionCookie);
-  } catch {
+    const decoded = await adminAuth.verifySessionCookie(sessionCookie, true);
+    uid = decoded.uid;
+  } catch (error) {
+    console.error("Invalid session cookie", error);
     redirect("/");
   }
 
-  // Fetch user data (optional)
-  const userRef = adminDb.ref(`doza/users/${session.user.id}`);
+  const userRef = adminDb.ref(`doza/users/${uid}`);
   const userSnapshot = await userRef.get();
   if (!userSnapshot.exists()) {
     redirect("/");
@@ -31,12 +32,11 @@ export default async function DashboardLayout({
   const userData = userSnapshot.val();
 
   const user = {
-    id: session.user.id,
-    email: session.user.email,
+    id: uid,
+    email: userData.personalProfile?.email || "",
     fullName:
-      session.user.fullName ||
       `${userData.personalProfile?.fname || ""} ${userData.personalProfile?.lname || ""}`.trim(),
-    avatar: userData.personalProfile?.selectedImage || session.user.avatar,
+    avatar: userData.personalProfile?.selectedImage || "",
     subscription: userData.subscription?.plan,
     profile: userData.personalProfile || {},
   };

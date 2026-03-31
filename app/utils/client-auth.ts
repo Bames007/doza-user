@@ -1,10 +1,10 @@
-import { getAuth, onAuthStateChanged } from "firebase/auth";
+import { auth } from "./firebaseConfig";
+import { onAuthStateChanged } from "firebase/auth";
 
 let authReadyPromise: Promise<any> | null = null;
 
 function waitForUser(): Promise<any> {
   if (authReadyPromise) return authReadyPromise;
-  const auth = getAuth();
   authReadyPromise = new Promise((resolve) => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       unsubscribe();
@@ -16,17 +16,12 @@ function waitForUser(): Promise<any> {
 
 export async function getAuthToken(): Promise<string | null> {
   try {
-    const auth = getAuth();
-
     // If we already have a current user, try to get a fresh token
     if (auth.currentUser) {
       try {
         // Force refresh to ensure a valid token
         const token = await auth.currentUser.getIdToken(true);
-        console.log(
-          "🔑 Got fresh token (first chars):",
-          token.substring(0, 10) + "...",
-        );
+        console.log("🔑 Got fresh token:", token.substring(0, 10) + "...");
         return token;
       } catch (refreshError) {
         console.warn(
@@ -47,13 +42,14 @@ export async function getAuthToken(): Promise<string | null> {
       }
     }
 
-    // No current user – wait for auth to initialize
+    // No current user – wait for auth to initialize (user may still be null)
     const user = await waitForUser();
     if (!user) {
       console.warn("⚠️ No user after waiting");
       return null;
     }
 
+    // Now we have a user, try to get a fresh token
     try {
       const token = await user.getIdToken(true);
       console.log(
@@ -94,9 +90,15 @@ export async function authFetcher(url: string) {
     console.warn("⚠️ No token available for", url);
   }
   const res = await fetch(url, { headers });
-  const result = await res.json();
+  const text = await res.text();
+  let result;
+  try {
+    result = JSON.parse(text);
+  } catch {
+    result = { error: "Invalid JSON response", raw: text };
+  }
   if (!res.ok) {
-    console.error(`❌ ${url} failed:`, result);
+    console.error(`❌ ${url} failed (${res.status}):`, result);
     return result;
   }
   return result;
@@ -124,6 +126,9 @@ export async function authPost(url: string, data?: any) {
   return result;
 }
 
+/**
+ * PUT request with authentication.
+ */
 export async function authPut(url: string, data?: any) {
   const token = await getAuthToken();
   const headers: HeadersInit = { "Content-Type": "application/json" };
@@ -146,6 +151,9 @@ export async function authPut(url: string, data?: any) {
   return result;
 }
 
+/**
+ * DELETE request with authentication.
+ */
 export async function authDelete(url: string) {
   const token = await getAuthToken();
   const headers: HeadersInit = { "Content-Type": "application/json" };

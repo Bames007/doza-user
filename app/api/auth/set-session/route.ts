@@ -1,36 +1,45 @@
 import { NextRequest, NextResponse } from "next/server";
-import { serialize } from "cookie";
+import { adminAuth } from "@/app/utils/firebaseAdmin";
 
 export async function POST(request: NextRequest) {
   try {
-    const sessionData = await request.json();
-
-    // Validate session data
-    if (!sessionData?.user?.id || !sessionData?.user?.email) {
+    const rawBody = await request.text();
+    if (!rawBody) {
       return NextResponse.json(
-        { success: false, error: "Invalid session data" },
+        { success: false, error: "Empty request body" },
         { status: 400 },
       );
     }
 
-    // Serialize session to JSON string
-    const sessionString = JSON.stringify(sessionData);
+    const { idToken, rememberMe } = JSON.parse(rawBody);
 
-    // Determine cookie expiry from sessionData.user.expiresAt
-    const expiresAt = sessionData.user.expiresAt;
-    const maxAge = Math.floor((expiresAt - Date.now()) / 1000); // in seconds
+    if (!idToken) {
+      return NextResponse.json(
+        { success: false, error: "Missing ID token" },
+        { status: 400 },
+      );
+    }
 
-    // Set cookie
-    const cookie = serialize("session", sessionString, {
+    await adminAuth.verifyIdToken(idToken);
+
+    const expiresInMs = rememberMe
+      ? 14 * 24 * 60 * 60 * 1000 // 14 days
+      : 24 * 60 * 60 * 1000; // 1 day
+
+    const sessionCookie = await adminAuth.createSessionCookie(idToken, {
+      expiresIn: expiresInMs,
+    });
+
+    const response = NextResponse.json({ success: true });
+
+    response.cookies.set("__session", sessionCookie, {
+      maxAge: expiresInMs / 1000,
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
       sameSite: "lax",
       path: "/",
-      maxAge: maxAge > 0 ? maxAge : 0, // if expired, set to 0
     });
 
-    const response = NextResponse.json({ success: true });
-    response.headers.set("Set-Cookie", cookie);
     return response;
   } catch (error) {
     console.error("❌ Set session error:", error);

@@ -1,529 +1,632 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import React, { useMemo, useState, useEffect, useRef } from "react";
 import { useUser } from "@/app/dashboard/hooks/useProfile";
 import useSWR from "swr";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence, Transition } from "framer-motion";
+import * as THREE from "three";
 import {
-  Heart,
-  Footprints,
-  Calendar,
-  User,
-  Activity,
-  ArrowRight,
-  Users,
-  TrendingUp,
-  Pill,
-  Clock,
-  ChevronRight,
   HeartPulse,
-  Settings,
+  Footprints,
+  Activity,
+  Pill,
+  ArrowUpRight,
+  Droplets,
+  Lightbulb,
+  ChevronRight,
+  Trophy,
+  ChevronLeft,
+  TrendingUp,
+  Target,
+  ShieldCheck,
+  Users,
+  Calendar,
+  Clock,
+  History,
 } from "lucide-react";
-import { useDashboard, PanelId } from "../../DashboardContext";
+import { useDashboard } from "../../DashboardContext";
 import { authFetcher } from "@/app/utils/client-auth";
-import AppointmentsModal from "../modals/AppointmentModal";
 import { cn } from "@/app/utils/utils";
 import { poppins, bebasNeue } from "@/app/constants";
 
-const CardSkeleton = () => (
-  <div className="bg-gray-100 rounded-2xl p-5 h-24 animate-pulse" />
-);
+const spring: Transition = {
+  type: "spring",
+  stiffness: 200,
+  damping: 20,
+};
 
 export default function DashboardPanel() {
   const { user, isLoading: userLoading } = useUser();
   const { setActivePanel } = useDashboard();
-  const [showAppointmentsModal, setShowAppointmentsModal] = useState(false);
-  const [showHelp, setShowHelp] = useState(false);
-  const [helpSlide, setHelpSlide] = useState(0);
+  const [tipIndex, setTipIndex] = useState(0);
 
-  useEffect(() => {
-    const hasSeenHelp = localStorage.getItem("doza_dashboard_help");
-    if (!hasSeenHelp) {
-      setShowHelp(true);
-      localStorage.setItem("doza_dashboard_help", "true");
-    }
-  }, []);
+  // --- API DATA FETCHING ---
+  const { data: healthRes } = useSWR("/api/health-records", authFetcher);
+  const { data: medsRes } = useSWR("/api/medications/upcoming", authFetcher);
+  const { data: apptRes } = useSWR("/api/appointments", authFetcher);
+  const { data: challengeRes } = useSWR("/api/challenges?type=my", authFetcher);
+  const { data: insightsRes } = useSWR("/api/health-insights", authFetcher);
 
-  const { data: healthData, isLoading: healthLoading } = useSWR(
-    "/api/health-records",
-    authFetcher,
-  );
-  const records = healthData?.success ? healthData.data : [];
+  // --- LOGIC: APPOINTMENT FILTERING ---
+  const upcomingAppt = useMemo(() => {
+    if (!apptRes?.success || !apptRes.data) return null;
+    return apptRes.data
+      .filter(
+        (a: any) =>
+          a.status === "upcoming" ||
+          new Date(`${a.date}T${a.time}`) > new Date(),
+      )
+      .sort(
+        (a: any, b: any) =>
+          new Date(`${a.date}T${a.time}`).getTime() -
+          new Date(`${b.date}T${b.time}`).getTime(),
+      )[0];
+  }, [apptRes]);
 
-  const { data: appointmentsData, isLoading: apptLoading } = useSWR(
-    "/api/appointments?status=upcoming",
-    authFetcher,
-  );
-  const appointments = appointmentsData?.success ? appointmentsData.data : [];
+  // --- LOGIC: CHALLENGE FILTERING ---
+  const { joinedChallenges, myCreatedChallenges } = useMemo(() => {
+    const all = challengeRes?.data || [];
+    const uid = user?.id;
+    return {
+      joinedChallenges: all.filter(
+        (c: any) => c.creatorId !== uid && c.participants?.[uid as string],
+      ),
+      myCreatedChallenges: all.filter((c: any) => c.creatorId === uid),
+    };
+  }, [challengeRes, user]);
 
-  const { data: upcomingMedsData } = useSWR(
-    "/api/medications/upcoming",
-    authFetcher,
-  );
-  const upcomingDoses = upcomingMedsData?.success ? upcomingMedsData.data : [];
-  const nextDose = upcomingDoses.length > 0 ? upcomingDoses[0] : null;
+  // --- LOGIC: DATA MAPPING ---
+  const stats = useMemo(() => {
+    const records = healthRes?.data || [];
+    const getLatest = (type: string) =>
+      records
+        .filter((r: any) => r.type === type)
+        .sort(
+          (a: any, b: any) =>
+            new Date(b.date).getTime() - new Date(a.date).getTime(),
+        )[0];
 
-  const calculateCompleteness = () => {
-    if (!user?.profile) return 0;
-    const fields = [
-      "displayName",
-      "phone",
-      "dateOfBirth",
-      "gender",
-      "bloodGroup",
-      "height",
-      "weight",
-    ];
-    const filled = fields.filter(
-      (f) => user.profile[f as keyof typeof user.profile],
-    );
-    return Math.round((filled.length / fields.length) * 100);
-  };
+    return {
+      heartRate: getLatest("heartRate")?.value || "72",
+      bp: getLatest("bloodPressure")?.value || "120/80",
+      steps: getLatest("steps")?.value || "8,432",
+      glucose: getLatest("weight")?.value || "94",
+    };
+  }, [healthRes]);
 
-  const completeness = calculateCompleteness();
+  const healthTips = useMemo(() => {
+    return insightsRes?.success && insightsRes.data.length > 0
+      ? insightsRes.data
+      : [
+          "Analyzing your bio-data...",
+          "Consistency is key to health.",
+          "Hydrate frequently.",
+        ];
+  }, [insightsRes]);
 
-  const latestHeartRate = records
-    .filter((r: any) => r.type === "heartRate")
-    .sort((a: any, b: any) => b.date.localeCompare(a.date))[0];
-  const latestSteps = records
-    .filter((r: any) => r.type === "steps")
-    .sort((a: any, b: any) => b.date.localeCompare(a.date))[0];
-
-  const nextAppointment = appointments
-    .filter((a: any) => a.status === "upcoming")
-    .sort((a: any, b: any) => a.date.localeCompare(b.date))[0];
-
-  const getGreeting = () => {
-    const hour = new Date().getHours();
-    if (hour < 12) return "Good morning";
-    if (hour < 18) return "Good afternoon";
-    return "Good evening";
-  };
-
-  const firstName = user?.fullName.split(" ")[0] || "User";
-
-  const isLoading = userLoading || healthLoading || apptLoading;
-
-  if (isLoading) {
-    return (
-      <div className="max-w-6xl mx-auto p-4 space-y-4  min-h-screen">
-        <div className="h-8 w-48 bg-gray-200 rounded-lg animate-pulse" />
-        <div className="h-4 w-64 bg-gray-200 rounded-lg animate-pulse" />
-        <div className="grid grid-cols-2 gap-3">
-          {[...Array(4)].map((_, i) => (
-            <CardSkeleton key={i} />
-          ))}
-        </div>
-      </div>
-    );
-  }
-
-  if (!user) {
-    return <div className="p-8 text-center">Unable to load user data</div>;
-  }
+  if (userLoading) return <LoadingState />;
 
   return (
-    <>
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={{ duration: 0.3 }}
-        className={cn(
-          "max-w-6xl mx-auto px-4 pb-28  min-h-screen",
-          poppins.className,
-        )}
-      >
-        {/* Simple Greeting (scrolls with page) */}
-        <div className="pt-6 pb-2">
-          <h1
-            className={cn(
-              "text-3xl font-bold text-gray-800",
-              bebasNeue.className,
-            )}
-          >
-            {getGreeting()}, {firstName}
-          </h1>
-          <p className="text-sm text-emerald-600 mt-1">
-            Your health at a glance
-          </p>
-        </div>
-
-        {/* Profile Completeness Card */}
-        <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 mb-6">
-          <div className="flex flex-col xs:flex-row xs:items-center justify-between gap-3">
-            <div className="flex items-center gap-3">
-              <div className="w-12 h-12 bg-emerald-100 rounded-full flex items-center justify-center shrink-0">
-                <User className="w-6 h-6 text-emerald-600" />
-              </div>
-              <div className="min-w-0 flex-1">
-                <p className="text-sm text-gray-500">Profile completeness</p>
-                <div className="flex items-center gap-2 mt-1">
-                  <div className="w-24 bg-gray-200 h-2 rounded-full overflow-hidden">
-                    <div
-                      className="bg-emerald-500 h-2 rounded-full"
-                      style={{ width: `${completeness}%` }}
-                    />
-                  </div>
-                  <span className="text-sm font-semibold text-emerald-600 whitespace-nowrap">
-                    {completeness}%
-                  </span>
-                </div>
-              </div>
-            </div>
-            {completeness < 100 && (
-              <button
-                onClick={() => setActivePanel("profile")}
-                className="w-full xs:w-auto px-5 py-2.5 bg-emerald-600 text-white text-sm font-medium rounded-full shadow-sm active:bg-emerald-700"
-              >
-                Complete Profile
-              </button>
-            )}
-          </div>
-        </div>
-
-        {/* Medical Shop Banner */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.1 }}
-          onClick={() => setActivePanel("doza-medical-shop")}
-          className="relative mb-6 overflow-hidden rounded-2xl bg-gradient-to-r from-emerald-600 to-teal-500 shadow-md cursor-pointer active:scale-[0.98] transition-transform"
-          style={{ height: 100 }}
-        >
-          <div className="absolute inset-0 bg-black/10" />
-          <div
-            className="absolute inset-0 bg-cover bg-center mix-blend-overlay opacity-20"
-            style={{ backgroundImage: "url('/assets/medical/bp_monitor.jpg')" }}
-          />
-          <div className="relative z-10 h-full flex items-center justify-between px-4 text-white">
-            <div className="flex items-center gap-3 min-w-0">
-              <HeartPulse className="w-8 h-8 shrink-0" />
-              <div className="truncate">
-                <h2 className="text-lg font-bold truncate">
-                  Doza Medical Shop
-                </h2>
-                <p className="text-sm text-white/80 truncate">
-                  Quality medical equipment
-                </p>
-              </div>
-            </div>
-            <ChevronRight className="w-5 h-5 shrink-0" />
-          </div>
-        </motion.div>
-
-        {/* Health Metrics Section */}
-        <div className="mb-6">
-          <h2
-            className={cn(
-              "text-xl font-semibold text-gray-800 mb-3",
-              bebasNeue.className,
-            )}
-          >
-            Today's Metrics
-          </h2>
-          <div className="grid grid-cols-2 gap-3">
-            <motion.div
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.15 }}
-              className="bg-emerald-600 rounded-2xl p-4 text-white shadow-lg"
-            >
-              <div className="flex items-start justify-between mb-2">
-                <Heart className="w-6 h-6" fill="currentColor" />
-                <span className="text-xs text-white/70">bpm</span>
-              </div>
-              <p className="text-2xl font-bold">
-                {latestHeartRate ? latestHeartRate.value : "—"}
+    <div
+      className={cn("min-h-screen bg-[#F8FAFC] pb-32 pt-6", poppins.className)}
+    >
+      <div className="max-w-7xl mx-auto px-6 space-y-6">
+        {/* --- HEADER --- */}
+        <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white p-8 rounded-[32px] border border-slate-200/60 shadow-sm">
+          <div>
+            <div className="flex items-center gap-2 mb-1">
+              <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.2em]">
+                Bio-Sync Active
               </p>
-              <p className="text-xs text-white/80 mt-1">Heart Rate</p>
-            </motion.div>
-
-            <motion.div
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.2 }}
-              className="bg-emerald-600 rounded-2xl p-4 text-white shadow-lg"
-            >
-              <div className="flex items-start justify-between mb-2">
-                <Footprints className="w-6 h-6" />
-                <span className="text-xs text-white/70">steps</span>
-              </div>
-              <p className="text-2xl font-bold">
-                {latestSteps ? latestSteps.value.toLocaleString() : "—"}
-              </p>
-              <p className="text-xs text-white/80 mt-1">Steps</p>
-            </motion.div>
-          </div>
-        </div>
-
-        {/* Next Appointment Card */}
-        <motion.div
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.25 }}
-          onClick={() => setShowAppointmentsModal(true)}
-          className="bg-white rounded-2xl p-4 mb-6 shadow-sm border border-gray-100 active:bg-gray-50 cursor-pointer"
-        >
-          <div className="flex items-center justify-between mb-2">
-            <div className="flex items-center gap-2">
-              <Calendar className="w-5 h-5 text-emerald-600" />
-              <h3
-                className={cn(
-                  "font-semibold text-gray-800",
-                  bebasNeue.className,
-                )}
-              >
-                Next Appointment
-              </h3>
             </div>
-            <ChevronRight className="w-5 h-5 text-gray-400" />
-          </div>
-          {nextAppointment ? (
-            <div className="flex flex-col xs:flex-row xs:items-center justify-between gap-2">
-              <div className="min-w-0">
-                <p className="text-lg font-bold text-gray-800 truncate">
-                  {nextAppointment.medicName}
-                </p>
-                <p className="text-sm text-gray-500">
-                  {new Date(nextAppointment.date).toLocaleDateString(
-                    undefined,
-                    { month: "short", day: "numeric" },
-                  )}{" "}
-                  at {nextAppointment.time}
-                </p>
-              </div>
-              <span className="self-start xs:self-center px-3 py-1 bg-emerald-100 rounded-full text-emerald-700 text-sm font-medium whitespace-nowrap">
-                Upcoming
-              </span>
-            </div>
-          ) : (
-            <p className="text-gray-500">No upcoming appointments</p>
-          )}
-        </motion.div>
-
-        {/* Medications Section */}
-        <motion.div
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.3 }}
-          className="bg-white rounded-2xl p-4 mb-6 shadow-sm border border-gray-100"
-        >
-          <div className="flex items-center justify-between mb-3">
-            <div className="flex items-center gap-2">
-              <Pill className="w-5 h-5 text-emerald-600" />
-              <h3
-                className={cn(
-                  "font-semibold text-gray-800",
-                  bebasNeue.className,
-                )}
-              >
-                Today's Medications
-              </h3>
-            </div>
-            <button
-              onClick={() => setActivePanel("medications")}
-              className="text-sm text-emerald-600 font-medium flex items-center gap-1"
-            >
-              Manage <ChevronRight className="w-4 h-4" />
-            </button>
-          </div>
-          {nextDose ? (
-            <div className="flex flex-col xs:flex-row items-start xs:items-center gap-4 p-3 bg-emerald-50 rounded-xl">
-              <div className="p-3 bg-emerald-600 rounded-full text-white shrink-0">
-                <Pill className="w-6 h-6" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-xs text-gray-500">Next dose</p>
-                <p className="font-semibold text-gray-800 truncate">
-                  {nextDose.medicationName}
-                </p>
-                <p className="text-xs text-gray-500">{nextDose.dosage}</p>
-              </div>
-              <div className="text-left xs:text-right shrink-0">
-                <p className="text-xs text-gray-500">Due in</p>
-                <p className="text-lg font-bold text-emerald-600">
-                  {(() => {
-                    const diff =
-                      new Date(nextDose.scheduledTime).getTime() - Date.now();
-                    if (diff <= 0) return "Now";
-                    const hours = Math.floor(diff / 3600000);
-                    const mins = Math.floor((diff % 3600000) / 60000);
-                    return `${hours}h ${mins}m`;
-                  })()}
-                </p>
-              </div>
-            </div>
-          ) : (
-            <div className="text-center py-4">
-              <Pill className="w-12 h-12 mx-auto text-gray-300 mb-2" />
-              <p className="text-gray-500">No medications scheduled</p>
-              <button
-                onClick={() => setActivePanel("medications")}
-                className="mt-2 text-emerald-600 font-medium text-sm"
-              >
-                Add a medication
-              </button>
-            </div>
-          )}
-        </motion.div>
-
-        {/* Quick Access Section */}
-        <motion.div
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.35 }}
-          className="bg-white rounded-2xl p-4 mb-6 shadow-sm border border-gray-100"
-        >
-          <h3
-            className={cn(
-              "font-semibold text-gray-800 mb-3 flex items-center gap-2",
-              bebasNeue.className,
-            )}
-          >
-            <Activity className="w-5 h-5 text-emerald-600" />
-            Quick Access
-          </h3>
-          <div className="grid grid-cols-4 gap-2">
-            {[
-              {
-                panel: "health-tracker" as PanelId,
-                label: "Tracker",
-                icon: Activity,
-              },
-              {
-                panel: "family-friends" as PanelId,
-                label: "Family",
-                icon: Users,
-              },
-              { panel: "doza-medics" as PanelId, label: "Medics", icon: Heart },
-              {
-                action: () => setShowAppointmentsModal(true),
-                label: "Appointments",
-                icon: Calendar,
-              },
-              { panel: "profile" as PanelId, label: "Profile", icon: User },
-              { panel: "medications" as PanelId, label: "Meds", icon: Pill },
-              {
-                panel: "doza-medical-shop" as PanelId,
-                label: "Shop",
-                icon: HeartPulse,
-              },
-              {
-                panel: "settings" as PanelId,
-                label: "Settings",
-                icon: Settings,
-              },
-            ].map((item) => {
-              const Icon = item.icon;
-              if (item.action) {
-                return (
-                  <button
-                    key={item.label}
-                    onClick={item.action}
-                    className="flex flex-col items-center gap-1 p-2 rounded-xl active:bg-emerald-50 min-w-0"
-                  >
-                    <div className="p-2 bg-emerald-100 rounded-xl text-emerald-700">
-                      <Icon className="w-5 h-5" />
-                    </div>
-                    <span className="text-[10px] xs:text-xs text-gray-600 truncate w-full text-center">
-                      {item.label}
-                    </span>
-                  </button>
-                );
-              }
-              return (
-                <button
-                  key={item.panel}
-                  onClick={() => setActivePanel(item.panel!)}
-                  className="flex flex-col items-center gap-1 p-2 rounded-xl active:bg-emerald-50 min-w-0"
-                >
-                  <div className="p-2 bg-emerald-100 rounded-xl text-emerald-700">
-                    <Icon className="w-5 h-5" />
-                  </div>
-                  <span className="text-[10px] xs:text-xs text-gray-600 truncate w-full text-center">
-                    {item.label}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-        </motion.div>
-
-        {/* Recent Records Section – Improved UI */}
-        {records.length > 0 && (
-          <motion.div
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.4 }}
-            className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100"
-          >
-            <h3
+            <h1
               className={cn(
-                "font-semibold text-gray-800 mb-3 flex items-center gap-2",
+                "text-4xl md:text-5xl text-slate-900 leading-none",
                 bebasNeue.className,
               )}
             >
-              <TrendingUp className="w-5 h-5 text-emerald-600" />
-              Recent Records
-            </h3>
-            <div className="space-y-3">
-              {records.slice(0, 5).map((record: any) => (
-                <div
-                  key={record.id}
-                  className="flex items-center justify-between p-3 bg-gradient-to-r from-gray-50 to-white rounded-xl border border-gray-100"
+              Welcome,{" "}
+              <span className="text-emerald-600">
+                {user?.fullName?.split(" ")[0]}
+              </span>
+            </h1>
+          </div>
+          <div className="flex gap-3">
+            <button
+              onClick={() => setActivePanel("appointment")}
+              className="flex items-center gap-2 px-6 py-3 bg-slate-900 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-emerald-600 transition-all"
+            >
+              <History size={14} /> Records
+            </button>
+          </div>
+        </header>
+
+        <div className="grid grid-cols-1 md:grid-cols-12 gap-6">
+          {/* LEFT COLUMN */}
+          <div className="md:col-span-8 space-y-6">
+            {/* LIVE BIOMETRICS GRID */}
+            <BentoTile className="bg-white">
+              <div className="flex justify-between items-center mb-8">
+                <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2">
+                  <TrendingUp className="text-emerald-500" size={20} /> Live
+                  Biometrics
+                </h3>
+              </div>
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                <StatCard
+                  icon={HeartPulse}
+                  label="Heart Rate"
+                  val={stats.heartRate}
+                  unit="bpm"
+                  color="text-rose-500"
+                  bg="bg-rose-50"
+                  hasChart
+                />
+                <StatCard
+                  icon={Activity}
+                  label="BP Status"
+                  val={stats.bp}
+                  unit="mmHg"
+                  color="text-amber-500"
+                  bg="bg-amber-50"
+                  hasChart
+                />
+                <StatCard
+                  icon={Droplets}
+                  label="Glucose"
+                  val={stats.glucose}
+                  unit="mg/dL"
+                  color="text-emerald-500"
+                  bg="bg-emerald-50"
+                  hasChart
+                />
+                <StatCard
+                  icon={Footprints}
+                  label="Steps"
+                  val={stats.steps}
+                  unit="steps"
+                  color="text-blue-500"
+                  bg="bg-blue-50"
+                />
+              </div>
+            </BentoTile>
+
+            {/* JOINED CHALLENGES */}
+            <div className="space-y-4">
+              <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-400 px-2 flex items-center gap-2">
+                <Users size={14} /> Active Operations
+              </h3>
+              {joinedChallenges.length > 0 ? (
+                <div className="grid grid-cols-1 gap-4">
+                  {joinedChallenges.map((c: any) => (
+                    <JoinedChallengeCard
+                      key={c.id}
+                      challenge={c}
+                      onClick={() => setActivePanel("challenges")}
+                    />
+                  ))}
+                </div>
+              ) : (
+                <div className="p-10 border-2 border-dashed border-slate-200 rounded-[32px] text-center">
+                  <p className="text-slate-400 text-sm italic">
+                    No active joined challenges.
+                  </p>
+                </div>
+              )}
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* TARGET/MAIN CHALLENGE CARD */}
+              <BentoTile className="bg-slate-900 text-white border-none relative overflow-hidden group">
+                <div className="absolute top-0 right-0 p-8 opacity-10 group-hover:scale-110 transition-transform">
+                  <Trophy size={80} />
+                </div>
+                <div className="relative z-10 h-full flex flex-col justify-between">
+                  <div>
+                    <span className="text-[10px] font-bold text-emerald-400 uppercase tracking-widest">
+                      Top Priority
+                    </span>
+                    <h4 className="text-2xl font-bold mt-2">
+                      {joinedChallenges[0]?.name || "Initiate Protocol"}
+                    </h4>
+                  </div>
+                  <div className="mt-8">
+                    <div className="w-full bg-white/10 h-2 rounded-full overflow-hidden">
+                      <motion.div
+                        initial={{ width: 0 }}
+                        animate={{ width: joinedChallenges[0] ? "65%" : "20%" }}
+                        className="h-full bg-emerald-500"
+                      />
+                    </div>
+                    <button
+                      onClick={() => setActivePanel("challenges")}
+                      className="mt-6 flex items-center gap-2 text-white text-[10px] font-black uppercase tracking-widest hover:text-emerald-400 transition-colors"
+                    >
+                      Enter Challenge Hub <ChevronRight size={14} />
+                    </button>
+                  </div>
+                </div>
+              </BentoTile>
+
+              {/* MEDICATIONS PROTOCOL - HIGH CONTRAST */}
+              <BentoTile className="bg-white border-slate-100 overflow-hidden group">
+                <div className="flex justify-between items-start mb-6">
+                  <div className="p-3 bg-blue-50 rounded-2xl group-hover:bg-blue-600 group-hover:text-white transition-colors duration-500">
+                    <Pill
+                      className="text-blue-600 group-hover:text-white"
+                      size={24}
+                    />
+                  </div>
+                  <div className="text-right">
+                    <p className="text-[10px] font-black text-slate-300 uppercase tracking-widest">
+                      Active Cycle
+                    </p>
+                    <p className="text-sm font-bold text-blue-600 tracking-tight">
+                      AM Dosage
+                    </p>
+                  </div>
+                </div>
+                <div className="space-y-1">
+                  <h4 className="text-2xl font-black text-slate-900 leading-none">
+                    {medsRes?.data?.[0]?.medicationName ||
+                      "Medical Protocol Clear"}
+                  </h4>
+                  <p className="text-[10px] font-bold text-slate-400 uppercase">
+                    {medsRes?.data?.[0]?.dosage || "No Active Drugs"}
+                  </p>
+                </div>
+                <button
+                  onClick={() => setActivePanel("medications")}
+                  className="w-full mt-8 py-4 bg-slate-900 text-white hover:bg-blue-700 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all duration-300 flex items-center justify-center gap-2 shadow-lg shadow-slate-200"
                 >
-                  <div className="flex items-center gap-3 min-w-0">
-                    <div className="p-2.5 bg-emerald-100 rounded-full text-emerald-700 shadow-sm shrink-0">
-                      {record.type === "heartRate" && (
-                        <Heart className="w-4 h-4" />
-                      )}
-                      {record.type === "steps" && (
-                        <Footprints className="w-4 h-4" />
-                      )}
-                      {record.type !== "heartRate" &&
-                        record.type !== "steps" && (
-                          <Activity className="w-4 h-4" />
-                        )}
+                  Manage Protocol <ArrowUpRight size={14} />
+                </button>
+              </BentoTile>
+            </div>
+          </div>
+
+          {/* RIGHT SIDEBAR */}
+          <div className="md:col-span-4 space-y-6">
+            {/* UPCOMING APPOINTMENT CARD */}
+            {upcomingAppt ? (
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="bg-slate-900 rounded-[32px] p-8 text-white relative overflow-hidden shadow-2xl"
+              >
+                <div className="relative z-10 h-full flex flex-col">
+                  <div className="flex items-center justify-between mb-8">
+                    <div className="flex items-center gap-2">
+                      <Calendar size={18} className="text-emerald-400" />
+                      <span className="text-[10px] font-black uppercase tracking-widest text-slate-400 italic">
+                        Deployment
+                      </span>
                     </div>
-                    <div className="min-w-0">
-                      <p className="font-medium text-gray-800 capitalize text-sm">
-                        {record.type}
-                      </p>
-                      <p className="text-xs text-gray-500 flex items-center gap-1">
-                        <Clock className="w-3 h-3" />
-                        {new Date(record.date).toLocaleDateString(undefined, {
-                          month: "short",
-                          day: "numeric",
-                        })}
-                      </p>
+                    <button
+                      onClick={() => setActivePanel("appointment")}
+                      className="text-[9px] font-bold text-slate-400 hover:text-white border border-slate-700 px-3 py-1 rounded-full uppercase tracking-tighter transition-all"
+                    >
+                      History
+                    </button>
+                  </div>
+                  <AppointmentCountdown
+                    targetDate={`${upcomingAppt.date}T${upcomingAppt.time}`}
+                  />
+                  <div className="mt-8 space-y-2">
+                    <h4 className="text-2xl font-bold leading-none tracking-tight">
+                      {upcomingAppt.medicName}
+                    </h4>
+                    <p className="text-sm text-slate-400 flex items-center gap-2 font-medium">
+                      <Clock size={14} className="text-emerald-500" />{" "}
+                      {upcomingAppt.date} @ {upcomingAppt.time}
+                    </p>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3 mt-10">
+                    <button
+                      onClick={() => setActivePanel("doza-medics")}
+                      className="py-4 bg-white/5 hover:bg-white/10 border border-white/10 rounded-2xl text-[9px] font-black uppercase tracking-widest transition-all"
+                    >
+                      Check-In
+                    </button>
+                    <button
+                      onClick={() => setActivePanel("appointment")}
+                      className="py-4 bg-emerald-600 hover:bg-emerald-500 rounded-2xl text-[9px] font-black uppercase tracking-widest transition-all flex items-center justify-center gap-2"
+                    >
+                      Records <ChevronRight size={14} />
+                    </button>
+                  </div>
+                </div>
+                <Activity className="absolute -right-8 -bottom-8 w-48 h-48 opacity-5" />
+              </motion.div>
+            ) : (
+              <button
+                onClick={() => setActivePanel("appointment")}
+                className="w-full bg-white border border-slate-100 rounded-[32px] p-10 text-center flex flex-col items-center justify-center gap-4 group hover:border-emerald-200 transition-all shadow-sm"
+              >
+                <div className="h-16 w-16 rounded-[24px] bg-slate-50 flex items-center justify-center text-slate-300 group-hover:bg-emerald-50 group-hover:text-emerald-500 transition-all">
+                  <Calendar size={32} />
+                </div>
+                <div>
+                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+                    Status: Standby
+                  </p>
+                  <p className="text-sm text-slate-900 font-bold mt-1">
+                    Open Appointment History
+                  </p>
+                </div>
+              </button>
+            )}
+
+            {/* CREATED CHALLENGES - HIGH CONTRAST BUTTONS */}
+            <div className="space-y-4">
+              <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-400 px-2 flex items-center gap-2">
+                <ShieldCheck size={14} /> Managed Operations
+              </h3>
+              {myCreatedChallenges.map((c: any) => (
+                <div
+                  key={c.id}
+                  className="bg-white border border-slate-200 rounded-[32px] p-6 shadow-sm hover:shadow-md transition-shadow"
+                >
+                  <div className="flex justify-between items-start mb-6">
+                    <div>
+                      <h4 className="font-bold text-slate-900 text-lg">
+                        {c.name}
+                      </h4>
+                      <div className="flex items-center gap-2 mt-1">
+                        <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                        <p className="text-[10px] font-bold text-slate-400 uppercase">
+                          {c.participantCount} Participants
+                        </p>
+                      </div>
+                    </div>
+                    <div className="h-10 w-10 bg-slate-50 rounded-xl flex items-center justify-center text-slate-400">
+                      <Trophy size={18} />
                     </div>
                   </div>
-                  <div className="flex items-baseline gap-1">
-                    <span className="text-xl font-bold text-emerald-700">
-                      {record.value}
-                    </span>
-                    <span className="text-xs text-gray-500">
-                      {record.unit || ""}
-                    </span>
-                  </div>
+                  <button
+                    onClick={() => setActivePanel("challenges")}
+                    className="w-full py-4 bg-slate-900 text-white hover:bg-emerald-600 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all"
+                  >
+                    Manage Operation
+                  </button>
                 </div>
               ))}
             </div>
-            <button
-              onClick={() => setActivePanel("health-tracker")}
-              className="mt-4 w-full py-3 bg-emerald-50 text-emerald-700 rounded-xl font-medium text-sm flex items-center justify-center gap-2 active:bg-emerald-100"
-            >
-              View all records <ArrowRight className="w-4 h-4" />
-            </button>
-          </motion.div>
-        )}
-      </motion.div>
 
-      {/* Appointments Modal */}
-      <AppointmentsModal
-        isOpen={showAppointmentsModal}
-        onClose={() => setShowAppointmentsModal(false)}
-      />
-    </>
+            {/* INSIGHTS */}
+            <div className="bg-emerald-600 rounded-[32px] p-8 text-white relative overflow-hidden h-[280px] shadow-xl">
+              <ThreeBackground />
+              <div className="relative z-10 h-full flex flex-col">
+                <div className="flex items-center gap-2 mb-6">
+                  <Lightbulb size={20} className="text-emerald-200" />
+                  <span className="text-[10px] font-bold uppercase tracking-widest text-emerald-100">
+                    Bio-Analysis
+                  </span>
+                </div>
+                <div className="flex-1">
+                  <AnimatePresence mode="wait">
+                    <motion.p
+                      key={tipIndex}
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -10 }}
+                      className="text-xl font-semibold leading-tight italic"
+                    >
+                      "{healthTips[tipIndex]}"
+                    </motion.p>
+                  </AnimatePresence>
+                </div>
+                <div className="flex gap-2 mt-4">
+                  <button
+                    onClick={() =>
+                      setTipIndex((prev) =>
+                        prev === 0 ? healthTips.length - 1 : prev - 1,
+                      )
+                    }
+                    className="p-2 bg-white/10 rounded-lg hover:bg-white/20 transition-colors"
+                  >
+                    <ChevronLeft size={14} />
+                  </button>
+                  <button
+                    onClick={() =>
+                      setTipIndex((prev) => (prev + 1) % healthTips.length)
+                    }
+                    className="p-2 bg-white/10 rounded-lg hover:bg-white/20 transition-colors"
+                  >
+                    <ChevronRight size={14} />
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// --- SUBCOMPONENTS ---
+
+function LiveBioChart({ color }: { color: string }) {
+  const points = [40, 65, 45, 90, 55, 75, 40, 85, 50, 70];
+  const hexToTailwind = (colorStr: string) => {
+    if (colorStr.includes("rose")) return "bg-rose-500/40";
+    if (colorStr.includes("amber")) return "bg-amber-500/40";
+    if (colorStr.includes("emerald")) return "bg-emerald-500/40";
+    return "bg-slate-500/40";
+  };
+
+  return (
+    <div className="flex items-end gap-1 h-10 w-full mt-4 overflow-hidden px-1">
+      {points.map((p, i) => (
+        <motion.div
+          key={i}
+          initial={{ height: "10%" }}
+          animate={{ height: `${p}%` }}
+          transition={{
+            repeat: Infinity,
+            repeatType: "reverse",
+            duration: 0.6 + Math.random(),
+            delay: i * 0.08,
+          }}
+          className={cn("flex-1 rounded-full", hexToTailwind(color))}
+        />
+      ))}
+    </div>
+  );
+}
+
+function StatCard({ icon: Icon, label, val, unit, color, bg, hasChart }: any) {
+  return (
+    <div className="p-5 rounded-[24px] bg-slate-50 border border-slate-100 flex flex-col group hover:bg-white hover:shadow-xl transition-all duration-500">
+      <div
+        className={cn(
+          "p-2.5 rounded-xl w-fit mb-4 transition-transform group-hover:scale-110 shadow-sm",
+          bg,
+        )}
+      >
+        <Icon size={18} className={color} />
+      </div>
+      <span className="text-[10px] font-black text-slate-400 uppercase tracking-tighter mb-1">
+        {label}
+      </span>
+      <div className="flex items-baseline gap-1">
+        <span className="text-2xl font-black text-slate-900 tracking-tight">
+          {val}
+        </span>
+        <span className="text-[10px] font-bold text-slate-400">{unit}</span>
+      </div>
+      {hasChart && <LiveBioChart color={color} />}
+    </div>
+  );
+}
+
+function AppointmentCountdown({ targetDate }: { targetDate: string }) {
+  const [timeLeft, setTimeLeft] = useState("");
+  useEffect(() => {
+    const calculate = () => {
+      const diff = +new Date(targetDate) - +new Date();
+      if (diff <= 0) return setTimeLeft("Live Now");
+      const d = Math.floor(diff / (1000 * 60 * 60 * 24));
+      const h = Math.floor((diff / (1000 * 60 * 60)) % 24);
+      const m = Math.floor((diff / 1000 / 60) % 60);
+      setTimeLeft(`${d > 0 ? d + "d " : ""}${h}h ${m}m`);
+    };
+    calculate();
+    const timer = setInterval(calculate, 60000);
+    return () => clearInterval(timer);
+  }, [targetDate]);
+
+  return (
+    <div className="flex flex-col">
+      <span
+        className={cn(
+          "text-6xl font-black text-emerald-400 tracking-tighter leading-none",
+          bebasNeue.className,
+        )}
+      >
+        {timeLeft}
+      </span>
+      <span className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.3em] mt-2 ml-1">
+        T-Minus to Session
+      </span>
+    </div>
+  );
+}
+
+function JoinedChallengeCard({ challenge, onClick }: any) {
+  return (
+    <motion.div
+      whileHover={{ x: 6 }}
+      onClick={onClick}
+      className="bg-white border border-slate-100 p-6 rounded-[32px] flex items-center justify-between cursor-pointer hover:shadow-md transition-all"
+    >
+      <div className="flex items-center gap-5">
+        <div className="h-14 w-14 rounded-2xl bg-emerald-50 flex items-center justify-center text-emerald-600 shadow-inner">
+          <Target size={28} />
+        </div>
+        <div>
+          <h4 className="text-lg font-bold text-slate-900 leading-tight">
+            {challenge.name}
+          </h4>
+          <div className="flex items-center gap-3 mt-1">
+            <span className="text-[10px] font-bold text-slate-400 uppercase">
+              Target: {challenge.targetValue} {challenge.targetUnit}
+            </span>
+            <span className="h-1 w-1 rounded-full bg-slate-300" />
+            <span className="text-[10px] font-black text-emerald-500 uppercase tracking-widest underline decoration-emerald-200">
+              Active Duty
+            </span>
+          </div>
+        </div>
+      </div>
+      <div className="h-10 w-10 rounded-full bg-slate-50 flex items-center justify-center text-slate-300 group-hover:text-emerald-500 transition-colors">
+        <ChevronRight size={20} />
+      </div>
+    </motion.div>
+  );
+}
+
+function ThreeBackground() {
+  const containerRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!containerRef.current) return;
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(75, 1, 0.1, 1000);
+    const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
+    renderer.setSize(300, 300);
+    containerRef.current.appendChild(renderer.domElement);
+    const geometry = new THREE.IcosahedronGeometry(1, 1);
+    const material = new THREE.MeshBasicMaterial({
+      color: 0xffffff,
+      wireframe: true,
+      transparent: true,
+      opacity: 0.15,
+    });
+    const mesh = new THREE.Mesh(geometry, material);
+    scene.add(mesh);
+    camera.position.z = 2.5;
+    const animate = () => {
+      requestAnimationFrame(animate);
+      mesh.rotation.y += 0.005;
+      mesh.rotation.x += 0.002;
+      renderer.render(scene, camera);
+    };
+    animate();
+    return () => {
+      renderer.dispose();
+      containerRef.current?.removeChild(renderer.domElement);
+    };
+  }, []);
+  return (
+    <div
+      ref={containerRef}
+      className="absolute -right-16 -bottom-16 pointer-events-none opacity-40"
+    />
+  );
+}
+
+function BentoTile({ children, className, onClick }: any) {
+  return (
+    <motion.div
+      whileHover={{ y: -6 }}
+      transition={spring}
+      onClick={onClick}
+      className={cn(
+        "p-8 rounded-[36px] border border-slate-100 transition-all cursor-pointer shadow-sm",
+        className,
+      )}
+    >
+      {children}
+    </motion.div>
+  );
+}
+
+function LoadingState() {
+  return (
+    <div className="h-screen w-full flex items-center justify-center bg-white text-[12px] font-black uppercase tracking-[0.5em] animate-pulse text-emerald-600">
+      Initializing Health OS...
+    </div>
   );
 }
