@@ -23,6 +23,8 @@ import {
   Calendar,
   Clock,
   History,
+  ClipboardList,
+  Database,
 } from "lucide-react";
 import { useDashboard } from "../../DashboardContext";
 import { authFetcher } from "@/app/utils/client-auth";
@@ -75,7 +77,7 @@ export default function DashboardPanel() {
     };
   }, [challengeRes, user]);
 
-  // --- LOGIC: DATA MAPPING ---
+  // --- LOGIC: DATA MAPPING (latest values per metric) ---
   const stats = useMemo(() => {
     const records = healthRes?.data || [];
     const getLatest = (type: string) =>
@@ -87,11 +89,45 @@ export default function DashboardPanel() {
         )[0];
 
     return {
-      heartRate: getLatest("heartRate")?.value || "72",
-      bp: getLatest("bloodPressure")?.value || "120/80",
-      steps: getLatest("steps")?.value || "8,432",
-      glucose: getLatest("weight")?.value || "94",
+      heartRate: getLatest("heartRate")?.value || "—",
+      bloodPressure: getLatest("bloodPressure")?.value || "—",
+      steps: getLatest("steps")?.value || "—",
+      weight: getLatest("weight")?.value || "—", // weight as glucose (rename if needed)
     };
+  }, [healthRes]);
+
+  // --- LOGIC: RECENT ACTIVITY (last 5 entries across all metrics) ---
+  const recentEntries = useMemo(() => {
+    const records = healthRes?.data || [];
+    if (!records.length) return [];
+    return [...records]
+      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+      .slice(0, 5)
+      .map((entry) => ({
+        date: new Date(entry.date).toLocaleDateString(),
+        type: entry.type,
+        value: entry.value,
+        unit:
+          entry.type === "heartRate"
+            ? "bpm"
+            : entry.type === "bloodPressure"
+              ? "mmHg"
+              : entry.type === "steps"
+                ? "steps"
+                : entry.type === "sleep"
+                  ? "hrs"
+                  : "kg",
+        label:
+          entry.type === "heartRate"
+            ? "Heart Rate"
+            : entry.type === "bloodPressure"
+              ? "BP"
+              : entry.type === "steps"
+                ? "Steps"
+                : entry.type === "sleep"
+                  ? "Sleep"
+                  : "Weight",
+      }));
   }, [healthRes]);
 
   const healthTips = useMemo(() => {
@@ -152,6 +188,12 @@ export default function DashboardPanel() {
                   <TrendingUp className="text-emerald-500" size={20} /> Live
                   Biometrics
                 </h3>
+                <button
+                  onClick={() => setActivePanel("health-tracker")}
+                  className="text-[10px] font-bold text-emerald-600 hover:underline"
+                >
+                  View all
+                </button>
               </div>
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
                 <StatCard
@@ -166,7 +208,7 @@ export default function DashboardPanel() {
                 <StatCard
                   icon={Activity}
                   label="BP Status"
-                  val={stats.bp}
+                  val={stats.bloodPressure}
                   unit="mmHg"
                   color="text-amber-500"
                   bg="bg-amber-50"
@@ -174,9 +216,9 @@ export default function DashboardPanel() {
                 />
                 <StatCard
                   icon={Droplets}
-                  label="Glucose"
-                  val={stats.glucose}
-                  unit="mg/dL"
+                  label="Weight"
+                  val={stats.weight}
+                  unit="kg"
                   color="text-emerald-500"
                   bg="bg-emerald-50"
                   hasChart
@@ -191,6 +233,48 @@ export default function DashboardPanel() {
                 />
               </div>
             </BentoTile>
+
+            {/* RECENT ACTIVITY CARD */}
+            {recentEntries.length > 0 && (
+              <BentoTile className="bg-white">
+                <div className="flex justify-between items-center mb-6">
+                  <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2">
+                    <ClipboardList className="text-emerald-500" size={20} />{" "}
+                    Recent Activity
+                  </h3>
+                  <button
+                    onClick={() => setActivePanel("health-tracker")}
+                    className="text-[10px] font-bold text-emerald-600 hover:underline"
+                  >
+                    View all
+                  </button>
+                </div>
+                <div className="space-y-3">
+                  {recentEntries.map((entry, idx) => (
+                    <div
+                      key={idx}
+                      className="flex justify-between items-center p-3 bg-slate-50 rounded-xl"
+                    >
+                      <div>
+                        <p className="text-[10px] font-black text-slate-400 uppercase">
+                          {entry.date}
+                        </p>
+                        <p className="text-lg font-black">
+                          {entry.value}{" "}
+                          <span className="text-[10px] text-slate-400">
+                            {entry.unit}
+                          </span>
+                        </p>
+                        <p className="text-xs text-slate-500 capitalize">
+                          {entry.label}
+                        </p>
+                      </div>
+                      <div className="w-1.5 h-1.5 bg-blue-500 rounded-full animate-pulse" />
+                    </div>
+                  ))}
+                </div>
+              </BentoTile>
+            )}
 
             {/* JOINED CHALLENGES */}
             <div className="space-y-4">
@@ -446,7 +530,7 @@ export default function DashboardPanel() {
   );
 }
 
-// --- SUBCOMPONENTS ---
+// --- SUBCOMPONENTS (unchanged, except StatCard label and live chart) ---
 
 function LiveBioChart({ color }: { color: string }) {
   const points = [40, 65, 45, 90, 55, 75, 40, 85, 50, 70];
@@ -493,7 +577,7 @@ function StatCard({ icon: Icon, label, val, unit, color, bg, hasChart }: any) {
       </span>
       <div className="flex items-baseline gap-1">
         <span className="text-2xl font-black text-slate-900 tracking-tight">
-          {val}
+          {val === "—" ? "—" : val}
         </span>
         <span className="text-[10px] font-bold text-slate-400">{unit}</span>
       </div>

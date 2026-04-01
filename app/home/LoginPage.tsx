@@ -219,7 +219,9 @@ const LoginPage: React.FC = () => {
               <div className="lg:hidden flex items-center justify-between mb-12">
                 <div className="flex items-center gap-2">
                   <Image src="/logo.png" alt="Logo" width={32} height={32} />
-                  <span className={`text-2xl font-bold ${bebasNeue.className}`}>
+                  <span
+                    className={`text-2xl font-bold text-slate-900 ${bebasNeue.className}`}
+                  >
                     DOZA
                   </span>
                 </div>
@@ -227,9 +229,9 @@ const LoginPage: React.FC = () => {
 
               <header className="mb-10 text-left">
                 <h2
-                  className={`text-5xl font-bold text-slate-900 mb-2 ${bebasNeue.className}`}
+                  className={`text-5xl font-bold text-slate-700 mb-2 ${bebasNeue.className}`}
                 >
-                  SIGN IN
+                  Sign In
                 </h2>
                 <p className="text-slate-500 font-medium">
                   Manage your health journey with Doza.
