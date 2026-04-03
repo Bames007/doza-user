@@ -24,7 +24,6 @@ import {
   Clock,
   History,
   ClipboardList,
-  Database,
 } from "lucide-react";
 import { useDashboard } from "../../DashboardContext";
 import { authFetcher } from "@/app/utils/client-auth";
@@ -34,7 +33,7 @@ import { poppins, bebasNeue } from "@/app/constants";
 const spring: Transition = {
   type: "spring",
   stiffness: 200,
-  damping: 20,
+  damping: 25,
 };
 
 export default function DashboardPanel() {
@@ -42,14 +41,12 @@ export default function DashboardPanel() {
   const { setActivePanel } = useDashboard();
   const [tipIndex, setTipIndex] = useState(0);
 
-  // --- API DATA FETCHING ---
   const { data: healthRes } = useSWR("/api/health-records", authFetcher);
   const { data: medsRes } = useSWR("/api/medications/upcoming", authFetcher);
   const { data: apptRes } = useSWR("/api/appointments", authFetcher);
   const { data: challengeRes } = useSWR("/api/challenges?type=my", authFetcher);
   const { data: insightsRes } = useSWR("/api/health-insights", authFetcher);
 
-  // --- LOGIC: APPOINTMENT FILTERING ---
   const upcomingAppt = useMemo(() => {
     if (!apptRes?.success || !apptRes.data) return null;
     return apptRes.data
@@ -65,7 +62,6 @@ export default function DashboardPanel() {
       )[0];
   }, [apptRes]);
 
-  // --- LOGIC: CHALLENGE FILTERING ---
   const { joinedChallenges, myCreatedChallenges } = useMemo(() => {
     const all = challengeRes?.data || [];
     const uid = user?.id;
@@ -77,7 +73,6 @@ export default function DashboardPanel() {
     };
   }, [challengeRes, user]);
 
-  // --- LOGIC: DATA MAPPING (latest values per metric) ---
   const stats = useMemo(() => {
     const records = healthRes?.data || [];
     const getLatest = (type: string) =>
@@ -87,78 +82,48 @@ export default function DashboardPanel() {
           (a: any, b: any) =>
             new Date(b.date).getTime() - new Date(a.date).getTime(),
         )[0];
-
     return {
       heartRate: getLatest("heartRate")?.value || "—",
       bloodPressure: getLatest("bloodPressure")?.value || "—",
       steps: getLatest("steps")?.value || "—",
-      weight: getLatest("weight")?.value || "—", // weight as glucose (rename if needed)
+      weight: getLatest("weight")?.value || "—",
     };
   }, [healthRes]);
 
-  // --- LOGIC: RECENT ACTIVITY (last 5 entries across all metrics) ---
   const recentEntries = useMemo(() => {
     const records = healthRes?.data || [];
-    if (!records.length) return [];
     return [...records]
       .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
-      .slice(0, 5)
-      .map((entry) => ({
-        date: new Date(entry.date).toLocaleDateString(),
-        type: entry.type,
-        value: entry.value,
-        unit:
-          entry.type === "heartRate"
-            ? "bpm"
-            : entry.type === "bloodPressure"
-              ? "mmHg"
-              : entry.type === "steps"
-                ? "steps"
-                : entry.type === "sleep"
-                  ? "hrs"
-                  : "kg",
-        label:
-          entry.type === "heartRate"
-            ? "Heart Rate"
-            : entry.type === "bloodPressure"
-              ? "BP"
-              : entry.type === "steps"
-                ? "Steps"
-                : entry.type === "sleep"
-                  ? "Sleep"
-                  : "Weight",
-      }));
+      .slice(0, 5);
   }, [healthRes]);
 
-  const healthTips = useMemo(() => {
-    return insightsRes?.success && insightsRes.data.length > 0
-      ? insightsRes.data
-      : [
-          "Analyzing your bio-data...",
-          "Consistency is key to health.",
-          "Hydrate frequently.",
-        ];
-  }, [insightsRes]);
+  const healthTips = useMemo(
+    () => insightsRes?.data || ["Analyzing bio-data...", "Consistency is key."],
+    [insightsRes],
+  );
 
   if (userLoading) return <LoadingState />;
 
   return (
     <div
-      className={cn("min-h-screen bg-[#F8FAFC] pb-32 pt-6", poppins.className)}
+      className={cn(
+        "min-h-screen bg-[#F8FAFC] pb-24 pt-4 md:pt-8",
+        poppins.className,
+      )}
     >
-      <div className="max-w-7xl mx-auto px-6 space-y-6">
-        {/* --- HEADER --- */}
-        <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white p-8 rounded-[32px] border border-slate-200/60 shadow-sm">
+      <div className="max-w-7xl mx-auto px-4 md:px-6 space-y-5 md:space-y-8">
+        {/* --- HEADER (Tighter Mobile Padding) --- */}
+        <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white p-5 md:p-8 rounded-[28px] md:rounded-[32px] border border-slate-200/60 shadow-sm">
           <div>
             <div className="flex items-center gap-2 mb-1">
               <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
-              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.2em]">
+              <p className="text-[9px] md:text-[10px] font-black text-slate-500 uppercase tracking-widest">
                 Bio-Sync Active
               </p>
             </div>
             <h1
               className={cn(
-                "text-4xl md:text-5xl text-slate-900 leading-none",
+                "text-3xl md:text-5xl text-slate-900",
                 bebasNeue.className,
               )}
             >
@@ -168,34 +133,31 @@ export default function DashboardPanel() {
               </span>
             </h1>
           </div>
-          <div className="flex gap-3">
-            <button
-              onClick={() => setActivePanel("appointment")}
-              className="flex items-center gap-2 px-6 py-3 bg-slate-900 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-emerald-600 transition-all"
-            >
-              <History size={14} /> Records
-            </button>
-          </div>
+          <button
+            onClick={() => setActivePanel("appointment")}
+            className="w-full md:w-auto flex items-center justify-center gap-2 px-6 py-3.5 bg-slate-900 text-white rounded-xl md:rounded-2xl text-[10px] font-black uppercase tracking-widest active:scale-95 transition-all"
+          >
+            <History size={14} /> View Records
+          </button>
         </header>
 
-        <div className="grid grid-cols-1 md:grid-cols-12 gap-6">
-          {/* LEFT COLUMN */}
-          <div className="md:col-span-8 space-y-6">
-            {/* LIVE BIOMETRICS GRID */}
-            <BentoTile className="bg-white">
-              <div className="flex justify-between items-center mb-8">
-                <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2">
-                  <TrendingUp className="text-emerald-500" size={20} /> Live
+        <div className="grid grid-cols-1 md:grid-cols-12 gap-5 md:gap-6">
+          <div className="md:col-span-8 space-y-5 md:space-y-6">
+            {/* LIVE BIOMETRICS (Wider on Mobile) */}
+            <BentoTile className="bg-white px-4 py-6 md:p-8">
+              <div className="flex justify-between items-center mb-6">
+                <h3 className="text-sm md:text-lg font-black text-slate-900 flex items-center gap-2 uppercase tracking-tight">
+                  <TrendingUp className="text-emerald-500" size={18} /> Live
                   Biometrics
                 </h3>
                 <button
                   onClick={() => setActivePanel("health-tracker")}
-                  className="text-[10px] font-bold text-emerald-600 hover:underline"
+                  className="text-[10px] font-bold text-emerald-600"
                 >
-                  View all
+                  View Details
                 </button>
               </div>
-              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
                 <StatCard
                   icon={HeartPulse}
                   label="Heart Rate"
@@ -225,7 +187,7 @@ export default function DashboardPanel() {
                 />
                 <StatCard
                   icon={Footprints}
-                  label="Steps"
+                  label="Steps Today"
                   val={stats.steps}
                   unit="steps"
                   color="text-blue-500"
@@ -234,289 +196,134 @@ export default function DashboardPanel() {
               </div>
             </BentoTile>
 
-            {/* RECENT ACTIVITY CARD */}
-            {recentEntries.length > 0 && (
-              <BentoTile className="bg-white">
-                <div className="flex justify-between items-center mb-6">
-                  <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2">
-                    <ClipboardList className="text-emerald-500" size={20} />{" "}
-                    Recent Activity
-                  </h3>
-                  <button
-                    onClick={() => setActivePanel("health-tracker")}
-                    className="text-[10px] font-bold text-emerald-600 hover:underline"
+            {/* RECENT ACTIVITY (High Contrast) */}
+            <BentoTile className="bg-white px-4 py-6 md:p-8">
+              <div className="flex justify-between items-center mb-5">
+                <h3 className="text-sm md:text-lg font-black text-slate-900 flex items-center gap-2 uppercase tracking-tight">
+                  <ClipboardList className="text-emerald-500" size={18} />{" "}
+                  Activity Log
+                </h3>
+              </div>
+              <div className="space-y-2.5">
+                {recentEntries.map((entry, idx) => (
+                  <div
+                    key={idx}
+                    className="flex justify-between items-center p-4 bg-slate-50/80 rounded-2xl border border-slate-100/50"
                   >
-                    View all
-                  </button>
-                </div>
-                <div className="space-y-3">
-                  {recentEntries.map((entry, idx) => (
-                    <div
-                      key={idx}
-                      className="flex justify-between items-center p-3 bg-slate-50 rounded-xl"
-                    >
-                      <div>
-                        <p className="text-[10px] font-black text-slate-400 uppercase">
-                          {entry.date}
-                        </p>
-                        <p className="text-lg font-black">
-                          {entry.value}{" "}
-                          <span className="text-[10px] text-slate-400">
-                            {entry.unit}
-                          </span>
-                        </p>
-                        <p className="text-xs text-slate-500 capitalize">
-                          {entry.label}
-                        </p>
-                      </div>
-                      <div className="w-1.5 h-1.5 bg-blue-500 rounded-full animate-pulse" />
+                    <div>
+                      <p className="text-[9px] font-bold text-slate-500 uppercase tracking-tighter">
+                        {new Date(entry.date).toLocaleDateString()}
+                      </p>
+                      <p className="text-base font-black text-slate-900">
+                        {entry.value}{" "}
+                        <span className="text-[10px] text-slate-400 font-medium">
+                          unit
+                        </span>
+                      </p>
                     </div>
-                  ))}
-                </div>
-              </BentoTile>
-            )}
+                    <div className="text-right">
+                      <p className="text-[10px] font-black text-slate-800 uppercase tracking-tight">
+                        {entry.type}
+                      </p>
+                      <div className="inline-block px-2 py-0.5 bg-emerald-100 text-emerald-700 text-[8px] font-black rounded-full uppercase mt-1">
+                        Stored
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </BentoTile>
 
-            {/* JOINED CHALLENGES */}
-            <div className="space-y-4">
-              <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-400 px-2 flex items-center gap-2">
+            {/* ACTIVE OPERATIONS (Tighter Font for Mobile) */}
+            <div className="space-y-3">
+              <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500 px-1 flex items-center gap-2">
                 <Users size={14} /> Active Operations
               </h3>
-              {joinedChallenges.length > 0 ? (
-                <div className="grid grid-cols-1 gap-4">
-                  {joinedChallenges.map((c: any) => (
-                    <JoinedChallengeCard
-                      key={c.id}
-                      challenge={c}
-                      onClick={() => setActivePanel("challenges")}
-                    />
-                  ))}
-                </div>
-              ) : (
-                <div className="p-10 border-2 border-dashed border-slate-200 rounded-[32px] text-center">
-                  <p className="text-slate-400 text-sm italic">
-                    No active joined challenges.
-                  </p>
-                </div>
-              )}
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {/* TARGET/MAIN CHALLENGE CARD */}
-              <BentoTile className="bg-slate-900 text-white border-none relative overflow-hidden group">
-                <div className="absolute top-0 right-0 p-8 opacity-10 group-hover:scale-110 transition-transform">
-                  <Trophy size={80} />
-                </div>
-                <div className="relative z-10 h-full flex flex-col justify-between">
-                  <div>
-                    <span className="text-[10px] font-bold text-emerald-400 uppercase tracking-widest">
-                      Top Priority
-                    </span>
-                    <h4 className="text-2xl font-bold mt-2">
-                      {joinedChallenges[0]?.name || "Initiate Protocol"}
-                    </h4>
-                  </div>
-                  <div className="mt-8">
-                    <div className="w-full bg-white/10 h-2 rounded-full overflow-hidden">
-                      <motion.div
-                        initial={{ width: 0 }}
-                        animate={{ width: joinedChallenges[0] ? "65%" : "20%" }}
-                        className="h-full bg-emerald-500"
-                      />
-                    </div>
-                    <button
-                      onClick={() => setActivePanel("challenges")}
-                      className="mt-6 flex items-center gap-2 text-white text-[10px] font-black uppercase tracking-widest hover:text-emerald-400 transition-colors"
-                    >
-                      Enter Challenge Hub <ChevronRight size={14} />
-                    </button>
-                  </div>
-                </div>
-              </BentoTile>
-
-              {/* MEDICATIONS PROTOCOL - HIGH CONTRAST */}
-              <BentoTile className="bg-white border-slate-100 overflow-hidden group">
-                <div className="flex justify-between items-start mb-6">
-                  <div className="p-3 bg-blue-50 rounded-2xl group-hover:bg-blue-600 group-hover:text-white transition-colors duration-500">
-                    <Pill
-                      className="text-blue-600 group-hover:text-white"
-                      size={24}
-                    />
-                  </div>
-                  <div className="text-right">
-                    <p className="text-[10px] font-black text-slate-300 uppercase tracking-widest">
-                      Active Cycle
-                    </p>
-                    <p className="text-sm font-bold text-blue-600 tracking-tight">
-                      AM Dosage
-                    </p>
-                  </div>
-                </div>
-                <div className="space-y-1">
-                  <h4 className="text-2xl font-black text-slate-900 leading-none">
-                    {medsRes?.data?.[0]?.medicationName ||
-                      "Medical Protocol Clear"}
-                  </h4>
-                  <p className="text-[10px] font-bold text-slate-400 uppercase">
-                    {medsRes?.data?.[0]?.dosage || "No Active Drugs"}
-                  </p>
-                </div>
-                <button
-                  onClick={() => setActivePanel("medications")}
-                  className="w-full mt-8 py-4 bg-slate-900 text-white hover:bg-blue-700 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all duration-300 flex items-center justify-center gap-2 shadow-lg shadow-slate-200"
-                >
-                  Manage Protocol <ArrowUpRight size={14} />
-                </button>
-              </BentoTile>
+              <div className="grid grid-cols-1 gap-3">
+                {joinedChallenges.map((c: any) => (
+                  <JoinedChallengeCard
+                    key={c.id}
+                    challenge={c}
+                    onClick={() => setActivePanel("challenges")}
+                  />
+                ))}
+              </div>
             </div>
           </div>
 
           {/* RIGHT SIDEBAR */}
-          <div className="md:col-span-4 space-y-6">
-            {/* UPCOMING APPOINTMENT CARD */}
+          <div className="md:col-span-4 space-y-5 md:space-y-6">
             {upcomingAppt ? (
-              <motion.div
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="bg-slate-900 rounded-[32px] p-8 text-white relative overflow-hidden shadow-2xl"
-              >
-                <div className="relative z-10 h-full flex flex-col">
-                  <div className="flex items-center justify-between mb-8">
-                    <div className="flex items-center gap-2">
-                      <Calendar size={18} className="text-emerald-400" />
-                      <span className="text-[10px] font-black uppercase tracking-widest text-slate-400 italic">
-                        Deployment
-                      </span>
-                    </div>
-                    <button
-                      onClick={() => setActivePanel("appointment")}
-                      className="text-[9px] font-bold text-slate-400 hover:text-white border border-slate-700 px-3 py-1 rounded-full uppercase tracking-tighter transition-all"
-                    >
-                      History
-                    </button>
+              <motion.div className="bg-slate-900 rounded-[28px] md:rounded-[32px] p-6 md:p-8 text-white relative overflow-hidden shadow-xl">
+                <div className="relative z-10">
+                  <div className="flex items-center gap-2 mb-6">
+                    <Calendar size={16} className="text-emerald-400" />
+                    <span className="text-[9px] font-black uppercase tracking-widest text-slate-500">
+                      Scheduled Deployment
+                    </span>
                   </div>
                   <AppointmentCountdown
                     targetDate={`${upcomingAppt.date}T${upcomingAppt.time}`}
                   />
-                  <div className="mt-8 space-y-2">
-                    <h4 className="text-2xl font-bold leading-none tracking-tight">
+                  <div className="mt-6 space-y-1">
+                    <h4 className="text-xl md:text-2xl font-bold tracking-tight">
                       {upcomingAppt.medicName}
                     </h4>
-                    <p className="text-sm text-slate-400 flex items-center gap-2 font-medium">
-                      <Clock size={14} className="text-emerald-500" />{" "}
-                      {upcomingAppt.date} @ {upcomingAppt.time}
+                    <p className="text-xs text-slate-400 flex items-center gap-2">
+                      <Clock size={12} className="text-emerald-500" />{" "}
+                      {upcomingAppt.date} at {upcomingAppt.time}
                     </p>
                   </div>
-                  <div className="grid grid-cols-2 gap-3 mt-10">
-                    <button
-                      onClick={() => setActivePanel("doza-medics")}
-                      className="py-4 bg-white/5 hover:bg-white/10 border border-white/10 rounded-2xl text-[9px] font-black uppercase tracking-widest transition-all"
-                    >
+                  <div className="grid grid-cols-2 gap-3 mt-8">
+                    <button className="py-3.5 bg-white/10 hover:bg-white/20 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all">
                       Check-In
                     </button>
-                    <button
-                      onClick={() => setActivePanel("appointment")}
-                      className="py-4 bg-emerald-600 hover:bg-emerald-500 rounded-2xl text-[9px] font-black uppercase tracking-widest transition-all flex items-center justify-center gap-2"
-                    >
-                      Records <ChevronRight size={14} />
+                    <button className="py-3.5 bg-emerald-600 hover:bg-emerald-500 rounded-xl text-[9px] font-black uppercase tracking-widest flex items-center justify-center gap-2 transition-all">
+                      Records <ChevronRight size={12} />
                     </button>
                   </div>
                 </div>
-                <Activity className="absolute -right-8 -bottom-8 w-48 h-48 opacity-5" />
               </motion.div>
-            ) : (
-              <button
-                onClick={() => setActivePanel("appointment")}
-                className="w-full bg-white border border-slate-100 rounded-[32px] p-10 text-center flex flex-col items-center justify-center gap-4 group hover:border-emerald-200 transition-all shadow-sm"
-              >
-                <div className="h-16 w-16 rounded-[24px] bg-slate-50 flex items-center justify-center text-slate-300 group-hover:bg-emerald-50 group-hover:text-emerald-500 transition-all">
-                  <Calendar size={32} />
-                </div>
-                <div>
-                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">
-                    Status: Standby
-                  </p>
-                  <p className="text-sm text-slate-900 font-bold mt-1">
-                    Open Appointment History
-                  </p>
-                </div>
-              </button>
-            )}
+            ) : null}
 
-            {/* CREATED CHALLENGES - HIGH CONTRAST BUTTONS */}
-            <div className="space-y-4">
-              <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-400 px-2 flex items-center gap-2">
-                <ShieldCheck size={14} /> Managed Operations
-              </h3>
-              {myCreatedChallenges.map((c: any) => (
-                <div
-                  key={c.id}
-                  className="bg-white border border-slate-200 rounded-[32px] p-6 shadow-sm hover:shadow-md transition-shadow"
-                >
-                  <div className="flex justify-between items-start mb-6">
-                    <div>
-                      <h4 className="font-bold text-slate-900 text-lg">
-                        {c.name}
-                      </h4>
-                      <div className="flex items-center gap-2 mt-1">
-                        <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-                        <p className="text-[10px] font-bold text-slate-400 uppercase">
-                          {c.participantCount} Participants
-                        </p>
-                      </div>
-                    </div>
-                    <div className="h-10 w-10 bg-slate-50 rounded-xl flex items-center justify-center text-slate-400">
-                      <Trophy size={18} />
-                    </div>
-                  </div>
-                  <button
-                    onClick={() => setActivePanel("challenges")}
-                    className="w-full py-4 bg-slate-900 text-white hover:bg-emerald-600 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all"
-                  >
-                    Manage Operation
-                  </button>
-                </div>
-              ))}
-            </div>
-
-            {/* INSIGHTS */}
-            <div className="bg-emerald-600 rounded-[32px] p-8 text-white relative overflow-hidden h-[280px] shadow-xl">
+            {/* INSIGHTS (Fixed height for Mobile) */}
+            <div className="bg-emerald-600 rounded-[28px] md:rounded-[32px] p-6 md:p-8 text-white relative overflow-hidden min-h-[220px] shadow-lg">
               <ThreeBackground />
-              <div className="relative z-10 h-full flex flex-col">
-                <div className="flex items-center gap-2 mb-6">
-                  <Lightbulb size={20} className="text-emerald-200" />
-                  <span className="text-[10px] font-bold uppercase tracking-widest text-emerald-100">
-                    Bio-Analysis
-                  </span>
-                </div>
-                <div className="flex-1">
+              <div className="relative z-10 flex flex-col h-full justify-between">
+                <div>
+                  <div className="flex items-center gap-2 mb-4">
+                    <Lightbulb size={18} className="text-emerald-200" />
+                    <span className="text-[9px] font-black uppercase tracking-widest text-emerald-100">
+                      Bio-Analysis Insight
+                    </span>
+                  </div>
                   <AnimatePresence mode="wait">
                     <motion.p
                       key={tipIndex}
-                      initial={{ opacity: 0, y: 10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, y: -10 }}
-                      className="text-xl font-semibold leading-tight italic"
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      className="text-lg font-bold leading-tight italic"
                     >
                       "{healthTips[tipIndex]}"
                     </motion.p>
                   </AnimatePresence>
                 </div>
-                <div className="flex gap-2 mt-4">
+                <div className="flex gap-2 mt-6">
                   <button
                     onClick={() =>
-                      setTipIndex((prev) =>
-                        prev === 0 ? healthTips.length - 1 : prev - 1,
+                      setTipIndex((p) =>
+                        p === 0 ? healthTips.length - 1 : p - 1,
                       )
                     }
-                    className="p-2 bg-white/10 rounded-lg hover:bg-white/20 transition-colors"
+                    className="p-2.5 bg-white/10 rounded-lg"
                   >
                     <ChevronLeft size={14} />
                   </button>
                   <button
                     onClick={() =>
-                      setTipIndex((prev) => (prev + 1) % healthTips.length)
+                      setTipIndex((p) => (p + 1) % healthTips.length)
                     }
-                    className="p-2 bg-white/10 rounded-lg hover:bg-white/20 transition-colors"
+                    className="p-2.5 bg-white/10 rounded-lg"
                   >
                     <ChevronRight size={14} />
                   </button>
@@ -530,29 +337,80 @@ export default function DashboardPanel() {
   );
 }
 
-// --- SUBCOMPONENTS (unchanged, except StatCard label and live chart) ---
+// --- SUBCOMPONENTS ---
 
-function LiveBioChart({ color }: { color: string }) {
-  const points = [40, 65, 45, 90, 55, 75, 40, 85, 50, 70];
-  const hexToTailwind = (colorStr: string) => {
-    if (colorStr.includes("rose")) return "bg-rose-500/40";
-    if (colorStr.includes("amber")) return "bg-amber-500/40";
-    if (colorStr.includes("emerald")) return "bg-emerald-500/40";
-    return "bg-slate-500/40";
-  };
-
+function StatCard({ icon: Icon, label, val, unit, color, bg, hasChart }: any) {
   return (
-    <div className="flex items-end gap-1 h-10 w-full mt-4 overflow-hidden px-1">
+    <div className="p-4 rounded-[22px] bg-slate-50/50 border border-slate-100 flex flex-col group active:scale-95 transition-all">
+      <div className={cn("p-2 rounded-lg w-fit mb-3", bg)}>
+        <Icon size={16} className={color} />
+      </div>
+      <span className="text-[8px] font-black text-slate-500 uppercase tracking-wider mb-0.5">
+        {label}
+      </span>
+      <div className="flex items-baseline gap-0.5">
+        <span className="text-lg font-black text-slate-900 tracking-tighter">
+          {val}
+        </span>
+        <span className="text-[8px] font-bold text-slate-400 uppercase">
+          {unit}
+        </span>
+      </div>
+      {hasChart && <LiveBioChart color={color} />}
+    </div>
+  );
+}
+
+function JoinedChallengeCard({ challenge, onClick }: any) {
+  return (
+    <motion.div
+      whileTap={{ scale: 0.98 }}
+      onClick={onClick}
+      className="bg-white border border-slate-100 p-4 md:p-6 rounded-[24px] md:rounded-[32px] flex items-center justify-between shadow-sm active:bg-slate-50 transition-all"
+    >
+      <div className="flex items-center gap-4">
+        <div className="h-12 w-12 rounded-2xl bg-emerald-50 flex items-center justify-center text-emerald-600">
+          <Target size={24} />
+        </div>
+        <div>
+          <h4 className="text-sm md:text-lg font-black text-slate-900 leading-tight uppercase tracking-tight">
+            {challenge.name}
+          </h4>
+          <div className="flex items-center gap-2 mt-1">
+            <span className="text-[9px] font-black text-emerald-600 uppercase tracking-widest bg-emerald-50 px-2 py-0.5 rounded-full">
+              Active Duty
+            </span>
+            <span className="text-[9px] font-bold text-slate-400 uppercase">
+              Goal: {challenge.targetValue}
+            </span>
+          </div>
+        </div>
+      </div>
+      <ChevronRight size={18} className="text-slate-300" />
+    </motion.div>
+  );
+}
+
+// Re-used helper components with minor responsive tweaks
+function LiveBioChart({ color }: { color: string }) {
+  const points = [40, 65, 45, 90, 55, 75, 40, 85];
+  const hexToTailwind = (c: string) =>
+    c.includes("rose")
+      ? "bg-rose-500/40"
+      : c.includes("amber")
+        ? "bg-amber-500/40"
+        : "bg-emerald-500/40";
+  return (
+    <div className="flex items-end gap-1 h-8 w-full mt-3 overflow-hidden">
       {points.map((p, i) => (
         <motion.div
           key={i}
-          initial={{ height: "10%" }}
           animate={{ height: `${p}%` }}
           transition={{
             repeat: Infinity,
             repeatType: "reverse",
             duration: 0.6 + Math.random(),
-            delay: i * 0.08,
+            delay: i * 0.05,
           }}
           className={cn("flex-1 rounded-full", hexToTailwind(color))}
         />
@@ -561,44 +419,19 @@ function LiveBioChart({ color }: { color: string }) {
   );
 }
 
-function StatCard({ icon: Icon, label, val, unit, color, bg, hasChart }: any) {
-  return (
-    <div className="p-5 rounded-[24px] bg-slate-50 border border-slate-100 flex flex-col group hover:bg-white hover:shadow-xl transition-all duration-500">
-      <div
-        className={cn(
-          "p-2.5 rounded-xl w-fit mb-4 transition-transform group-hover:scale-110 shadow-sm",
-          bg,
-        )}
-      >
-        <Icon size={18} className={color} />
-      </div>
-      <span className="text-[10px] font-black text-slate-400 uppercase tracking-tighter mb-1">
-        {label}
-      </span>
-      <div className="flex items-baseline gap-1">
-        <span className="text-2xl font-black text-slate-900 tracking-tight">
-          {val === "—" ? "—" : val}
-        </span>
-        <span className="text-[10px] font-bold text-slate-400">{unit}</span>
-      </div>
-      {hasChart && <LiveBioChart color={color} />}
-    </div>
-  );
-}
-
 function AppointmentCountdown({ targetDate }: { targetDate: string }) {
   const [timeLeft, setTimeLeft] = useState("");
   useEffect(() => {
-    const calculate = () => {
+    const calc = () => {
       const diff = +new Date(targetDate) - +new Date();
-      if (diff <= 0) return setTimeLeft("Live Now");
+      if (diff <= 0) return setTimeLeft("Live");
       const d = Math.floor(diff / (1000 * 60 * 60 * 24));
       const h = Math.floor((diff / (1000 * 60 * 60)) % 24);
       const m = Math.floor((diff / 1000 / 60) % 60);
       setTimeLeft(`${d > 0 ? d + "d " : ""}${h}h ${m}m`);
     };
-    calculate();
-    const timer = setInterval(calculate, 60000);
+    calc();
+    const timer = setInterval(calc, 60000);
     return () => clearInterval(timer);
   }, [targetDate]);
 
@@ -606,49 +439,16 @@ function AppointmentCountdown({ targetDate }: { targetDate: string }) {
     <div className="flex flex-col">
       <span
         className={cn(
-          "text-6xl font-black text-emerald-400 tracking-tighter leading-none",
+          "text-5xl md:text-6xl font-black text-emerald-400 tracking-tighter leading-none",
           bebasNeue.className,
         )}
       >
         {timeLeft}
       </span>
-      <span className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.3em] mt-2 ml-1">
+      <span className="text-[9px] font-black text-slate-500 uppercase tracking-[0.3em] mt-2">
         T-Minus to Session
       </span>
     </div>
-  );
-}
-
-function JoinedChallengeCard({ challenge, onClick }: any) {
-  return (
-    <motion.div
-      whileHover={{ x: 6 }}
-      onClick={onClick}
-      className="bg-white border border-slate-100 p-6 rounded-[32px] flex items-center justify-between cursor-pointer hover:shadow-md transition-all"
-    >
-      <div className="flex items-center gap-5">
-        <div className="h-14 w-14 rounded-2xl bg-emerald-50 flex items-center justify-center text-emerald-600 shadow-inner">
-          <Target size={28} />
-        </div>
-        <div>
-          <h4 className="text-lg font-bold text-slate-900 leading-tight">
-            {challenge.name}
-          </h4>
-          <div className="flex items-center gap-3 mt-1">
-            <span className="text-[10px] font-bold text-slate-400 uppercase">
-              Target: {challenge.targetValue} {challenge.targetUnit}
-            </span>
-            <span className="h-1 w-1 rounded-full bg-slate-300" />
-            <span className="text-[10px] font-black text-emerald-500 uppercase tracking-widest underline decoration-emerald-200">
-              Active Duty
-            </span>
-          </div>
-        </div>
-      </div>
-      <div className="h-10 w-10 rounded-full bg-slate-50 flex items-center justify-center text-slate-300 group-hover:text-emerald-500 transition-colors">
-        <ChevronRight size={20} />
-      </div>
-    </motion.div>
   );
 }
 
@@ -659,14 +459,14 @@ function ThreeBackground() {
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(75, 1, 0.1, 1000);
     const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
-    renderer.setSize(300, 300);
+    renderer.setSize(200, 200);
     containerRef.current.appendChild(renderer.domElement);
     const geometry = new THREE.IcosahedronGeometry(1, 1);
     const material = new THREE.MeshBasicMaterial({
       color: 0xffffff,
       wireframe: true,
       transparent: true,
-      opacity: 0.15,
+      opacity: 0.1,
     });
     const mesh = new THREE.Mesh(geometry, material);
     scene.add(mesh);
@@ -674,7 +474,6 @@ function ThreeBackground() {
     const animate = () => {
       requestAnimationFrame(animate);
       mesh.rotation.y += 0.005;
-      mesh.rotation.x += 0.002;
       renderer.render(scene, camera);
     };
     animate();
@@ -686,7 +485,7 @@ function ThreeBackground() {
   return (
     <div
       ref={containerRef}
-      className="absolute -right-16 -bottom-16 pointer-events-none opacity-40"
+      className="absolute -right-12 -bottom-12 pointer-events-none opacity-30"
     />
   );
 }
@@ -694,11 +493,11 @@ function ThreeBackground() {
 function BentoTile({ children, className, onClick }: any) {
   return (
     <motion.div
-      whileHover={{ y: -6 }}
+      whileHover={{ y: -4 }}
       transition={spring}
       onClick={onClick}
       className={cn(
-        "p-8 rounded-[36px] border border-slate-100 transition-all cursor-pointer shadow-sm",
+        "rounded-[30px] border border-slate-100 shadow-sm transition-all",
         className,
       )}
     >
@@ -709,7 +508,7 @@ function BentoTile({ children, className, onClick }: any) {
 
 function LoadingState() {
   return (
-    <div className="h-screen w-full flex items-center justify-center bg-white text-[12px] font-black uppercase tracking-[0.5em] animate-pulse text-emerald-600">
+    <div className="h-screen w-full flex items-center justify-center bg-white text-[10px] font-black uppercase tracking-[0.5em] animate-pulse text-emerald-600 px-4 text-center">
       Initializing Health OS...
     </div>
   );
