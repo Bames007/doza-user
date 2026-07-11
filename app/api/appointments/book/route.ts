@@ -1,25 +1,51 @@
 import { NextRequest, NextResponse } from "next/server";
-import admin from "firebase-admin";
+import { verifyIdToken } from "@/app/utils/auth";
+import { adminDb } from "@/app/utils/firebaseAdmin";
+import { z } from "zod";
+import logger from "@/app/utils/logger";
 
-if (!admin.apps.length) {
-  admin.initializeApp({
-    credential: admin.credential.cert({
-      projectId: process.env.FIREBASE_PROJECT_ID,
-      clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-      privateKey: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, "\n"),
-    }),
-    databaseURL: process.env.FIREBASE_DATABASE_URL,
-  });
-}
-
-const db = admin.database();
+const paystackBookingSchema = z.object({
+  reference: z.string().min(1),
+  medicId: z.string().min(1),
+  schedule: z.object({
+    date: z.string().min(1),
+    time: z.string().min(1),
+  }),
+  type: z.string().optional().default("video"),
+  amount: z.number().positive(),
+});
 
 export async function POST(req: NextRequest) {
-  try {
-    const { reference, medicId, patientId, schedule, type, amount } =
-      await req.json();
+  const uid = await verifyIdToken(req);
+  if (!uid) {
+    return NextResponse.json(
+      { success: false, error: "Unauthorized" },
+      { status: 401 },
+    );
+  }
 
-    // 1. Verify with Paystack
+  try {
+    const body = await req.json();
+    const parseResult = paystackBookingSchema.safeParse(body);
+    if (!parseResult.success) {
+      logger.warn({
+        uid,
+        message: "Invalid Paystack booking data",
+        validationErrors: parseResult.error.flatten(),
+      });
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Invalid booking data",
+          details: parseResult.error.flatten(),
+        },
+        { status: 400 },
+      );
+    }
+
+    const { reference, medicId, schedule, type, amount } = parseResult.data;
+
+    // Verify payment with Paystack
     const paystackRes = await fetch(
       `https://api.paystack.co/transaction/verify/${reference}`,
       {
@@ -30,37 +56,45 @@ export async function POST(req: NextRequest) {
     );
 
     const verification = await paystackRes.json();
-
-    if (verification.data.status !== "success") {
+    if (!paystackRes.ok || verification.data?.status !== "success") {
+      logger.warn({ uid, reference, message: "Payment verification failed" });
       return NextResponse.json(
         { success: false, error: "Payment verification failed" },
         { status: 400 },
       );
     }
 
-    // 2. Save Appointment to Firebase
-    const appointmentRef = db.ref("appointments").push();
-    await appointmentRef.set({
+    // Save appointment under the authenticated user
+    const appointmentRef = adminDb.ref(`doza/users/${uid}/appointments`).push();
+    const appointment = {
+      id: appointmentRef.key,
       medicId,
-      patientId,
       schedule,
       consultType: type,
       amountPaid: amount,
       paymentReference: reference,
       status: "confirmed",
       createdAt: new Date().toISOString(),
-    });
+    };
 
-    // 3. Optional: Trigger notification to medic here
+    await appointmentRef.set(appointment);
+
+    logger.info({
+      uid,
+      appointmentId: appointment.id,
+      medicId,
+      reference,
+      message: "Paystack appointment booked",
+    });
 
     return NextResponse.json({
       success: true,
-      appointmentId: appointmentRef.key,
+      appointmentId: appointment.id,
     });
   } catch (error) {
-    console.error("Booking Error:", error);
+    logger.error({ uid, message: "Paystack booking failed", error });
     return NextResponse.json(
-      { success: false, error: "Internal Server Error" },
+      { success: false, error: "Unable to book appointment" },
       { status: 500 },
     );
   }

@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { adminDb } from "@/app/utils/firebaseAdmin";
 import webPush from "web-push";
+import logger from "@/app/utils/logger";
 
-// Set VAPID details
 webPush.setVapidDetails(
   "mailto:eddybames007@gmail.com",
   process.env.VAPID_PUBLIC_KEY!,
@@ -10,14 +10,12 @@ webPush.setVapidDetails(
 );
 
 export async function POST(request: NextRequest) {
-  // Protect with a secret to prevent abuse
   const auth = request.headers.get("authorization");
   if (auth !== `Bearer ${process.env.CRON_SECRET}`) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   try {
-    // Get all users with upcoming doses in the next 5 minutes
     const now = new Date();
     const fiveMinsLater = new Date(now.getTime() + 5 * 60000);
 
@@ -28,7 +26,7 @@ export async function POST(request: NextRequest) {
     for (const [uid, userData] of Object.entries(users)) {
       const medsRef = adminDb.ref(`doza/users/${uid}/medications`);
       const medsSnap = await medsRef.once("value");
-      const meds = medsSnap.val() || [];
+      const meds: any[] = medsSnap.val() || [];
 
       const dueDoses = meds.flatMap((med: any) =>
         med.doses.filter(
@@ -41,10 +39,9 @@ export async function POST(request: NextRequest) {
 
       if (dueDoses.length === 0) continue;
 
-      // Get push subscriptions for this user
       const subsRef = adminDb.ref(`doza/users/${uid}/pushSubscriptions`);
       const subsSnap = await subsRef.once("value");
-      const subscriptions = subsSnap.val() || [];
+      const subscriptions: any[] = subsSnap.val() || [];
 
       for (const sub of subscriptions) {
         const payload = JSON.stringify({
@@ -55,16 +52,20 @@ export async function POST(request: NextRequest) {
         try {
           await webPush.sendNotification(sub, payload);
         } catch (err) {
-          console.error("Push failed", err);
-          // Optionally remove invalid subscription
+          logger.error({
+            uid,
+            message: "Push notification failed",
+            error: err,
+          });
         }
       }
     }
+
     return NextResponse.json({ success: true });
   } catch (error) {
-    console.error("Send notifications error:", error);
+    logger.error({ message: "Send notifications failed", error });
     return NextResponse.json(
-      { success: false, error: "Internal error" },
+      { success: false, error: "Unable to send notifications" },
       { status: 500 },
     );
   }

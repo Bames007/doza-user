@@ -1,3 +1,6 @@
+// app/dashboard/hooks/useProfile.ts
+"use client";
+
 import { getAuth, onAuthStateChanged } from "firebase/auth";
 import { useEffect, useState } from "react";
 import useSWR from "swr";
@@ -14,7 +17,7 @@ export interface UserInfo {
 }
 
 export function useUser() {
-  // 1. Try to get server‑provided user from context
+  // 1. Server‑provided user from context (e.g., after login)
   const contextUser = useUserContext();
 
   if (contextUser) {
@@ -29,10 +32,11 @@ export function useUser() {
       } as UserInfo,
       isLoading: false,
       error: null,
+      mutateProfile: undefined,
     };
   }
 
-  // 2. Fallback to client‑side auth (existing logic)
+  // 2. Fallback: client‑side Firebase Auth + SWR profile fetch
   const [authUser, setAuthUser] = useState<{
     uid: string;
     email: string | null;
@@ -63,27 +67,34 @@ export function useUser() {
     data,
     error,
     isLoading: profileLoading,
-  } = useSWR(authUser ? "/api/user/profile" : null, authFetcher);
+    mutate,
+  } = useSWR(authUser ? "/api/user/profile" : null, authFetcher, {
+    dedupingInterval: 300_000,
+    revalidateOnFocus: false,
+  });
 
   const profile = data?.success ? data.data : {};
 
-  // Debug logs
-  useEffect(() => {
-    if (!authLoading && authUser) {
-      console.log("🔥 Auth user:", authUser);
-      console.log("📦 Profile from API:", profile);
-    }
-  }, [authLoading, authUser, profile]);
-
+  // Build fullName from multiple possible sources
   let fullName = "User";
-  if (profile.fullName) fullName = profile.fullName;
-  else if (profile.displayName) fullName = profile.displayName;
-  else if (profile.name) fullName = profile.name;
-  else if (authUser?.displayName) fullName = authUser.displayName;
+  if (profile.fullName) {
+    fullName = profile.fullName;
+  } else if (profile.fname || profile.lname) {
+    fullName = `${profile.fname || ""} ${profile.lname || ""}`.trim();
+  } else if (profile.displayName) {
+    fullName = profile.displayName;
+  } else if (profile.name) {
+    fullName = profile.name;
+  } else if (authUser?.displayName) {
+    fullName = authUser.displayName;
+  }
 
+  // Build avatar URL
   let avatar: string | null = null;
   if (profile.avatarId) {
     avatar = `/assets/avatars/${profile.avatarId}.jpg`;
+  } else if (profile.selectedImage) {
+    avatar = profile.selectedImage;
   } else if (authUser?.photoURL) {
     avatar = authUser.photoURL;
   }
@@ -103,5 +114,6 @@ export function useUser() {
     user,
     isLoading: authLoading || profileLoading,
     error,
+    mutateProfile: mutate,
   };
 }

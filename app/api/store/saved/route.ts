@@ -1,19 +1,40 @@
 import { NextRequest, NextResponse } from "next/server";
-import { adminDb } from "@/app/utils/firebaseAdmin";
+import { adminDb, adminAuth } from "@/app/utils/firebaseAdmin";
 import { cookies } from "next/headers";
+import { z } from "zod";
+import logger from "@/app/utils/logger";
+
+const productSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  price: z.number().positive(),
+  imageUrl: z.string().url(),
+  brand: z.string().optional().default(""),
+  description: z.string().optional().default(""),
+});
+
+const savedItemActionSchema = z.object({
+  product: productSchema,
+  action: z.enum(["add", "remove"]),
+});
+
+async function getUserIdFromSession(): Promise<string | null> {
+  const cookieStore = await cookies();
+  const sessionCookie = cookieStore.get("__session")?.value;
+  if (!sessionCookie) return null;
+  const decoded = await adminAuth.verifySessionCookie(sessionCookie, true);
+  return decoded.uid;
+}
 
 export async function GET() {
   try {
-    const cookieStore = cookies();
-    const sessionCookie = (await cookieStore).get("session")?.value;
-    if (!sessionCookie) {
+    const userId = await getUserIdFromSession();
+    if (!userId) {
       return NextResponse.json(
         { success: false, error: "Unauthorized" },
         { status: 401 },
       );
     }
-    const session = JSON.parse(sessionCookie);
-    const userId = session.user.id;
 
     const userRef = adminDb.ref(`doza/users/${userId}/store/savedItems`);
     const snapshot = await userRef.get();
@@ -21,9 +42,9 @@ export async function GET() {
 
     return NextResponse.json({ success: true, data: savedItems });
   } catch (error) {
-    console.error("Error fetching saved items:", error);
+    logger.error({ message: "GET saved items failed", error });
     return NextResponse.json(
-      { success: false, error: "Server error" },
+      { success: false, error: "Unable to load saved items" },
       { status: 500 },
     );
   }
@@ -31,44 +52,59 @@ export async function GET() {
 
 export async function POST(req: NextRequest) {
   try {
-    const cookieStore = cookies();
-    const sessionCookie = (await cookieStore).get("session")?.value;
-    if (!sessionCookie) {
+    const userId = await getUserIdFromSession();
+    if (!userId) {
       return NextResponse.json(
         { success: false, error: "Unauthorized" },
         { status: 401 },
       );
     }
-    const session = JSON.parse(sessionCookie);
-    const userId = session.user.id;
-    const { product, action } = await req.json();
 
+    const body = await req.json();
+    const parseResult = savedItemActionSchema.safeParse(body);
+    if (!parseResult.success) {
+      logger.warn({
+        userId,
+        message: "Invalid saved item action",
+        validationErrors: parseResult.error.flatten(),
+      });
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Invalid data provided",
+          details: parseResult.error.flatten(),
+        },
+        { status: 400 },
+      );
+    }
+
+    const { product, action } = parseResult.data;
     const userRef = adminDb.ref(`doza/users/${userId}/store/savedItems`);
     const snapshot = await userRef.get();
     let savedItems = snapshot.exists() ? snapshot.val() : {};
 
     if (action === "add") {
-      // Add product with timestamp
-      const item = {
-        id: product.id,
-        name: product.name,
-        price: product.price,
-        imageUrl: product.imageUrl,
-        brand: product.brand,
-        description: product.description,
+      savedItems[product.id] = {
+        ...product,
         savedAt: Date.now(),
       };
-      savedItems[product.id] = item;
-    } else if (action === "remove") {
+    } else {
       delete savedItems[product.id];
     }
 
     await userRef.set(savedItems);
+
+    logger.info({
+      userId,
+      productId: product.id,
+      action,
+      message: "Saved items updated",
+    });
     return NextResponse.json({ success: true });
   } catch (error) {
-    console.error("Error updating saved items:", error);
+    logger.error({ message: "POST saved items failed", error });
     return NextResponse.json(
-      { success: false, error: "Server error" },
+      { success: false, error: "Unable to update saved items" },
       { status: 500 },
     );
   }

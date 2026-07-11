@@ -9,17 +9,11 @@ import {
   HeartPulse,
   Footprints,
   Activity,
-  Pill,
-  ArrowUpRight,
   Droplets,
   Lightbulb,
   ChevronRight,
-  Trophy,
   ChevronLeft,
   TrendingUp,
-  Target,
-  ShieldCheck,
-  Users,
   Calendar,
   Clock,
   History,
@@ -36,73 +30,93 @@ const spring: Transition = {
   damping: 25,
 };
 
+// Simplified translation dictionary for medical technical terms
+const translateMedicalType = (type: string): string => {
+  switch (type) {
+    case "heartRate":
+      return "Heart Rate";
+    case "bloodPressure":
+      return "Blood Pressure";
+    case "steps":
+      return "Daily Steps";
+    case "weight":
+      return "Body Weight";
+    default:
+      return type;
+  }
+};
+
+const formatHealthValue = (record: any): string => {
+  if (record.type === "bloodPressure" && typeof record.value === "object") {
+    return `${record.value.systolic}/${record.value.diastolic}`;
+  }
+  return record.value?.toString() || "—";
+};
+
+const getUnitLabel = (type: string): string => {
+  switch (type) {
+    case "heartRate":
+      return "bpm (beats per minute)";
+    case "bloodPressure":
+      return "mmHg";
+    case "steps":
+      return "steps";
+    case "weight":
+      return "kg";
+    default:
+      return "";
+  }
+};
+
 export default function DashboardPanel() {
   const { user, isLoading: userLoading } = useUser();
   const { setActivePanel } = useDashboard();
   const [tipIndex, setTipIndex] = useState(0);
 
-  const { data: healthRes } = useSWR("/api/health-records", authFetcher);
-  const { data: medsRes } = useSWR("/api/medications/upcoming", authFetcher);
-  const { data: apptRes } = useSWR("/api/appointments", authFetcher);
-  const { data: challengeRes } = useSWR("/api/challenges?type=my", authFetcher);
-  const { data: insightsRes } = useSWR("/api/health-insights", authFetcher);
-
-  const upcomingAppt = useMemo(() => {
-    if (!apptRes?.success || !apptRes.data) return null;
-    return apptRes.data
-      .filter(
-        (a: any) =>
-          a.status === "upcoming" ||
-          new Date(`${a.date}T${a.time}`) > new Date(),
-      )
-      .sort(
-        (a: any, b: any) =>
-          new Date(`${a.date}T${a.time}`).getTime() -
-          new Date(`${b.date}T${b.time}`).getTime(),
-      )[0];
-  }, [apptRes]);
-
-  const { joinedChallenges, myCreatedChallenges } = useMemo(() => {
-    const all = challengeRes?.data || [];
-    const uid = user?.id;
-    return {
-      joinedChallenges: all.filter(
-        (c: any) => c.creatorId !== uid && c.participants?.[uid as string],
-      ),
-      myCreatedChallenges: all.filter((c: any) => c.creatorId === uid),
-    };
-  }, [challengeRes, user]);
-
-  const stats = useMemo(() => {
-    const records = healthRes?.data || [];
-    const getLatest = (type: string) =>
-      records
-        .filter((r: any) => r.type === type)
-        .sort(
-          (a: any, b: any) =>
-            new Date(b.date).getTime() - new Date(a.date).getTime(),
-        )[0];
-    return {
-      heartRate: getLatest("heartRate")?.value || "—",
-      bloodPressure: getLatest("bloodPressure")?.value || "—",
-      steps: getLatest("steps")?.value || "—",
-      weight: getLatest("weight")?.value || "—",
-    };
-  }, [healthRes]);
-
-  const recentEntries = useMemo(() => {
-    const records = healthRes?.data || [];
-    return [...records]
-      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
-      .slice(0, 5);
-  }, [healthRes]);
-
-  const healthTips = useMemo(
-    () => insightsRes?.data || ["Analyzing bio-data...", "Consistency is key."],
-    [insightsRes],
+  const { data: dashboardData, isLoading: dataLoading } = useSWR(
+    "/api/dashboard/summary",
+    authFetcher,
+    {
+      revalidateOnFocus: false,
+      dedupingInterval: 60_000,
+    },
   );
 
-  if (userLoading) return <LoadingState />;
+  const notifications: any[] = dashboardData?.data?.notifications ?? [];
+  const healthRecords = dashboardData?.data?.healthRecords ?? {};
+  const upcomingAppointments = dashboardData?.data?.appointments ?? [];
+
+  const displayStats = {
+    heartRate: healthRecords.heartRate || "—",
+    bloodPressure: healthRecords.bloodPressure || "—",
+    steps: healthRecords.steps || "—",
+    weight: healthRecords.weight || "—",
+  };
+
+  const recentEntries = healthRecords.recentEntries || [];
+
+  // Sort appointments to guarantee the most urgent/closest date is first
+  const sortedAppointments = useMemo(() => {
+    if (!upcomingAppointments || upcomingAppointments.length === 0) return [];
+    return [...upcomingAppointments].sort((a, b) => {
+      return (
+        new Date(`${a.date}T${a.time}`).getTime() -
+        new Date(`${b.date}T${b.time}`).getTime()
+      );
+    });
+  }, [upcomingAppointments]);
+
+  const healthTips = useMemo(() => {
+    if (notifications.length === 0) {
+      return [
+        "Drinking water regularly throughout the day is the simplest way to boost your daily energy.",
+        "Logging your readings consistently helps us provide clear trends about your health journey.",
+      ];
+    }
+    return notifications.map((n: any) => n.message).slice(0, 5);
+  }, [notifications]);
+
+  if (userLoading || dataLoading) return <LoadingState />;
 
   return (
     <div
@@ -112,13 +126,13 @@ export default function DashboardPanel() {
       )}
     >
       <div className="max-w-7xl mx-auto px-4 md:px-6 space-y-5 md:space-y-8">
-        {/* --- HEADER (Tighter Mobile Padding) --- */}
-        <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white p-5 md:p-8 rounded-[28px] md:rounded-[32px] border border-slate-200/60 shadow-sm">
+        {/* --- HEADER --- */}
+        <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white p-5 md:p-8 rounded-[28px] border border-slate-200/60 shadow-sm">
           <div>
             <div className="flex items-center gap-2 mb-1">
               <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
-              <p className="text-[9px] md:text-[10px] font-black text-slate-500 uppercase tracking-widest">
-                Bio-Sync Active
+              <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest">
+                Connected & Up to Date
               </p>
             </div>
             <h1
@@ -134,34 +148,36 @@ export default function DashboardPanel() {
             </h1>
           </div>
           <button
-            onClick={() => setActivePanel("appointment")}
-            className="w-full md:w-auto flex items-center justify-center gap-2 px-6 py-3.5 bg-slate-900 text-white rounded-xl md:rounded-2xl text-[10px] font-black uppercase tracking-widest active:scale-95 transition-all"
+            onClick={() => setActivePanel("health-tracker")}
+            className="w-full md:w-auto flex items-center justify-center gap-2 px-6 py-3.5 bg-slate-900 text-white rounded-xl text-[10px] font-black uppercase tracking-widest active:scale-95 transition-all"
           >
-            <History size={14} /> View Records
+            <History size={14} /> View Your Full History
           </button>
         </header>
 
         <div className="grid grid-cols-1 md:grid-cols-12 gap-5 md:gap-6">
+          {/* LEFT COLUMN: HEALTH METRICS & ACTIVITY */}
           <div className="md:col-span-8 space-y-5 md:space-y-6">
-            {/* LIVE BIOMETRICS (Wider on Mobile) */}
+            {/* LATEST READINGS */}
             <BentoTile className="bg-white px-4 py-6 md:p-8">
               <div className="flex justify-between items-center mb-6">
                 <h3 className="text-sm md:text-lg font-black text-slate-900 flex items-center gap-2 uppercase tracking-tight">
-                  <TrendingUp className="text-emerald-500" size={18} /> Live
-                  Biometrics
+                  <TrendingUp className="text-emerald-500" size={18} /> Your
+                  Health Summary
                 </h3>
                 <button
                   onClick={() => setActivePanel("health-tracker")}
                   className="text-[10px] font-bold text-emerald-600"
                 >
-                  View Details
+                  See Detailed Changes
                 </button>
               </div>
+
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
                 <StatCard
                   icon={HeartPulse}
                   label="Heart Rate"
-                  val={stats.heartRate}
+                  val={displayStats.heartRate}
                   unit="bpm"
                   color="text-rose-500"
                   bg="bg-rose-50"
@@ -169,8 +185,12 @@ export default function DashboardPanel() {
                 />
                 <StatCard
                   icon={Activity}
-                  label="BP Status"
-                  val={stats.bloodPressure}
+                  label="Blood Pressure"
+                  val={
+                    typeof displayStats.bloodPressure === "object"
+                      ? `${displayStats.bloodPressure.systolic}/${displayStats.bloodPressure.diastolic}`
+                      : displayStats.bloodPressure
+                  }
                   unit="mmHg"
                   color="text-amber-500"
                   bg="bg-amber-50"
@@ -178,8 +198,8 @@ export default function DashboardPanel() {
                 />
                 <StatCard
                   icon={Droplets}
-                  label="Weight"
-                  val={stats.weight}
+                  label="Body Weight"
+                  val={displayStats.weight}
                   unit="kg"
                   color="text-emerald-500"
                   bg="bg-emerald-50"
@@ -188,7 +208,7 @@ export default function DashboardPanel() {
                 <StatCard
                   icon={Footprints}
                   label="Steps Today"
-                  val={stats.steps}
+                  val={displayStats.steps}
                   unit="steps"
                   color="text-blue-500"
                   bg="bg-blue-50"
@@ -196,105 +216,163 @@ export default function DashboardPanel() {
               </div>
             </BentoTile>
 
-            {/* RECENT ACTIVITY (High Contrast) */}
+            {/* HISTORICAL ENTRIES LIST */}
             <BentoTile className="bg-white px-4 py-6 md:p-8">
               <div className="flex justify-between items-center mb-5">
                 <h3 className="text-sm md:text-lg font-black text-slate-900 flex items-center gap-2 uppercase tracking-tight">
                   <ClipboardList className="text-emerald-500" size={18} />{" "}
-                  Activity Log
+                  Recent Health Logs
                 </h3>
               </div>
               <div className="space-y-2.5">
-                {recentEntries.map((entry, idx) => (
+                {recentEntries.map((entry: any, idx: number) => (
                   <div
-                    key={idx}
+                    key={entry.id || idx}
                     className="flex justify-between items-center p-4 bg-slate-50/80 rounded-2xl border border-slate-100/50"
                   >
                     <div>
-                      <p className="text-[9px] font-bold text-slate-500 uppercase tracking-tighter">
-                        {new Date(entry.date).toLocaleDateString()}
+                      <p className="text-[9px] font-bold text-slate-400 uppercase tracking-tighter">
+                        {new Date(entry.date).toLocaleDateString(undefined, {
+                          dateStyle: "long",
+                        })}
                       </p>
                       <p className="text-base font-black text-slate-900">
-                        {entry.value}{" "}
+                        {formatHealthValue(entry)}{" "}
                         <span className="text-[10px] text-slate-400 font-medium">
-                          unit
+                          {getUnitLabel(entry.type)}
                         </span>
                       </p>
                     </div>
                     <div className="text-right">
                       <p className="text-[10px] font-black text-slate-800 uppercase tracking-tight">
-                        {entry.type}
+                        {translateMedicalType(entry.type)}
                       </p>
                       <div className="inline-block px-2 py-0.5 bg-emerald-100 text-emerald-700 text-[8px] font-black rounded-full uppercase mt-1">
-                        Stored
+                        Saved
                       </div>
                     </div>
                   </div>
                 ))}
+                {recentEntries.length === 0 && (
+                  <p className="text-slate-400 text-sm text-center py-4">
+                    No logs recorded yet. Use the tool above to add your
+                    metrics.
+                  </p>
+                )}
               </div>
             </BentoTile>
-
-            {/* ACTIVE OPERATIONS (Tighter Font for Mobile) */}
-            <div className="space-y-3">
-              <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500 px-1 flex items-center gap-2">
-                <Users size={14} /> Active Operations
-              </h3>
-              <div className="grid grid-cols-1 gap-3">
-                {joinedChallenges.map((c: any) => (
-                  <JoinedChallengeCard
-                    key={c.id}
-                    challenge={c}
-                    onClick={() => setActivePanel("challenges")}
-                  />
-                ))}
-              </div>
-            </div>
           </div>
 
-          {/* RIGHT SIDEBAR */}
+          {/* RIGHT COLUMN: APPOINTMENTS & HEALTH INSIGHTS */}
           <div className="md:col-span-4 space-y-5 md:space-y-6">
-            {upcomingAppt ? (
-              <motion.div className="bg-slate-900 rounded-[28px] md:rounded-[32px] p-6 md:p-8 text-white relative overflow-hidden shadow-xl">
-                <div className="relative z-10">
-                  <div className="flex items-center gap-2 mb-6">
-                    <Calendar size={16} className="text-emerald-400" />
-                    <span className="text-[9px] font-black uppercase tracking-widest text-slate-500">
-                      Scheduled Deployment
-                    </span>
-                  </div>
-                  <AppointmentCountdown
-                    targetDate={`${upcomingAppt.date}T${upcomingAppt.time}`}
-                  />
-                  <div className="mt-6 space-y-1">
-                    <h4 className="text-xl md:text-2xl font-bold tracking-tight">
-                      {upcomingAppt.medicName}
-                    </h4>
-                    <p className="text-xs text-slate-400 flex items-center gap-2">
-                      <Clock size={12} className="text-emerald-500" />{" "}
-                      {upcomingAppt.date} at {upcomingAppt.time}
-                    </p>
-                  </div>
-                  <div className="grid grid-cols-2 gap-3 mt-8">
-                    <button className="py-3.5 bg-white/10 hover:bg-white/20 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all">
-                      Check-In
-                    </button>
-                    <button className="py-3.5 bg-emerald-600 hover:bg-emerald-500 rounded-xl text-[9px] font-black uppercase tracking-widest flex items-center justify-center gap-2 transition-all">
-                      Records <ChevronRight size={12} />
-                    </button>
+            {/* --- APPOINTMENTS SECTION --- */}
+            {sortedAppointments.length > 0 ? (
+              <div className="space-y-4">
+                {/* Main Feature: Most immediate upcoming appointment sorted chronologically */}
+                <div className="bg-slate-900 rounded-[28px] p-6 md:p-8 text-white relative overflow-hidden shadow-xl">
+                  <div className="relative z-10">
+                    <div className="flex items-center gap-2 mb-6">
+                      <Calendar size={16} className="text-emerald-400" />
+                      <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">
+                        Your Next Appointment
+                      </span>
+                    </div>
+                    <AppointmentCountdown
+                      targetDate={`${sortedAppointments[0].date}T${sortedAppointments[0].time}`}
+                    />
+                    <div className="mt-6 space-y-1">
+                      <h4 className="text-xl md:text-2xl font-bold tracking-tight">
+                        {sortedAppointments[0].medicName ||
+                          "General Care Practitioner"}
+                      </h4>
+                      <p className="text-xs text-slate-400 flex items-center gap-2">
+                        <Clock size={12} className="text-emerald-500" />{" "}
+                        {sortedAppointments[0].date} at{" "}
+                        {sortedAppointments[0].time}
+                      </p>
+                      {sortedAppointments[0].reason && (
+                        <p className="text-xs text-slate-400 mt-2 bg-white/5 p-2.5 rounded-xl border border-white/5">
+                          <span className="text-[9px] block text-emerald-400 uppercase font-bold mb-0.5">
+                            Reason for visit:
+                          </span>
+                          {sortedAppointments[0].reason}
+                        </p>
+                      )}
+                    </div>
                   </div>
                 </div>
-              </motion.div>
-            ) : null}
 
-            {/* INSIGHTS (Fixed height for Mobile) */}
-            <div className="bg-emerald-600 rounded-[28px] md:rounded-[32px] p-6 md:p-8 text-white relative overflow-hidden min-h-[220px] shadow-lg">
+                {/* Other Appointments Later down the list */}
+                {sortedAppointments.length > 1 && (
+                  <div className="space-y-3">
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">
+                      Later Appointments
+                    </p>
+                    {sortedAppointments.slice(1, 4).map((apt: any) => (
+                      <button
+                        key={apt.id}
+                        onClick={() => setActivePanel("appointment")}
+                        className="w-full bg-white rounded-[20px] p-4 border border-slate-100 shadow-sm hover:shadow-md transition-all text-left group"
+                      >
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="text-sm font-bold text-slate-900 group-hover:text-emerald-600 transition-colors">
+                              {apt.medicName || "Care Provider"}
+                            </p>
+                            <p className="text-[10px] text-slate-400 flex items-center gap-2 mt-1">
+                              <Clock size={10} /> {apt.date} at {apt.time}
+                            </p>
+                          </div>
+                          <div className="text-right">
+                            <span className="text-[9px] font-black text-emerald-500 uppercase bg-emerald-50 px-2 py-1 rounded-lg">
+                              In{" "}
+                              {Math.ceil(
+                                (new Date(`${apt.date}T${apt.time}`).getTime() -
+                                  Date.now()) /
+                                  (1000 * 60 * 60 * 24),
+                              )}{" "}
+                              Days
+                            </span>
+                          </div>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ) : (
+              /* No Appointments State */
+              <div className="bg-white rounded-[28px] p-6 md:p-8 border border-slate-100 shadow-sm">
+                <div className="text-center space-y-4">
+                  <Calendar size={32} className="text-slate-300 mx-auto" />
+                  <div>
+                    <p className="text-sm font-bold text-slate-900 mb-1">
+                      No Scheduled Appointments
+                    </p>
+                    <p className="text-[10px] text-slate-400 leading-normal">
+                      Need a health check or have queries? Book a direct session
+                      with our team.
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => setActivePanel("appointment")}
+                    className="w-full py-4 bg-slate-900 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-emerald-600 transition-all"
+                  >
+                    Find a Doctor
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* HEALTH TIPS CAROUSEL */}
+            <div className="bg-emerald-600 rounded-[28px] p-6 md:p-8 text-white relative overflow-hidden min-h-[220px] shadow-lg">
               <ThreeBackground />
               <div className="relative z-10 flex flex-col h-full justify-between">
                 <div>
                   <div className="flex items-center gap-2 mb-4">
                     <Lightbulb size={18} className="text-emerald-200" />
                     <span className="text-[9px] font-black uppercase tracking-widest text-emerald-100">
-                      Bio-Analysis Insight
+                      Daily Health Tip
                     </span>
                   </div>
                   <AnimatePresence mode="wait">
@@ -302,9 +380,10 @@ export default function DashboardPanel() {
                       key={tipIndex}
                       initial={{ opacity: 0 }}
                       animate={{ opacity: 1 }}
-                      className="text-lg font-bold leading-tight italic"
+                      exit={{ opacity: 0 }}
+                      className="text-base font-medium leading-relaxed italic"
                     >
-                      "{healthTips[tipIndex]}"
+                      &ldquo;{healthTips[tipIndex]}&rdquo;
                     </motion.p>
                   </AnimatePresence>
                 </div>
@@ -315,7 +394,7 @@ export default function DashboardPanel() {
                         p === 0 ? healthTips.length - 1 : p - 1,
                       )
                     }
-                    className="p-2.5 bg-white/10 rounded-lg"
+                    className="p-2.5 bg-white/10 rounded-lg text-white hover:bg-white/20 transition-colors"
                   >
                     <ChevronLeft size={14} />
                   </button>
@@ -323,7 +402,7 @@ export default function DashboardPanel() {
                     onClick={() =>
                       setTipIndex((p) => (p + 1) % healthTips.length)
                     }
-                    className="p-2.5 bg-white/10 rounded-lg"
+                    className="p-2.5 bg-white/10 rounded-lg text-white hover:bg-white/20 transition-colors"
                   >
                     <ChevronRight size={14} />
                   </button>
@@ -337,8 +416,9 @@ export default function DashboardPanel() {
   );
 }
 
-// --- SUBCOMPONENTS ---
-
+// --------------------------------------------------------------------------------
+// SUB-COMPONENTS
+// --------------------------------------------------------------------------------
 function StatCard({ icon: Icon, label, val, unit, color, bg, hasChart }: any) {
   return (
     <div className="p-4 rounded-[22px] bg-slate-50/50 border border-slate-100 flex flex-col group active:scale-95 transition-all">
@@ -352,7 +432,7 @@ function StatCard({ icon: Icon, label, val, unit, color, bg, hasChart }: any) {
         <span className="text-lg font-black text-slate-900 tracking-tighter">
           {val}
         </span>
-        <span className="text-[8px] font-bold text-slate-400 uppercase">
+        <span className="text-[8px] font-bold text-slate-400 uppercase ml-0.5">
           {unit}
         </span>
       </div>
@@ -361,37 +441,6 @@ function StatCard({ icon: Icon, label, val, unit, color, bg, hasChart }: any) {
   );
 }
 
-function JoinedChallengeCard({ challenge, onClick }: any) {
-  return (
-    <motion.div
-      whileTap={{ scale: 0.98 }}
-      onClick={onClick}
-      className="bg-white border border-slate-100 p-4 md:p-6 rounded-[24px] md:rounded-[32px] flex items-center justify-between shadow-sm active:bg-slate-50 transition-all"
-    >
-      <div className="flex items-center gap-4">
-        <div className="h-12 w-12 rounded-2xl bg-emerald-50 flex items-center justify-center text-emerald-600">
-          <Target size={24} />
-        </div>
-        <div>
-          <h4 className="text-sm md:text-lg font-black text-slate-900 leading-tight uppercase tracking-tight">
-            {challenge.name}
-          </h4>
-          <div className="flex items-center gap-2 mt-1">
-            <span className="text-[9px] font-black text-emerald-600 uppercase tracking-widest bg-emerald-50 px-2 py-0.5 rounded-full">
-              Active Duty
-            </span>
-            <span className="text-[9px] font-bold text-slate-400 uppercase">
-              Goal: {challenge.targetValue}
-            </span>
-          </div>
-        </div>
-      </div>
-      <ChevronRight size={18} className="text-slate-300" />
-    </motion.div>
-  );
-}
-
-// Re-used helper components with minor responsive tweaks
 function LiveBioChart({ color }: { color: string }) {
   const points = [40, 65, 45, 90, 55, 75, 40, 85];
   const hexToTailwind = (c: string) =>
@@ -424,7 +473,7 @@ function AppointmentCountdown({ targetDate }: { targetDate: string }) {
   useEffect(() => {
     const calc = () => {
       const diff = +new Date(targetDate) - +new Date();
-      if (diff <= 0) return setTimeLeft("Live");
+      if (diff <= 0) return setTimeLeft("Now");
       const d = Math.floor(diff / (1000 * 60 * 60 * 24));
       const h = Math.floor((diff / (1000 * 60 * 60)) % 24);
       const m = Math.floor((diff / 1000 / 60) % 60);
@@ -445,8 +494,8 @@ function AppointmentCountdown({ targetDate }: { targetDate: string }) {
       >
         {timeLeft}
       </span>
-      <span className="text-[9px] font-black text-slate-500 uppercase tracking-[0.3em] mt-2">
-        T-Minus to Session
+      <span className="text-[9px] font-black text-slate-400 uppercase tracking-[0.3em] mt-2">
+        Remaining Time to Session
       </span>
     </div>
   );
@@ -456,11 +505,14 @@ function ThreeBackground() {
   const containerRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!containerRef.current) return;
+    let animationFrameId: number;
+
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(75, 1, 0.1, 1000);
     const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
     renderer.setSize(200, 200);
     containerRef.current.appendChild(renderer.domElement);
+
     const geometry = new THREE.IcosahedronGeometry(1, 1);
     const material = new THREE.MeshBasicMaterial({
       color: 0xffffff,
@@ -471,17 +523,23 @@ function ThreeBackground() {
     const mesh = new THREE.Mesh(geometry, material);
     scene.add(mesh);
     camera.position.z = 2.5;
+
     const animate = () => {
-      requestAnimationFrame(animate);
+      animationFrameId = requestAnimationFrame(animate);
       mesh.rotation.y += 0.005;
       renderer.render(scene, camera);
     };
     animate();
+
     return () => {
+      cancelAnimationFrame(animationFrameId);
+      geometry.dispose();
+      material.dispose();
       renderer.dispose();
       containerRef.current?.removeChild(renderer.domElement);
     };
   }, []);
+
   return (
     <div
       ref={containerRef}
@@ -506,10 +564,126 @@ function BentoTile({ children, className, onClick }: any) {
   );
 }
 
+// --------------------------------------------------------------------------------
+// PREMIUM SKELETON LOADING STATE UI
+// --------------------------------------------------------------------------------
 function LoadingState() {
+  const PulseItem = ({ className }: { className: string }) => (
+    <div
+      className={cn("animate-pulse bg-slate-200/80 rounded-xl", className)}
+    />
+  );
+
   return (
-    <div className="h-screen w-full flex items-center justify-center bg-white text-[10px] font-black uppercase tracking-[0.5em] animate-pulse text-emerald-600 px-4 text-center">
-      Initializing Health OS...
+    <div
+      className={cn(
+        "min-h-screen bg-[#F8FAFC] pb-24 pt-4 md:pt-8",
+        poppins.className,
+      )}
+    >
+      <div className="max-w-7xl mx-auto px-4 md:px-6 space-y-5 md:space-y-8">
+        {/* Header Skeleton */}
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white p-5 md:p-8 rounded-[28px] border border-slate-200/60 shadow-sm w-full">
+          <div className="space-y-3 w-1/2">
+            <div className="flex items-center gap-2">
+              <PulseItem className="h-3 w-3 rounded-full" />
+              <PulseItem className="h-3 w-32" />
+            </div>
+            <PulseItem className="h-10 w-64 rounded-xl" />
+          </div>
+          <PulseItem className="h-12 w-full md:w-44 rounded-xl" />
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-12 gap-5 md:gap-6">
+          {/* Left Column Skeleton */}
+          <div className="md:col-span-8 space-y-5 md:space-y-6">
+            {/* Health Grid Card Container Skeleton */}
+            <div className="bg-white p-6 md:p-8 rounded-[30px] border border-slate-100 shadow-sm space-y-6">
+              <div className="flex justify-between items-center">
+                <PulseItem className="h-5 w-44" />
+                <PulseItem className="h-3 w-24" />
+              </div>
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
+                {[1, 2, 3, 4].map((i) => (
+                  <div
+                    key={i}
+                    className="p-4 rounded-[22px] bg-slate-50 border border-slate-100 space-y-3"
+                  >
+                    <PulseItem className="h-8 w-8 rounded-lg" />
+                    <PulseItem className="h-2 w-16" />
+                    <PulseItem className="h-6 w-12" />
+                    <div className="flex gap-0.5 h-6 pt-2 items-end">
+                      {[1, 2, 3, 4, 5].map((j) => (
+                        <PulseItem
+                          key={j}
+                          className="h-full flex-1 rounded-full"
+                        />
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* List Row Skeletons */}
+            <div className="bg-white p-6 md:p-8 rounded-[30px] border border-slate-100 shadow-sm space-y-4">
+              <PulseItem className="h-5 w-36 mb-2" />
+              {[1, 2, 3].map((i) => (
+                <div
+                  key={i}
+                  className="flex justify-between items-center p-4 bg-slate-50 rounded-2xl border border-slate-100"
+                >
+                  <div className="space-y-2 w-1/3">
+                    <PulseItem className="h-2.5 w-20" />
+                    <PulseItem className="h-4 w-28" />
+                  </div>
+                  <div className="space-y-2 text-right flex flex-col items-end">
+                    <PulseItem className="h-3 w-20" />
+                    <PulseItem className="h-4 w-12 rounded-full" />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Right Column Skeleton */}
+          <div className="md:col-span-4 space-y-5 md:space-y-6">
+            {/* Primary Main Countdown Appointment Item */}
+            <div className="bg-slate-900 rounded-[28px] p-6 md:p-8 space-y-6 shadow-xl">
+              <div className="flex items-center gap-2">
+                <PulseItem className="h-4 w-4 bg-slate-800" />
+                <PulseItem className="h-2 w-28 bg-slate-800" />
+              </div>
+              <div className="space-y-2">
+                <PulseItem className="h-14 w-40 bg-slate-800 rounded-2xl" />
+                <PulseItem className="h-2 w-32 bg-slate-800" />
+              </div>
+              <div className="pt-4 border-t border-slate-800 space-y-2">
+                <PulseItem className="h-5 w-48 bg-slate-800" />
+                <PulseItem className="h-3 w-36 bg-slate-800" />
+              </div>
+            </div>
+
+            {/* Insight Tip Widget Box */}
+            <div className="bg-emerald-600 rounded-[28px] p-6 md:p-8 h-56 flex flex-col justify-between shadow-lg">
+              <div className="space-y-4">
+                <div className="flex items-center gap-2">
+                  <PulseItem className="h-4 w-4 bg-emerald-500/50" />
+                  <PulseItem className="h-2.5 w-24 bg-emerald-500/50" />
+                </div>
+                <div className="space-y-2">
+                  <PulseItem className="h-3 w-full bg-emerald-500/50" />
+                  <PulseItem className="h-3 w-5/6 bg-emerald-500/50" />
+                </div>
+              </div>
+              <div className="flex gap-2">
+                <PulseItem className="h-9 w-9 bg-emerald-500/50 rounded-lg" />
+                <PulseItem className="h-9 w-9 bg-emerald-500/50 rounded-lg" />
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

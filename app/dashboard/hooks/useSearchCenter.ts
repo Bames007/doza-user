@@ -1,22 +1,31 @@
 import useSWR from "swr";
 import { useUserLocation } from "./useUserLocation";
 
-const fetcher = (url: string) => fetch(url).then((res) => res.json());
+const publicFetcher = (url: string) => fetch(url).then((r) => r.json());
 
 export const useCenterSearch = (
   query: string,
   type: "service" | "drug" | "test",
-  maxDistance?: number,
+  maxDistanceKm?: number,
 ) => {
   const { location } = useUserLocation();
+  const radius = maxDistanceKm ?? 50;
 
-  const { data, error, isLoading } = useSWR(
-    location && query.length >= 2
-      ? `/api/centers/search?q=${encodeURIComponent(query)}&type=${type}&lat=${location.lat}&lng=${location.lng}&maxDistance=${maxDistance || 50}`
-      : null,
-    fetcher,
-    { revalidateOnFocus: false },
-  );
+  const params = new URLSearchParams({
+    query,
+    type,
+    lat: location?.lat.toString() ?? "",
+    lng: location?.lng.toString() ?? "",
+    radius: radius.toString(),
+  });
+
+  const url =
+    location && query.length >= 2 ? `/api/search?${params.toString()}` : null;
+
+  const { data, error, isLoading } = useSWR(url, publicFetcher, {
+    dedupingInterval: 30_000, // 30 seconds – searches can be refetched quickly
+    revalidateOnFocus: false,
+  });
 
   return {
     results: data?.success ? data.data : [],

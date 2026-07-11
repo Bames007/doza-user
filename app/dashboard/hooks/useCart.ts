@@ -1,4 +1,3 @@
-// app/dashboard/hooks/useCart.ts
 import { useState, useEffect } from "react";
 
 export interface CartItem {
@@ -15,26 +14,24 @@ export interface CartItem {
 export const useCart = () => {
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
 
-  // Load from localStorage on mount
   useEffect(() => {
     const stored = localStorage.getItem("doza_cart");
     if (stored) {
       try {
         setCartItems(JSON.parse(stored));
-      } catch (e) {
-        console.error("Failed to parse cart", e);
+      } catch {
+        // silently ignore corrupted cart
       }
     }
   }, []);
 
-  // Save to localStorage whenever cart changes
   useEffect(() => {
     localStorage.setItem("doza_cart", JSON.stringify(cartItems));
   }, [cartItems]);
 
   const addToCart = (
     product: any,
-    quantity: number = 1,
+    quantity = 1,
     size?: string,
     color?: string,
   ) => {
@@ -80,7 +77,7 @@ export const useCart = () => {
     (sum, item) => sum + item.price * item.quantity,
     0,
   );
-  const deliveryFee = subtotal > 0 ? 500 : 0; // Flat rate
+  const deliveryFee = subtotal > 0 ? 500 : 0;
   const total = subtotal + deliveryFee;
 
   return {

@@ -2,6 +2,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { verifyIdToken } from "@/app/utils/auth";
 import { adminDb } from "@/app/utils/firebaseAdmin";
+import { z } from "zod";
+import logger from "@/app/utils/logger";
+
+const doseUpdateSchema = z.object({
+  taken: z.boolean().optional(),
+  reaction: z.string().optional(),
+});
 
 export async function PUT(
   request: NextRequest,
@@ -15,23 +22,40 @@ export async function PUT(
     );
   }
 
-  // Await the params Promise
   const { id: medicationId, doseId } = await params;
-
   if (!medicationId || !doseId) {
     return NextResponse.json(
-      { success: false, error: "Missing IDs" },
+      { success: false, error: "Missing medication or dose ID" },
       { status: 400 },
     );
   }
 
   try {
-    const { taken, reaction } = await request.json();
+    const body = await request.json();
+    const parseResult = doseUpdateSchema.safeParse(body);
+    if (!parseResult.success) {
+      logger.warn({
+        uid,
+        medicationId,
+        doseId,
+        message: "Invalid dose update payload",
+        validationErrors: parseResult.error.flatten(),
+      });
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Invalid update data",
+          details: parseResult.error.flatten(),
+        },
+        { status: 400 },
+      );
+    }
+
+    const { taken, reaction } = parseResult.data;
     const medsRef = adminDb.ref(`doza/users/${uid}/medications`);
     const snapshot = await medsRef.once("value");
     let medications = snapshot.val() || [];
 
-    // Handle object‑style storage
     if (!Array.isArray(medications)) {
       medications = Object.values(medications);
     }
@@ -44,9 +68,8 @@ export async function PUT(
       );
     }
 
-    const doseIndex = medications[medIndex].doses.findIndex(
-      (d: any) => d.id === doseId,
-    );
+    const doses = medications[medIndex].doses || [];
+    const doseIndex = doses.findIndex((d: any) => d.id === doseId);
     if (doseIndex === -1) {
       return NextResponse.json(
         { success: false, error: "Dose not found" },
@@ -55,22 +78,25 @@ export async function PUT(
     }
 
     if (taken) {
-      medications[medIndex].doses[doseIndex].takenAt = new Date().toISOString();
+      doses[doseIndex].takenAt = new Date().toISOString();
     }
-    if (reaction) {
-      medications[medIndex].doses[doseIndex].reaction = reaction;
+    if (reaction !== undefined) {
+      doses[doseIndex].reaction = reaction;
     }
 
     await medsRef.set(medications);
-
-    return NextResponse.json({
-      success: true,
-      data: medications[medIndex].doses[doseIndex],
-    });
+    logger.info({ uid, medicationId, doseId, message: "Dose updated" });
+    return NextResponse.json({ success: true, data: doses[doseIndex] });
   } catch (error) {
-    console.error("PUT dose error:", error);
+    logger.error({
+      uid,
+      medicationId,
+      doseId,
+      message: "PUT dose failed",
+      error,
+    });
     return NextResponse.json(
-      { success: false, error: "Internal server error" },
+      { success: false, error: "Unable to update dose" },
       { status: 500 },
     );
   }

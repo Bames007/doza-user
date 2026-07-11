@@ -49,10 +49,9 @@ export default function FeedbackModal({
 
   const recognitionRef = useRef<any>(null);
   const finalTranscriptRef = useRef("");
-  const isRecognitionStarted = useRef(false);
   const [isSpeechSupported, setIsSpeechSupported] = useState(true);
 
-  // Speech recognition setup
+  // Speech recognition setup with real‑time updates
   useEffect(() => {
     if (typeof window === "undefined") return;
     const SpeechRecognition =
@@ -60,50 +59,70 @@ export default function FeedbackModal({
       (window as any).webkitSpeechRecognition;
     if (!SpeechRecognition) {
       setIsSpeechSupported(false);
-      setError("Speech recognition not supported in this browser.");
       return;
     }
     recognitionRef.current = new SpeechRecognition();
-    recognitionRef.current.continuous = true;
-    recognitionRef.current.interimResults = true;
+    recognitionRef.current.continuous = true; // keep listening even after pauses
+    recognitionRef.current.interimResults = true; // get partial results
     recognitionRef.current.lang = "en-US";
 
     recognitionRef.current.onresult = (event: any) => {
       let interimTranscript = "";
+      let finalTranscript = "";
+
+      // Build final and interim from the results
       for (let i = event.resultIndex; i < event.results.length; i++) {
-        const transcript = event.results[i][0].transcript;
-        if (event.results[i].isFinal) {
-          finalTranscriptRef.current += transcript + " ";
+        const result = event.results[i];
+        const transcript = result[0].transcript;
+        if (result.isFinal) {
+          finalTranscript += transcript + " ";
         } else {
           interimTranscript += transcript;
         }
       }
+
+      // Check for stop command in the new final part (case‑insensitive)
+      const lowerFinal = finalTranscript.toLowerCase();
+      if (lowerFinal.includes("stop") || lowerFinal.includes("end")) {
+        // Stop recognition
+        try {
+          recognitionRef.current?.stop();
+        } catch (e) {}
+        setIsRecording(false);
+        // Remove the stop word from the accumulated final buffer
+        finalTranscriptRef.current =
+          finalTranscriptRef.current.replace(/\b(?:stop|end)\b/gi, "").trim() +
+          " ";
+        setFeedbackText(finalTranscriptRef.current);
+        setError("Recording stopped by voice command.");
+        setTimeout(() => setError(null), 3000);
+        return;
+      }
+
+      // Normal accumulation: add the new final part to the permanent buffer
+      finalTranscriptRef.current += finalTranscript;
+      // Show final + interim in the textarea (real‑time)
       setFeedbackText(finalTranscriptRef.current + interimTranscript);
     };
 
     recognitionRef.current.onerror = (event: any) => {
       console.error("Speech recognition error", event.error);
       setIsRecording(false);
-      isRecognitionStarted.current = false;
-      setError("Speech recognition failed. Please type your feedback.");
+      let errorMsg = "Speech recognition failed. Please type your feedback.";
+      if (event.error === "network") {
+        errorMsg =
+          "Network error. Please check your internet connection and try again, or type your feedback.";
+      } else if (event.error === "not-allowed") {
+        errorMsg =
+          "Microphone access denied. Please allow microphone access or type your feedback.";
+      }
+      setError(errorMsg);
     };
 
     recognitionRef.current.onend = () => {
-      if (isRecording && isOpen) {
-        if (!isRecognitionStarted.current) {
-          try {
-            recognitionRef.current?.start();
-            isRecognitionStarted.current = true;
-          } catch (e) {
-            console.error("Failed to restart recognition:", e);
-            setIsRecording(false);
-          }
-        }
-      } else {
-        isRecognitionStarted.current = false;
-      }
+      setIsRecording(false);
     };
-  }, [isOpen]);
+  }, []);
 
   const toggleRecording = () => {
     if (!recognitionRef.current) {
@@ -113,22 +132,26 @@ export default function FeedbackModal({
     if (isRecording) {
       try {
         recognitionRef.current.stop();
-        setIsRecording(false);
-        isRecognitionStarted.current = false;
       } catch (e) {
-        console.error("Stop failed:", e);
+        console.warn("Stop failed", e);
       }
+      setIsRecording(false);
     } else {
-      if (isRecognitionStarted.current) return;
-      finalTranscriptRef.current = feedbackText + (feedbackText ? " " : "");
+      // Abort any pending recognition to avoid "already started"
+      try {
+        recognitionRef.current.abort?.();
+      } catch (e) {}
+      finalTranscriptRef.current = "";
+      setFeedbackText("");
       try {
         recognitionRef.current.start();
         setIsRecording(true);
-        isRecognitionStarted.current = true;
         setError(null);
       } catch (e) {
-        console.error("Start failed:", e);
-        setError("Could not start speech recognition.");
+        console.error("Start failed", e);
+        setError(
+          "Could not start speech recognition. Please type your feedback.",
+        );
       }
     }
   };
@@ -188,7 +211,6 @@ export default function FeedbackModal({
           setFeedbackText("");
           setScreenshot(null);
           setIsAnonymous(false);
-          // Don't reset contact info – keep it for next time
         }, 100);
       } else {
         setError(result.error || "Submission failed. Please try again.");
@@ -207,7 +229,6 @@ export default function FeedbackModal({
         recognitionRef.current.stop();
       } catch (e) {}
       setIsRecording(false);
-      isRecognitionStarted.current = false;
     }
     setStep(1);
     setRating(0);
@@ -410,12 +431,12 @@ export default function FeedbackModal({
                     </div>
                   )}
 
-                  {/* Textarea with speech and screenshot */}
+                  {/* Textarea with real‑time speech recognition */}
                   <div className="bg-slate-50 rounded-2xl p-4 border border-slate-200 focus-within:bg-white focus-within:border-emerald-500 transition-all">
                     <textarea
                       value={feedbackText}
                       onChange={(e) => setFeedbackText(e.target.value)}
-                      placeholder="What's on your mind? (Tap the mic to speak)"
+                      placeholder="What's on your mind? (Tap the mic to speak – text appears as you talk. Say 'stop' or 'end' to finish.)"
                       className="w-full bg-transparent border-none focus:ring-0 text-slate-900 text-sm font-medium min-h-[100px] resize-none"
                     />
                     <div className="flex justify-between items-center mt-2 pt-3 border-t border-slate-100">

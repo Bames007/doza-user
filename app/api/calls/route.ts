@@ -1,8 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { verifyIdToken } from "@/app/utils/auth";
 import { adminDb } from "@/app/utils/firebaseAdmin";
+import { z } from "zod";
+import logger from "@/app/utils/logger";
 
-// POST /api/calls – log a call to a medic (only if medic is in favorites)
+const callLogSchema = z.object({
+  medicId: z.string().min(1),
+});
+
 export async function POST(request: NextRequest) {
   const uid = await verifyIdToken(request);
   if (!uid) {
@@ -13,15 +18,26 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const { medicId } = await request.json();
-    if (!medicId) {
+    const body = await request.json();
+    const parseResult = callLogSchema.safeParse(body);
+    if (!parseResult.success) {
+      logger.warn({
+        uid,
+        message: "Invalid call log request",
+        validationErrors: parseResult.error.flatten(),
+      });
       return NextResponse.json(
-        { success: false, error: "Missing medicId" },
+        {
+          success: false,
+          error: "Invalid request data",
+          details: parseResult.error.flatten(),
+        },
         { status: 400 },
       );
     }
 
-    // Verify medic is in user's favorites
+    const { medicId } = parseResult.data;
+
     const favRef = adminDb.ref(`doza/users/${uid}/favorites`);
     const favSnapshot = await favRef.once("value");
     const favorites = favSnapshot.val() || [];
@@ -33,7 +49,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Log the call
     const callRef = adminDb.ref(`doza/users/${uid}/calls`);
     const snapshot = await callRef.once("value");
     const calls = snapshot.val() || [];
@@ -46,11 +61,12 @@ export async function POST(request: NextRequest) {
     calls.push(newCall);
     await callRef.set(calls);
 
+    logger.info({ uid, medicId, callId: newCall.id, message: "Call logged" });
     return NextResponse.json({ success: true, data: newCall });
   } catch (error) {
-    console.error("POST call error:", error);
+    logger.error({ uid, message: "Failed to log call", error });
     return NextResponse.json(
-      { success: false, error: "Internal server error" },
+      { success: false, error: "Unable to log call" },
       { status: 500 },
     );
   }

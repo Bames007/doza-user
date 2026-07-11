@@ -24,7 +24,7 @@ export const useUserLocation = () => {
         setError(err.message);
         setLoading(false);
       },
-      { enableHighAccuracy: true, maximumAge: 10000, timeout: 10000 },
+      { enableHighAccuracy: true, maximumAge: 10_000, timeout: 15_000 },
     );
 
     return () => navigator.geolocation.clearWatch(watchId);

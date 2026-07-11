@@ -1,39 +1,46 @@
 import { NextRequest, NextResponse } from "next/server";
 import { adminAuth } from "@/app/utils/firebaseAdmin";
+import { z } from "zod";
+import logger from "@/app/utils/logger";
+
+const setSessionSchema = z.object({
+  idToken: z.string().min(1),
+  rememberMe: z.boolean().optional().default(false),
+});
 
 export async function POST(request: NextRequest) {
   try {
-    const rawBody = await request.text();
-    if (!rawBody) {
+    const body = await request.json();
+    const parseResult = setSessionSchema.safeParse(body);
+    if (!parseResult.success) {
+      logger.warn({
+        message: "Invalid set-session request",
+        validationErrors: parseResult.error.flatten(),
+      });
       return NextResponse.json(
-        { success: false, error: "Empty request body" },
+        {
+          success: false,
+          error: "Invalid request data",
+          details: parseResult.error.flatten(),
+        },
         { status: 400 },
       );
     }
 
-    const { idToken, rememberMe } = JSON.parse(rawBody);
-
-    if (!idToken) {
-      return NextResponse.json(
-        { success: false, error: "Missing ID token" },
-        { status: 400 },
-      );
-    }
-
+    const { idToken, rememberMe } = parseResult.data;
     await adminAuth.verifyIdToken(idToken);
 
-    const expiresInMs = rememberMe
-      ? 14 * 24 * 60 * 60 * 1000 // 14 days
-      : 24 * 60 * 60 * 1000; // 1 day
+    const expiresIn = rememberMe
+      ? 14 * 24 * 60 * 60 * 1000
+      : 24 * 60 * 60 * 1000;
 
     const sessionCookie = await adminAuth.createSessionCookie(idToken, {
-      expiresIn: expiresInMs,
+      expiresIn,
     });
 
     const response = NextResponse.json({ success: true });
-
     response.cookies.set("__session", sessionCookie, {
-      maxAge: expiresInMs / 1000,
+      maxAge: expiresIn / 1000,
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
       sameSite: "lax",
@@ -42,9 +49,9 @@ export async function POST(request: NextRequest) {
 
     return response;
   } catch (error) {
-    console.error("❌ Set session error:", error);
+    logger.error({ message: "Set session failed", error });
     return NextResponse.json(
-      { success: false, error: "Failed to set session" },
+      { success: false, error: "Unable to set session" },
       { status: 500 },
     );
   }

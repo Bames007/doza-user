@@ -1,24 +1,26 @@
-import { adminDb } from "@/app/utils/firebaseAdmin";
+import { adminDb, adminAuth } from "@/app/utils/firebaseAdmin";
 import { NextResponse } from "next/server";
-import { auth } from "firebase-admin";
+import logger from "@/app/utils/logger";
 
 export async function GET(request: Request) {
   try {
     const authHeader = request.headers.get("Authorization");
     if (!authHeader?.startsWith("Bearer ")) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      return NextResponse.json(
+        { success: false, error: "Unauthorized" },
+        { status: 401 },
+      );
     }
 
     const token = authHeader.split("Bearer ")[1];
-    const decodedToken = await auth().verifyIdToken(token);
+    const decodedToken = await adminAuth.verifyIdToken(token);
     const uid = decodedToken.uid;
 
-    // 1. Single batch fetch (MUCH faster than 8 separate API calls)
-    const [medsSnap, apptsSnap, challengesSnap, familySnap, ordersSnap] =
+    const [medsSnap, apptsSnap, healthSnap, familySnap, ordersSnap] =
       await Promise.all([
         adminDb.ref(`doza/users/${uid}/medications`).get(),
         adminDb.ref(`doza/users/${uid}/appointments`).get(),
-        adminDb.ref(`doza/challenges`).get(),
+        adminDb.ref(`doza/users/${uid}/healthRecords`).get(),
         adminDb.ref(`doza/users/${uid}/familyRequests`).get(),
         adminDb.ref(`doza/users/${uid}/orders`).get(),
       ]);
@@ -26,20 +28,53 @@ export async function GET(request: Request) {
     const now = Date.now();
     const notifications: any[] = [];
 
-    // --- DATA PARSING ---
     const meds = medsSnap.val() || {};
     const appts = apptsSnap.val() || {};
-    const challenges = challengesSnap.val() || {};
+    const healthVal = healthSnap.val() || {};
     const familyReqs = familySnap.val() || {};
     const orders = ordersSnap.val() || {};
 
-    // --- NOTIFICATION LOGIC (MOVED FROM CLIENT) ---
+    // --- HEALTH RECORDS ---
+    const healthRecords = Array.isArray(healthVal)
+      ? healthVal
+      : Object.values(healthVal);
 
-    // 2. Medication Notifications
+    const sortedRecords = [...healthRecords].sort(
+      (a: any, b: any) =>
+        new Date(b.date || b.createdAt).getTime() -
+        new Date(a.date || a.createdAt).getTime(),
+    );
+
+    const recentEntries = sortedRecords.slice(0, 5);
+
+    const getLatest = (type: string) =>
+      sortedRecords.filter((r: any) => r.type === type)[0];
+
+    const heartRate = getLatest("heartRate")?.value || "—";
+    const bloodPressure = getLatest("bloodPressure")?.value || "—";
+    const steps = getLatest("steps")?.value || "—";
+    const weight = getLatest("weight")?.value || "—";
+
+    // --- APPOINTMENTS ---
+    const apptsArray = Array.isArray(appts) ? appts : Object.values(appts);
+
+    const upcomingAppointments = apptsArray
+      .filter((a: any) => {
+        const isUpcoming = a.status === "upcoming";
+        const aptTime = new Date(`${a.date}T${a.time}`).getTime();
+        const isFuture = aptTime > now;
+        return isUpcoming && isFuture;
+      })
+      .sort(
+        (a: any, b: any) =>
+          new Date(`${a.date}T${a.time}`).getTime() -
+          new Date(`${b.date}T${b.time}`).getTime(),
+      );
+
+    // --- NOTIFICATIONS ---
     Object.entries(meds).forEach(([id, med]: [string, any]) => {
       med.doses?.forEach((dose: any) => {
         const doseTime = new Date(dose.scheduledTime).getTime();
-        // Missed dose (last 24h)
         if (!dose.takenAt && doseTime < now && doseTime > now - 86400000) {
           notifications.push({
             id: `missed-${id}-${dose.id}`,
@@ -53,8 +88,7 @@ export async function GET(request: Request) {
       });
     });
 
-    // 3. Appointment Notifications
-    Object.entries(appts).forEach(([id, apt]: [string, any]) => {
+    apptsArray.forEach((apt: any) => {
       const aptTime = new Date(`${apt.date}T${apt.time}`).getTime();
       if (
         apt.status === "upcoming" &&
@@ -62,7 +96,7 @@ export async function GET(request: Request) {
         aptTime > now
       ) {
         notifications.push({
-          id: `apt-${id}`,
+          id: `apt-${apt.id}`,
           type: "appointment",
           title: "Upcoming Appointment",
           message: `Appointment with ${apt.medicName} at ${apt.time}`,
@@ -72,7 +106,6 @@ export async function GET(request: Request) {
       }
     });
 
-    // 4. Family Request Notifications
     Object.entries(familyReqs).forEach(([id, req]: [string, any]) => {
       notifications.push({
         id: `fam-${id}`,
@@ -84,7 +117,6 @@ export async function GET(request: Request) {
       });
     });
 
-    // 5. Order Status Notifications
     Object.values(orders).forEach((order: any) => {
       if (["processing", "delivered"].includes(order.status)) {
         notifications.push({
@@ -102,18 +134,27 @@ export async function GET(request: Request) {
       success: true,
       data: {
         notifications: notifications.sort((a, b) => b.timestamp - a.timestamp),
+        healthRecords: {
+          heartRate,
+          bloodPressure,
+          steps,
+          weight,
+          recentEntries,
+        },
+        appointments: upcomingAppointments,
         stats: {
           medsCount: Object.keys(meds).length,
-          upcomingAppts: Object.values(appts).filter(
-            (a: any) => a.status === "upcoming",
-          ).length,
+          upcomingAppts: upcomingAppointments.length,
         },
       },
     });
   } catch (error) {
-    console.error("Dashboard Summary Error:", error);
+    logger.error({
+      message: "Dashboard summary failed",
+      error: error instanceof Error ? error.message : String(error),
+    });
     return NextResponse.json(
-      { error: "Internal Server Error" },
+      { success: false, error: "Unable to load dashboard" },
       { status: 500 },
     );
   }

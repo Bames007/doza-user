@@ -13,23 +13,79 @@ import {
   ChevronDown,
   XCircle,
   ShieldCheck,
-  ArrowUpRight,
   Stethoscope,
-  Activity,
   History as HistoryIcon,
+  AlertCircle,
+  CheckCircle2,
+  Clock3,
+  Video,
+  Home,
+  Info,
 } from "lucide-react";
 import { cn } from "@/app/utils/utils";
 import { poppins, bebasNeue } from "@/app/constants";
 
+// --------------------------------------------------------------------------------
+// Status Badge Config (Plain, clear language)
+// --------------------------------------------------------------------------------
+const statusConfig: Record<
+  string,
+  { label: string; color: string; bg: string; icon: any }
+> = {
+  upcoming: {
+    label: "Coming Up",
+    color: "text-emerald-600",
+    bg: "bg-emerald-50",
+    icon: Clock3,
+  },
+  confirmed: {
+    label: "Confirmed",
+    color: "text-blue-600",
+    bg: "bg-blue-50",
+    icon: CheckCircle2,
+  },
+  completed: {
+    label: "Completed",
+    color: "text-slate-600",
+    bg: "bg-slate-100",
+    icon: ShieldCheck,
+  },
+  cancelled: {
+    label: "Cancelled",
+    color: "text-rose-600",
+    bg: "bg-rose-50",
+    icon: XCircle,
+  },
+};
+
+// --------------------------------------------------------------------------------
+// Main Component
+// --------------------------------------------------------------------------------
 export default function AppointmentsPanel() {
   const { data: res, isLoading } = useSWR("/api/appointments", authFetcher);
   const appointments = res?.data || [];
 
-  const upcoming = appointments.filter((a: any) => a.status === "upcoming");
-  const history = appointments.filter((a: any) => a.status !== "upcoming");
+  const upcoming = appointments.filter(
+    (a: any) => a.status === "upcoming" || a.status === "confirmed",
+  );
+  const past = appointments.filter(
+    (a: any) => a.status === "completed" || a.status === "cancelled",
+  );
+
+  const sortedUpcoming = [...upcoming].sort(
+    (a, b) =>
+      new Date(`${a.date}T${a.time}`).getTime() -
+      new Date(`${b.date}T${b.time}`).getTime(),
+  );
+
+  const sortedPast = [...past].sort(
+    (a, b) =>
+      new Date(`${b.date}T${b.time}`).getTime() -
+      new Date(`${a.date}T${a.time}`).getTime(),
+  );
 
   const cancelAppointment = async (id: string) => {
-    if (!confirm("Confirm termination of this scheduled session?")) return;
+    if (!confirm("Are you sure you want to cancel this appointment?")) return;
     await fetch(`/api/appointments/${id}`, { method: "DELETE" });
     mutate("/api/appointments");
   };
@@ -40,119 +96,102 @@ export default function AppointmentsPanel() {
     <div
       className={cn("min-h-screen bg-[#F8FAFC] pb-32 pt-6", poppins.className)}
     >
-      <div className="max-w-7xl mx-auto px-6 space-y-8">
+      <div className="max-w-7xl mx-auto px-4 md:px-6 space-y-8">
         {/* --- HEADER --- */}
-        <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white p-8 rounded-[32px] border border-slate-200/60 shadow-sm">
-          <div>
-            <div className="flex items-center gap-2 mb-1">
-              <HistoryIcon size={14} className="text-emerald-500" />
-              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.2em]">
-                Clinical Archives
+        <header className="bg-white rounded-[32px] p-6 md:p-10 border border-slate-200/60 shadow-sm">
+          <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
+            <div>
+              <div className="flex items-center gap-2 mb-2">
+                <div className="h-8 w-8 bg-emerald-100 rounded-xl flex items-center justify-center">
+                  <Stethoscope size={16} className="text-emerald-600" />
+                </div>
+                <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">
+                  Your Care Schedule
+                </p>
+              </div>
+              <h1
+                className={cn(
+                  "text-4xl md:text-6xl text-slate-900 leading-none",
+                  bebasNeue.className,
+                )}
+              >
+                Appointments <span className="text-emerald-500">Hub</span>
+              </h1>
+              <p className="text-sm text-slate-500 mt-2 max-w-md">
+                View your upcoming visits, look over instructions from your care
+                team, and check your past health history.
               </p>
             </div>
-            <h1
-              className={cn(
-                "text-4xl md:text-5xl text-slate-900 leading-none",
-                bebasNeue.className,
-              )}
-            >
-              Medical <span className="text-emerald-600">Appoinment</span>
-            </h1>
-          </div>
-          <div className="flex bg-slate-50 p-1.5 rounded-2xl border border-slate-100">
-            <button className="px-6 py-2.5 bg-white shadow-sm rounded-xl text-[10px] font-black uppercase tracking-widest text-slate-900">
-              Full History
-            </button>
-            <button className="px-6 py-2.5 text-[10px] font-black uppercase tracking-widest text-slate-400 hover:text-slate-600 transition-colors">
-              Documents
-            </button>
+            <div className="flex items-center gap-4">
+              <div className="bg-slate-50 rounded-2xl p-4 border border-slate-100 text-center min-w-[90px]">
+                <p className="text-2xl font-black text-slate-900">
+                  {sortedUpcoming.length}
+                </p>
+                <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">
+                  Booked
+                </p>
+              </div>
+              <div className="bg-slate-50 rounded-2xl p-4 border border-slate-100 text-center min-w-[90px]">
+                <p className="text-2xl font-black text-slate-900">
+                  {sortedPast.length}
+                </p>
+                <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">
+                  Past Visits
+                </p>
+              </div>
+            </div>
           </div>
         </header>
 
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-          {/* LEFT: UPCOMING SESSIONS */}
-          <div className="lg:col-span-4 space-y-6">
-            <h3 className="text-[10px] font-black uppercase tracking-[0.3em] text-emerald-600 px-2 flex items-center gap-2">
-              <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />{" "}
-              Scheduled
-            </h3>
+          {/* LEFT: UPCOMING APPOINTMENTS */}
+          <div className="lg:col-span-5 space-y-6">
+            <div className="flex items-center gap-3 px-2">
+              <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+              <h3 className="text-[10px] font-black uppercase tracking-[0.3em] text-emerald-600">
+                Your Next Visits
+              </h3>
+            </div>
 
             <div className="space-y-4">
-              {upcoming.length > 0 ? (
-                upcoming.map((appt: any) => (
-                  <motion.div
+              {sortedUpcoming.length > 0 ? (
+                sortedUpcoming.map((appt: any) => (
+                  <UpcomingCard
                     key={appt.id}
-                    initial={{ opacity: 0, x: -20 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    className="bg-slate-900 rounded-[32px] p-8 text-white relative overflow-hidden shadow-xl group"
-                  >
-                    <div className="relative z-10">
-                      <div className="flex justify-between items-start mb-6">
-                        <div className="p-3 bg-emerald-500/10 rounded-2xl text-emerald-400 border border-emerald-500/20">
-                          <Stethoscope size={24} />
-                        </div>
-                        <button
-                          onClick={() => cancelAppointment(appt.id)}
-                          className="h-10 w-10 flex items-center justify-center rounded-xl bg-white/5 hover:bg-rose-500/20 hover:text-rose-400 transition-all text-slate-500"
-                        >
-                          <XCircle size={20} />
-                        </button>
-                      </div>
-
-                      <h4 className="text-2xl font-bold tracking-tight">
-                        {appt.medicName}
-                      </h4>
-                      <p className="text-slate-400 text-sm font-medium mt-1 uppercase tracking-tighter">
-                        {appt.reason}
-                      </p>
-
-                      <div className="mt-8 pt-6 border-t border-white/5 flex items-center justify-between">
-                        <div className="space-y-1">
-                          <div className="flex items-center gap-2 text-emerald-400 font-black text-xs">
-                            <Calendar size={14} /> {appt.date}
-                          </div>
-                          <div className="flex items-center gap-2 text-slate-500 font-bold text-[10px] uppercase">
-                            <Clock size={14} /> {appt.time}
-                          </div>
-                        </div>
-                        <button className="h-12 w-12 bg-white text-slate-900 rounded-2xl flex items-center justify-center hover:bg-emerald-500 hover:text-white transition-all shadow-lg shadow-black/20">
-                          <ArrowUpRight size={20} />
-                        </button>
-                      </div>
-                    </div>
-                    <Activity className="absolute -right-6 -bottom-6 w-32 h-32 opacity-5 pointer-events-none" />
-                  </motion.div>
+                    appt={appt}
+                    onCancel={cancelAppointment}
+                  />
                 ))
               ) : (
-                <div className="bg-white border-2 border-dashed border-slate-200 rounded-[32px] p-12 text-center">
-                  <p className="text-slate-400 text-sm font-bold uppercase tracking-widest">
-                    No Active Bookings
-                  </p>
-                </div>
+                <EmptyState
+                  icon={Calendar}
+                  title="No Upcoming Appointments"
+                  description="When you book a visit, it will show up right here."
+                />
               )}
             </div>
           </div>
 
-          {/* RIGHT: CONSULTATION HISTORY */}
-          <div className="lg:col-span-8 space-y-6">
-            <h3 className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-400 px-2">
-              Clinical Archive
-            </h3>
+          {/* RIGHT: HISTORY */}
+          <div className="lg:col-span-7 space-y-6">
+            <div className="flex items-center gap-3 px-2">
+              <HistoryIcon size={14} className="text-slate-400" />
+              <h3 className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-400">
+                Past Appointments
+              </h3>
+            </div>
 
             <div className="space-y-4">
-              {history.length > 0 ? (
-                history.map((appt: any) => (
+              {sortedPast.length > 0 ? (
+                sortedPast.map((appt: any) => (
                   <HistoryCard key={appt.id} appt={appt} />
                 ))
               ) : (
-                <div className="bg-white border border-slate-100 rounded-[32px] p-20 text-center shadow-sm">
-                  <div className="h-16 w-16 bg-slate-50 rounded-3xl flex items-center justify-center mx-auto mb-4 text-slate-200">
-                    <FileText size={32} />
-                  </div>
-                  <p className="text-slate-400 text-sm italic font-medium">
-                    No historical consultations found in the ledger.
-                  </p>
-                </div>
+                <EmptyState
+                  icon={FileText}
+                  title="No Past Visits Found"
+                  description="Your completed appointments and health summaries will appear here."
+                />
               )}
             </div>
           </div>
@@ -162,159 +201,387 @@ export default function AppointmentsPanel() {
   );
 }
 
-function HistoryCard({ appt }: { appt: any }) {
-  const [expanded, setExpanded] = useState(false);
+// --------------------------------------------------------------------------------
+// UPCOMING CARD
+// --------------------------------------------------------------------------------
+function UpcomingCard({
+  appt,
+  onCancel,
+}: {
+  appt: any;
+  onCancel: (id: string) => void;
+}) {
+  const isToday =
+    new Date(appt.date).toDateString() === new Date().toDateString();
+  const daysUntil = Math.ceil(
+    (new Date(`${appt.date}T${appt.time}`).getTime() - Date.now()) /
+      (1000 * 60 * 60 * 24),
+  );
 
   return (
-    <div className="bg-white border border-slate-100 rounded-[32px] overflow-hidden transition-all hover:shadow-xl hover:border-emerald-100 shadow-sm">
-      <div
-        onClick={() => setExpanded(!expanded)}
-        className="p-8 flex items-center justify-between cursor-pointer group"
-      >
-        <div className="flex items-center gap-6">
-          <div
-            className={cn(
-              "h-14 w-14 rounded-2xl flex items-center justify-center transition-all",
-              appt.status === "cancelled"
-                ? "bg-rose-50 text-rose-500"
-                : "bg-slate-50 text-slate-400 group-hover:bg-emerald-50 group-hover:text-emerald-500",
-            )}
-          >
-            {appt.status === "cancelled" ? (
-              <XCircle size={28} />
-            ) : (
-              <ShieldCheck size={28} />
-            )}
-          </div>
-          <div>
-            <h4 className="text-xl font-bold text-slate-900 group-hover:text-emerald-600 transition-colors">
-              {appt.medicName}
-            </h4>
-            <div className="flex items-center gap-3 mt-1">
-              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
-                {appt.date}
-              </p>
-              <span className="h-1 w-1 rounded-full bg-slate-200" />
-              <p className="text-[10px] font-bold text-emerald-600 uppercase">
-                {appt.reason}
+    <motion.div
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="bg-white rounded-[28px] border border-slate-100 shadow-sm hover:shadow-lg transition-all overflow-hidden group"
+    >
+      <div className="h-1 bg-emerald-500" />
+      <div className="p-6">
+        <div className="flex items-start justify-between mb-5">
+          <div className="flex items-center gap-4">
+            <div className="w-14 h-14 bg-emerald-50 rounded-2xl flex items-center justify-center text-emerald-600">
+              <Stethoscope size={24} />
+            </div>
+            <div>
+              <h4 className="text-lg font-bold text-slate-900">
+                {appt.medicName || "Doctor / Provider"}
+              </h4>
+              <p className="text-xs text-slate-500 font-medium mt-0.5">
+                {appt.reason || "General Checkup"}
               </p>
             </div>
           </div>
-        </div>
-        <div className="flex items-center gap-4">
-          {appt.notes && (
-            <span className="hidden md:block text-[9px] font-black bg-blue-50 text-blue-600 px-3 py-1 rounded-full uppercase tracking-tighter">
-              Session Notes
+          <div className="flex items-center gap-2">
+            <span
+              className={cn(
+                "px-3 py-1 rounded-xl text-[9px] font-black uppercase tracking-wider",
+                statusConfig[appt.status]?.bg,
+                statusConfig[appt.status]?.color,
+              )}
+            >
+              {statusConfig[appt.status]?.label || appt.status}
             </span>
-          )}
-          <motion.div animate={{ rotate: expanded ? 180 : 0 }}>
-            <ChevronDown size={24} className="text-slate-300" />
+            <button
+              onClick={() => onCancel(appt.id)}
+              className="p-2 rounded-xl bg-slate-50 text-slate-400 hover:bg-rose-50 hover:text-rose-500 transition-all"
+              title="Cancel appointment"
+            >
+              <XCircle size={16} />
+            </button>
+          </div>
+        </div>
+        <div className="grid grid-cols-2 gap-3 mb-5">
+          <div className="bg-slate-50 rounded-2xl p-3 flex items-center gap-3">
+            <Calendar size={16} className="text-emerald-500" />
+            <div>
+              <p className="text-[9px] font-bold text-slate-400 uppercase">
+                Day
+              </p>
+              <p className="text-xs font-bold text-slate-800">
+                {appt.date}{" "}
+                {isToday && (
+                  <span className="text-emerald-500 ml-1 text-[10px]">
+                    (Today)
+                  </span>
+                )}
+              </p>
+            </div>
+          </div>
+          <div className="bg-slate-50 rounded-2xl p-3 flex items-center gap-3">
+            <Clock size={16} className="text-emerald-500" />
+            <div>
+              <p className="text-[9px] font-bold text-slate-400 uppercase">
+                Time
+              </p>
+              <p className="text-xs font-bold text-slate-800">{appt.time}</p>
+            </div>
+          </div>
+        </div>
+        {appt.consultType && (
+          <div className="flex items-center gap-2 mb-4 px-1">
+            {appt.consultType === "online" ? (
+              <Video size={12} className="text-blue-500" />
+            ) : (
+              <Home size={12} className="text-amber-500" />
+            )}
+            <span className="text-[10px] font-bold text-slate-500 uppercase">
+              {appt.consultType === "online"
+                ? "Video Consultation"
+                : "In-Person Visit"}
+            </span>
+          </div>
+        )}
+        {daysUntil > 0 && (
+          <div className="flex items-center gap-2 text-emerald-600 bg-emerald-50 rounded-xl px-3 py-2 w-fit">
+            <Clock3 size={12} />
+            <span className="text-[10px] font-black uppercase">
+              {daysUntil} day{daysUntil > 1 ? "s" : ""} to go
+            </span>
+          </div>
+        )}
+      </div>
+    </motion.div>
+  );
+}
+
+// --------------------------------------------------------------------------------
+// HISTORY CARD
+// --------------------------------------------------------------------------------
+function HistoryCard({ appt }: { appt: any }) {
+  const [expanded, setExpanded] = useState(false);
+  const status = statusConfig[appt.status] || statusConfig.completed;
+  const StatusIcon = status.icon;
+
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      className="bg-white border border-slate-100 rounded-[28px] overflow-hidden transition-all hover:shadow-md shadow-sm"
+    >
+      <div
+        onClick={() => setExpanded(!expanded)}
+        className="p-5 md:p-6 flex items-center justify-between cursor-pointer group"
+      >
+        <div className="flex items-center gap-4">
+          <div
+            className={cn(
+              "h-12 w-12 rounded-2xl flex items-center justify-center",
+              status.bg,
+            )}
+          >
+            <StatusIcon size={20} className={status.color} />
+          </div>
+          <div>
+            <h4 className="text-base font-bold text-slate-900 group-hover:text-emerald-600 transition-colors">
+              {appt.medicName || "Doctor / Provider"}
+            </h4>
+            <div className="flex items-center gap-2 mt-1 flex-wrap">
+              <span className="text-[10px] font-bold text-slate-400 uppercase">
+                {appt.date}
+              </span>
+              <span className="text-slate-300">•</span>
+              <span className="text-[10px] font-bold text-slate-400 uppercase">
+                {appt.time}
+              </span>
+              <span className="text-slate-300">•</span>
+              <span
+                className={cn("text-[10px] font-black uppercase", status.color)}
+              >
+                {status.label}
+              </span>
+            </div>
+          </div>
+        </div>
+        <div className="flex items-center gap-3">
+          <span className="hidden md:block text-[9px] font-bold text-slate-400 bg-slate-50 px-3 py-1 rounded-xl uppercase">
+            {appt.reason}
+          </span>
+          <motion.div
+            animate={{ rotate: expanded ? 180 : 0 }}
+            transition={{ duration: 0.2 }}
+          >
+            <ChevronDown size={20} className="text-slate-300" />
           </motion.div>
         </div>
       </div>
-
       <AnimatePresence>
         {expanded && (
           <motion.div
-            initial={{ height: 0 }}
-            animate={{ height: "auto" }}
-            exit={{ height: 0 }}
-            className="border-t border-slate-50 bg-[#FBFDFF]"
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.25 }}
+            className="overflow-hidden"
           >
-            <div className="p-10 grid grid-cols-1 md:grid-cols-3 gap-10">
-              {/* DOCTOR NOTES */}
-              <div className="space-y-4">
-                <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-slate-400">
-                  <FileText size={14} className="text-blue-500" /> Practitioner
-                  Intel
-                </div>
-                <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm">
+            <div className="border-t border-slate-50 bg-[#FAFBFC] px-5 md:px-8 py-6 space-y-6">
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+                <InfoBox icon={Calendar} label="Date" value={appt.date} />
+                <InfoBox icon={Clock} label="Time" value={appt.time} />
+                <InfoBox
+                  icon={FileText}
+                  label="Reason for Visit"
+                  value={appt.reason || "Checkup"}
+                />
+              </div>
+
+              {/* Patient Care / Doctor Instructions */}
+              {appt.notes && (
+                <div className="bg-white rounded-2xl p-5 border border-slate-100">
+                  <div className="flex items-center gap-2 mb-3">
+                    <FileText size={14} className="text-blue-500" />
+                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider">
+                      Doctor's Advice & Instructions
+                    </span>
+                  </div>
                   <p className="text-sm text-slate-600 leading-relaxed italic">
-                    "
-                    {appt.notes ||
-                      "No clinical observations were logged for this session."}
-                    "
+                    &ldquo;{appt.notes}&rdquo;
                   </p>
                 </div>
-              </div>
+              )}
 
-              {/* LAB RESULTS */}
-              <div className="space-y-4">
-                <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-slate-400">
-                  <Beaker size={14} className="text-purple-500" />{" "}
-                  Bio-Diagnostics
-                </div>
-                {appt.results ? (
-                  <div className="p-5 bg-slate-900 text-emerald-400 rounded-2xl font-mono text-[11px] border border-slate-800 shadow-lg leading-relaxed">
+              {/* Lab / Test Results */}
+              {appt.results && (
+                <div className="bg-slate-900 rounded-2xl p-5 border border-slate-800">
+                  <div className="flex items-center gap-2 mb-3">
+                    <Beaker size={14} className="text-purple-400" />
+                    <span className="text-[10px] font-black text-purple-400 uppercase tracking-wider">
+                      Test Results (Your doctor will explain these data
+                      readouts)
+                    </span>
+                  </div>
+                  <pre className="text-emerald-400 font-mono text-xs leading-relaxed whitespace-pre-wrap">
                     {appt.results}
-                  </div>
-                ) : (
-                  <div className="p-6 border-2 border-dashed border-slate-100 rounded-2xl text-center">
-                    <p className="text-[10px] text-slate-400 font-bold uppercase">
-                      No Lab Records
-                    </p>
-                  </div>
-                )}
-              </div>
-
-              {/* PRESCRIPTIONS */}
-              <div className="space-y-4">
-                <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-slate-400">
-                  <Pill size={14} className="text-rose-500" /> Protocol Meds
+                  </pre>
                 </div>
-                <div className="flex flex-col gap-2">
-                  {appt.drugs?.length > 0 ? (
-                    appt.drugs.map((drug: string, i: number) => (
-                      <div
+              )}
+
+              {/* Prescriptions */}
+              {appt.drugs?.length > 0 && (
+                <div className="bg-white rounded-2xl p-5 border border-slate-100">
+                  <div className="flex items-center gap-2 mb-3">
+                    <Pill size={14} className="text-rose-500" />
+                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider">
+                      Prescribed Medications
+                    </span>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {appt.drugs.map((drug: string, i: number) => (
+                      <span
                         key={i}
-                        className="flex items-center justify-between bg-white p-4 rounded-xl border border-slate-100 shadow-sm group/drug hover:border-rose-100 transition-all"
+                        className="px-4 py-2 bg-rose-50 text-rose-700 rounded-xl text-xs font-bold border border-rose-100"
                       >
-                        <span className="text-xs font-bold text-slate-700">
-                          {drug}
-                        </span>
-                        <ArrowUpRight
-                          size={12}
-                          className="text-slate-300 group-hover/drug:text-rose-500"
-                        />
-                      </div>
-                    ))
-                  ) : (
-                    <div className="py-4 text-xs text-slate-400 italic">
-                      Protocol: Non-Medical
-                    </div>
-                  )}
+                        {drug}
+                      </span>
+                    ))}
+                  </div>
                 </div>
-              </div>
-            </div>
-
-            {/* FOOTER ACTION */}
-            <div className="px-10 pb-10">
-              <button className="w-full py-4 bg-slate-900 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-emerald-600 transition-all shadow-lg">
-                Export Clinical Report
-              </button>
+              )}
             </div>
           </motion.div>
         )}
       </AnimatePresence>
+    </motion.div>
+  );
+}
+
+// --------------------------------------------------------------------------------
+// SUB‑COMPONENTS
+// --------------------------------------------------------------------------------
+function InfoBox({
+  icon: Icon,
+  label,
+  value,
+}: {
+  icon: any;
+  label: string;
+  value: string;
+}) {
+  return (
+    <div className="bg-white rounded-2xl p-4 border border-slate-100">
+      <div className="flex items-center gap-2 mb-2">
+        <Icon size={14} className="text-slate-400" />
+        <span className="text-[9px] font-black text-slate-400 uppercase tracking-wider">
+          {label}
+        </span>
+      </div>
+      <p className="text-sm font-bold text-slate-800">{value}</p>
     </div>
   );
 }
 
-function LoadingState() {
+function EmptyState({
+  icon: Icon,
+  title,
+  description,
+}: {
+  icon: any;
+  title: string;
+  description: string;
+}) {
   return (
-    <div className="h-screen w-full flex items-center justify-center bg-white">
-      <div className="flex flex-col items-center gap-4">
-        <div className="h-1 w-32 bg-slate-100 rounded-full overflow-hidden">
-          <motion.div
-            initial={{ x: "-100%" }}
-            animate={{ x: "100%" }}
-            transition={{ repeat: Infinity, duration: 1, ease: "linear" }}
-            className="h-full w-1/2 bg-emerald-500"
-          />
+    <div className="bg-white border-2 border-dashed border-slate-200 rounded-[32px] p-12 text-center">
+      <div className="h-16 w-16 bg-slate-50 rounded-2xl flex items-center justify-center mx-auto mb-4 text-slate-300">
+        <Icon size={28} />
+      </div>
+      <p className="text-sm font-bold text-slate-500 mb-1">{title}</p>
+      <p className="text-xs text-slate-400">{description}</p>
+    </div>
+  );
+}
+
+// --------------------------------------------------------------------------------
+// PREMIUM SKELETON LOADING STATE
+// --------------------------------------------------------------------------------
+function LoadingState() {
+  const SkeletonPulse = ({ className }: { className: string }) => (
+    <div
+      className={cn("animate-pulse bg-slate-200/80 rounded-xl", className)}
+    />
+  );
+
+  return (
+    <div
+      className={cn("min-h-screen bg-[#F8FAFC] pb-32 pt-6", poppins.className)}
+    >
+      <div className="max-w-7xl mx-auto px-4 md:px-6 space-y-8">
+        <header className="bg-white rounded-[32px] p-6 md:p-10 border border-slate-200/60 shadow-sm">
+          <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
+            <div className="space-y-3 w-full max-w-md">
+              <div className="flex items-center gap-2">
+                <SkeletonPulse className="h-8 w-8 rounded-xl" />
+                <SkeletonPulse className="h-3 w-28" />
+              </div>
+              <SkeletonPulse className="h-12 w-3/4 rounded-2xl" />
+              <SkeletonPulse className="h-4 w-full" />
+            </div>
+            <div className="flex items-center gap-4">
+              <SkeletonPulse className="h-20 w-20 rounded-2xl" />
+              <SkeletonPulse className="h-20 w-20 rounded-2xl" />
+            </div>
+          </div>
+        </header>
+
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+          <div className="lg:col-span-5 space-y-6">
+            <div className="px-2">
+              <SkeletonPulse className="h-3 w-32" />
+            </div>
+
+            {[1, 2].map((i) => (
+              <div
+                key={i}
+                className="bg-white rounded-[28px] border border-slate-100 p-6 space-y-5 shadow-sm"
+              >
+                <div className="flex justify-between items-start">
+                  <div className="flex items-center gap-4 w-full">
+                    <SkeletonPulse className="w-14 h-14 rounded-2xl" />
+                    <div className="space-y-2 w-1/2">
+                      <SkeletonPulse className="h-4 w-full" />
+                      <SkeletonPulse className="h-3 w-2/3" />
+                    </div>
+                  </div>
+                  <SkeletonPulse className="h-6 w-16 rounded-xl" />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <SkeletonPulse className="h-14 rounded-2xl" />
+                  <SkeletonPulse className="h-14 rounded-2xl" />
+                </div>
+                <SkeletonPulse className="h-6 w-28 rounded-xl" />
+              </div>
+            ))}
+          </div>
+
+          <div className="lg:col-span-7 space-y-6">
+            <div className="px-2">
+              <SkeletonPulse className="h-3 w-36" />
+            </div>
+
+            {[1, 2, 3].map((i) => (
+              <div
+                key={i}
+                className="bg-white border border-slate-100 rounded-[28px] p-5 flex items-center justify-between shadow-sm"
+              >
+                <div className="flex items-center gap-4 w-2/3">
+                  <SkeletonPulse className="h-12 w-12 rounded-2xl shrink-0" />
+                  <div className="space-y-2 w-full">
+                    <SkeletonPulse className="h-4 w-1/3" />
+                    <SkeletonPulse className="h-3 w-1/2" />
+                  </div>
+                </div>
+                <SkeletonPulse className="h-6 w-20 rounded-xl hidden md:block" />
+              </div>
+            ))}
+          </div>
         </div>
-        <p className="text-[10px] font-black uppercase tracking-[0.4em] text-slate-400">
-          Fetching Session...
-        </p>
       </div>
     </div>
   );

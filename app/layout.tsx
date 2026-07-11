@@ -55,7 +55,7 @@ export const metadata: Metadata = {
 
   // Social / OpenGraph
   openGraph: {
-    title: "Doza – Healthcare, Connected.",
+    title: "Doza Healthcare, Connected.",
     description: "The unified dashboard for the modern healthcare ecosystem.",
     url: "https://dashboard.dozamedic.com",
     siteName: "Doza Medic",

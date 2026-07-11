@@ -1,4 +1,3 @@
-// app/dashboard/hooks/useOrders.ts
 import useSWR, { mutate } from "swr";
 import { authFetcher, authPost } from "@/app/utils/client-auth";
 import { useUser } from "./useProfile";
@@ -26,6 +25,7 @@ export const useOrders = () => {
     data: Record<string, Order>;
   }>(user ? "/api/store/orders" : null, authFetcher, {
     revalidateOnFocus: false,
+    dedupingInterval: 120_000, // 2 minutes – orders change occasionally
   });
 
   const orders = data?.success ? data.data : {};
@@ -36,16 +36,11 @@ export const useOrders = () => {
     if (!user) return;
     const result = await authPost("/api/store/orders", orderData);
     if (result.success) {
-      mutate("/api/store/orders"); // refresh orders list
-      return result.data; // new order ID
+      mutate("/api/store/orders");
+      return result.data;
     }
     throw new Error(result.error || "Failed to place order");
   };
 
-  return {
-    orders,
-    isLoading,
-    error,
-    placeOrder,
-  };
+  return { orders, isLoading, error, placeOrder };
 };

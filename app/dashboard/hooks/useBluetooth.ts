@@ -8,8 +8,6 @@ export const useBluetooth = () => {
   const [error, setError] = useState<string | null>(null);
   const [heartRate, setHeartRate] = useState<number | null>(null);
 
-  // Use refs for the device and server to avoid re-render loops
-  // and ensure cleanup has access to the latest instances.
   const deviceRef = useRef<BluetoothDevice | null>(null);
   const serverRef = useRef<BluetoothRemoteGATTServer | null>(null);
 
@@ -25,7 +23,6 @@ export const useBluetooth = () => {
 
   const handleCharacteristicValueChanged = (event: any) => {
     const value = event.target.value;
-    // Heart Rate Measurement is usually the 2nd byte in the DataView
     const flags = value.getUint8(0);
     const rate = flags & 0x01 ? value.getUint16(1, true) : value.getUint8(1);
     setHeartRate(rate);
@@ -41,7 +38,6 @@ export const useBluetooth = () => {
       setError(null);
       setStatus("scanning");
 
-      // 1. Request Device
       const device = await navigator.bluetooth.requestDevice({
         filters: [{ services: ["heart_rate"] }],
         optionalServices: ["battery_service"],
@@ -52,18 +48,15 @@ export const useBluetooth = () => {
 
       setStatus("pairing");
 
-      // 2. Connect to GATT Server
       const server = await device.gatt?.connect();
       if (!server) throw new Error("Could not establish GATT connection.");
       serverRef.current = server;
 
-      // 3. Get Heart Rate Service & Characteristic
       const service = await server.getPrimaryService("heart_rate");
       const characteristic = await service.getCharacteristic(
         "heart_rate_measurement",
       );
 
-      // 4. Start Notifications (The "Live" part)
       await characteristic.startNotifications();
       characteristic.addEventListener(
         "characteristicvaluechanged",
@@ -73,7 +66,10 @@ export const useBluetooth = () => {
       setStatus("complete");
     } catch (err) {
       const message = err instanceof Error ? err.message : "Connection failed";
-      // Don't show error if user simply cancelled the picker
+      // Do not log errors in production – avoid leaking device info.
+      if (process.env.NODE_ENV !== "production") {
+        console.error("Bluetooth connection error:", message);
+      }
       if (message.includes("User cancelled")) {
         setStatus("idle");
       } else {

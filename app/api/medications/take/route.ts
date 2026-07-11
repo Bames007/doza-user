@@ -1,47 +1,67 @@
 import { NextRequest, NextResponse } from "next/server";
 import { verifyIdToken } from "@/app/utils/auth";
 import { adminDb } from "@/app/utils/firebaseAdmin";
+import { z } from "zod";
+import logger from "@/app/utils/logger";
+
+const takeDoseSchema = z.object({
+  medicationId: z.string().min(1),
+  scheduledTime: z.string().min(1),
+});
 
 export async function POST(request: NextRequest) {
   const uid = await verifyIdToken(request);
-  if (!uid)
+  if (!uid) {
     return NextResponse.json(
       { success: false, error: "Unauthorized" },
       { status: 401 },
     );
+  }
 
   try {
-    const { medicationId, scheduledTime } = await request.json();
+    const body = await request.json();
+    const parseResult = takeDoseSchema.safeParse(body);
+    if (!parseResult.success) {
+      logger.warn({
+        uid,
+        message: "Invalid take dose request",
+        validationErrors: parseResult.error.flatten(),
+      });
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Invalid request data",
+          details: parseResult.error.flatten(),
+        },
+        { status: 400 },
+      );
+    }
+
+    const { medicationId, scheduledTime } = parseResult.data;
     const medsRef = adminDb.ref(`doza/users/${uid}/medications`);
     const snapshot = await medsRef.once("value");
-
-    // Normalize: Handle if Firebase returns an object instead of an array
     let medications = snapshot.val();
-    if (!medications)
+
+    if (!medications) {
       return NextResponse.json(
-        { success: false, error: "No meds found" },
+        { success: false, error: "No medications found" },
         { status: 404 },
       );
+    }
 
     const isArray = Array.isArray(medications);
-    const medEntries = isArray ? medications : Object.entries(medications);
+    const medEntries: [string | number, any][] = isArray
+      ? medications.map((m: any, idx: number) => [idx, m])
+      : Object.entries(medications);
 
     let targetMed: any = null;
     let targetKey: string | number | null = null;
 
-    if (isArray) {
-      const idx = medications.findIndex((m: any) => m?.id === medicationId);
-      if (idx !== -1) {
-        targetMed = medications[idx];
-        targetKey = idx;
-      }
-    } else {
-      for (const [key, val] of medEntries as any) {
-        if (val.id === medicationId) {
-          targetMed = val;
-          targetKey = key;
-          break;
-        }
+    for (const [key, val] of medEntries) {
+      if (val.id === medicationId) {
+        targetMed = val;
+        targetKey = key;
+        break;
       }
     }
 
@@ -58,12 +78,10 @@ export async function POST(request: NextRequest) {
     );
 
     if (doseIndex !== -1) {
-      // Update specific dose
       await adminDb
         .ref(`doza/users/${uid}/medications/${targetKey}/doses/${doseIndex}`)
-        .update({
-          takenAt: new Date().toISOString(),
-        });
+        .update({ takenAt: new Date().toISOString() });
+      logger.info({ uid, medicationId, doseIndex, message: "Dose taken" });
       return NextResponse.json({ success: true });
     }
 
@@ -72,8 +90,9 @@ export async function POST(request: NextRequest) {
       { status: 404 },
     );
   } catch (error) {
+    logger.error({ uid, message: "Take dose failed", error });
     return NextResponse.json(
-      { success: false, error: "Internal server error" },
+      { success: false, error: "Unable to record dose" },
       { status: 500 },
     );
   }

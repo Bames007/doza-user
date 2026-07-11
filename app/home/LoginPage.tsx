@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Eye,
@@ -19,12 +19,6 @@ import { useRouter } from "next/navigation";
 import { bebasNeue, poppins } from "../constants";
 import Image from "next/image";
 import LoadingScreen from "../components/LoadingScreen";
-import { auth } from "../utils/firebaseConfig";
-import {
-  signInWithEmailAndPassword,
-  setPersistence,
-  browserLocalPersistence,
-} from "firebase/auth";
 
 const LoginPage: React.FC = () => {
   const [formData, setFormData] = useState({ email: "", password: "" });
@@ -35,6 +29,23 @@ const LoginPage: React.FC = () => {
   const [fieldErrors, setFieldErrors] = useState({ email: "", password: "" });
 
   const router = useRouter();
+
+  // --- "Remember Me" Check on Mount ---
+  useEffect(() => {
+    const session = localStorage.getItem("userSession");
+    if (session) {
+      try {
+        const { user, expiresAt } = JSON.parse(session);
+        if (Date.now() < expiresAt) {
+          router.push("/dashboard");
+        } else {
+          localStorage.removeItem("userSession");
+        }
+      } catch {
+        localStorage.removeItem("userSession");
+      }
+    }
+  }, [router]);
 
   // --- Validation Logic ---
   const validateField = (name: string, value: string): string => {
@@ -71,7 +82,7 @@ const LoginPage: React.FC = () => {
     !formData.email.trim() ||
     !formData.password.trim();
 
-  // --- Auth Logic ---
+  // --- Auth Logic (calls the server API) ---
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
@@ -89,58 +100,41 @@ const LoginPage: React.FC = () => {
     }
 
     try {
-      // Set persistence to LOCAL so user stays logged in
-      await setPersistence(auth, browserLocalPersistence);
-
-      const userCredential = await signInWithEmailAndPassword(
-        auth,
-        formData.email,
-        formData.password,
-      );
-
-      const user = userCredential.user;
-      const idToken = await user.getIdToken();
-
-      // Optional: Sync session with backend (if you use server-side sessions)
-      const sessionRes = await fetch("/api/auth/set-session", {
+      const res = await fetch("/api/auth/user-login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ idToken, rememberMe }),
+        body: JSON.stringify({
+          email: formData.email,
+          password: formData.password,
+          rememberMe,
+        }),
       });
 
-      // If you want to ignore session failures, you can proceed anyway.
-      // But we'll still log errors.
-      if (!sessionRes.ok) {
-        console.warn("Session sync failed, but user is logged in locally.");
+      const data = await res.json();
+
+      if (!res.ok || !data.success) {
+        setError(data.error || "User does not exist");
+        setLoading(false);
+        return;
       }
 
-      // Store user data in localStorage for quick client access
+      // Store session data in localStorage – expiry matches server cookie (14 days max)
+      const expiryDuration = rememberMe
+        ? 14 * 24 * 60 * 60 * 1000 // 14 days (max allowed for server cookie)
+        : 24 * 60 * 60 * 1000; // 1 day
+
       const sessionData = {
         user: {
-          id: user.uid,
-          email: user.email,
-          fullName: user.displayName || "",
-          avatar: user.photoURL || "",
-          role: "user",
-          expiresAt:
-            Date.now() +
-            (rememberMe ? 30 * 24 * 60 * 60 * 1000 : 24 * 60 * 60 * 1000),
+          ...data.data.user,
+          expiresAt: Date.now() + expiryDuration,
         },
         loginTime: new Date().toISOString(),
       };
-
       localStorage.setItem("userSession", JSON.stringify(sessionData));
+
       router.push("/dashboard");
     } catch (err: any) {
-      let errorMessage = "Login failed. Please try again.";
-      if (err.code === "auth/user-not-found")
-        errorMessage = "No account found with this email.";
-      else if (err.code === "auth/wrong-password")
-        errorMessage = "Incorrect password.";
-      else if (err.code === "auth/too-many-requests")
-        errorMessage = "Too many attempts. Try again later.";
-      else if (err.message) errorMessage = err.message;
-      setError(errorMessage);
+      setError("An unexpected error occurred. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -174,7 +168,12 @@ const LoginPage: React.FC = () => {
             <div className="relative z-10">
               <div className="flex items-center gap-3 mb-16">
                 <div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center shadow-lg">
-                  <Image src="/logo.png" alt="Logo" width={28} height={28} />
+                  <Image
+                    src="/logo.png"
+                    alt="Doza Logo"
+                    width={28}
+                    height={28}
+                  />
                 </div>
                 <span
                   className={`text-2xl tracking-tighter font-bold text-white ${bebasNeue.className}`}
@@ -218,7 +217,12 @@ const LoginPage: React.FC = () => {
               {/* Mobile Branding */}
               <div className="lg:hidden flex items-center justify-between mb-12">
                 <div className="flex items-center gap-2">
-                  <Image src="/logo.png" alt="Logo" width={32} height={32} />
+                  <Image
+                    src="/logo.png"
+                    alt="Doza Logo"
+                    width={32}
+                    height={32}
+                  />
                   <span
                     className={`text-2xl font-bold text-slate-900 ${bebasNeue.className}`}
                   >

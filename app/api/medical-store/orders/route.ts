@@ -1,19 +1,33 @@
 import { NextRequest, NextResponse } from "next/server";
-import { adminDb } from "@/app/utils/firebaseAdmin";
+import { adminDb, adminAuth } from "@/app/utils/firebaseAdmin";
 import { cookies } from "next/headers";
+import { z } from "zod";
+import logger from "@/app/utils/logger";
+
+const orderSchema = z.object({
+  items: z.array(z.any()).min(1),
+  total: z.number().positive(),
+  shippingAddress: z.string().min(1),
+  paymentMethod: z.string().optional(),
+});
+
+async function getUserIdFromSession(): Promise<string | null> {
+  const cookieStore = await cookies();
+  const sessionCookie = cookieStore.get("session")?.value;
+  if (!sessionCookie) return null;
+  const decoded = await adminAuth.verifySessionCookie(sessionCookie, true);
+  return decoded.uid;
+}
 
 export async function GET() {
   try {
-    const cookieStore = cookies();
-    const sessionCookie = (await cookieStore).get("session")?.value;
-    if (!sessionCookie) {
+    const userId = await getUserIdFromSession();
+    if (!userId) {
       return NextResponse.json(
         { success: false, error: "Unauthorized" },
         { status: 401 },
       );
     }
-    const session = JSON.parse(sessionCookie);
-    const userId = session.user.id;
 
     const ordersRef = adminDb.ref(`doza/users/${userId}/medical-store/orders`);
     const snapshot = await ordersRef.get();
@@ -21,9 +35,9 @@ export async function GET() {
 
     return NextResponse.json({ success: true, data: orders });
   } catch (error) {
-    console.error("Error fetching medical orders:", error);
+    logger.error({ message: "GET medical orders failed", error });
     return NextResponse.json(
-      { success: false, error: "Server error" },
+      { success: false, error: "Unable to load orders" },
       { status: 500 },
     );
   }
@@ -31,22 +45,36 @@ export async function GET() {
 
 export async function POST(req: NextRequest) {
   try {
-    const cookieStore = cookies();
-    const sessionCookie = (await cookieStore).get("session")?.value;
-    if (!sessionCookie) {
+    const userId = await getUserIdFromSession();
+    if (!userId) {
       return NextResponse.json(
         { success: false, error: "Unauthorized" },
         { status: 401 },
       );
     }
-    const session = JSON.parse(sessionCookie);
-    const userId = session.user.id;
-    const orderData = await req.json();
 
-    const orderId = `MED-${Date.now()}`;
+    const body = await req.json();
+    const parseResult = orderSchema.safeParse(body);
+    if (!parseResult.success) {
+      logger.warn({
+        userId,
+        message: "Invalid medical order payload",
+        validationErrors: parseResult.error.flatten(),
+      });
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Invalid order data",
+          details: parseResult.error.flatten(),
+        },
+        { status: 400 },
+      );
+    }
+
+    const orderId = `MED-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
     const newOrder = {
       orderId,
-      ...orderData,
+      ...parseResult.data,
       createdAt: Date.now(),
       status: "processing",
     };
@@ -56,11 +84,12 @@ export async function POST(req: NextRequest) {
     );
     await orderRef.set(newOrder);
 
+    logger.info({ userId, orderId, message: "Medical order created" });
     return NextResponse.json({ success: true, data: orderId });
   } catch (error) {
-    console.error("Error creating medical order:", error);
+    logger.error({ message: "POST medical order failed", error });
     return NextResponse.json(
-      { success: false, error: "Server error" },
+      { success: false, error: "Unable to create order" },
       { status: 500 },
     );
   }

@@ -1,8 +1,10 @@
 // app/dashboard/hooks/useCenterSearch.ts
-import { useEffect, useState } from "react";
-import { authFetcher } from "@/app/utils/client-auth";
+import { useState, useEffect, useMemo, useRef } from "react";
+import useSWR from "swr";
 
-interface SearchResult {
+const publicFetcher = (url: string) => fetch(url).then((res) => res.json());
+
+export interface SearchResult {
   centerId: string;
   centerName: string;
   centerType: string;
@@ -21,50 +23,46 @@ export function useCenterSearch(
   radius: number,
   userLocation?: { lat: number; lng: number } | null,
 ) {
-  const [results, setResults] = useState<SearchResult[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [debouncedQuery, setDebouncedQuery] = useState(query);
+  const previousQueryRef = useRef(query);
 
+  // Only debounce when query actually changes
   useEffect(() => {
-    if (!query || query.trim() === "") {
-      setResults([]);
-      return;
-    }
+    if (previousQueryRef.current === query) return;
+    previousQueryRef.current = query;
 
-    if (!userLocation) {
-      setError("Location not available");
-      return;
-    }
-
-    const fetchSearch = async () => {
-      setIsLoading(true);
-      setError(null);
-      try {
-        const params = new URLSearchParams({
-          query: query.trim(),
-          type,
-          lat: userLocation.lat.toString(),
-          lng: userLocation.lng.toString(),
-          radius: radius.toString(),
-        });
-        const url = `/api/centers/search?${params.toString()}`;
-        const data = await authFetcher(url);
-        if (data.success) {
-          setResults(data.data);
-        } else {
-          setError(data.error || "Search failed");
-        }
-      } catch (err) {
-        setError("Network error");
-        console.error(err);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    const timer = setTimeout(fetchSearch, 500);
+    const timer = setTimeout(() => setDebouncedQuery(query), 400);
     return () => clearTimeout(timer);
-  }, [query, type, radius, userLocation]);
+  }, [query]);
 
-  return { results, isLoading, error };
+  const searchParams = useMemo(() => {
+    if (!userLocation) return null;
+    return new URLSearchParams({
+      query: debouncedQuery.trim(),
+      type,
+      lat: userLocation.lat.toString(),
+      lng: userLocation.lng.toString(),
+      radius: radius.toString(),
+    }).toString();
+  }, [debouncedQuery, type, radius, userLocation]);
+
+  // Always fetch when location is available (shows all nearby on load)
+  const url = userLocation ? `/api/centers/search?${searchParams}` : null;
+
+  const { data, error, isLoading, mutate } = useSWR(url, publicFetcher, {
+    revalidateOnFocus: false,
+    dedupingInterval: 30_000,
+    keepPreviousData: true, // Keep old data while loading new
+  });
+
+  return {
+    results: (data?.success ? data.data : []) as SearchResult[],
+    isLoading,
+    error: error
+      ? "Network error"
+      : data?.success === false
+        ? data.error
+        : null,
+    refetch: () => mutate(),
+  };
 }

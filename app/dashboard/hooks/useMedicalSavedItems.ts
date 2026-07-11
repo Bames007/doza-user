@@ -20,6 +20,7 @@ export const useMedicalSavedItems = () => {
     data: SavedItem[];
   }>(user ? "/api/medical-store/saved" : null, authFetcher, {
     revalidateOnFocus: false,
+    dedupingInterval: 300_000,
   });
 
   const savedItems = data?.success ? data.data : [];
@@ -39,11 +40,5 @@ export const useMedicalSavedItems = () => {
   const isSaved = (productId: string) =>
     savedItems.some((item) => item.id === productId);
 
-  return {
-    savedItems,
-    isLoading,
-    error,
-    toggleSave,
-    isSaved,
-  };
+  return { savedItems, isLoading, error, toggleSave, isSaved };
 };

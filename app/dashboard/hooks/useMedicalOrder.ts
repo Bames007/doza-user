@@ -25,6 +25,7 @@ export const useMedicalOrders = () => {
     data: Record<string, Order>;
   }>(user ? "/api/medical-store/orders" : null, authFetcher, {
     revalidateOnFocus: false,
+    dedupingInterval: 120_000,
   });
 
   const orders = data?.success ? data.data : {};
@@ -41,10 +42,5 @@ export const useMedicalOrders = () => {
     throw new Error(result.error || "Failed to place order");
   };
 
-  return {
-    orders,
-    isLoading,
-    error,
-    placeOrder,
-  };
+  return { orders, isLoading, error, placeOrder };
 };

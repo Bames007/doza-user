@@ -1,7 +1,8 @@
-// app/api/appointments/[id]/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { verifyIdToken } from "@/app/utils/auth";
 import { adminDb } from "@/app/utils/firebaseAdmin";
+import { z } from "zod";
+import logger from "@/app/utils/logger";
 
 export async function DELETE(
   request: NextRequest,
@@ -16,9 +17,10 @@ export async function DELETE(
   }
 
   const { id: appointmentId } = await params;
-  if (!appointmentId) {
+  const idCheck = z.string().min(1).safeParse(appointmentId);
+  if (!idCheck.success) {
     return NextResponse.json(
-      { success: false, error: "Missing appointment ID" },
+      { success: false, error: "Invalid appointment ID" },
       { status: 400 },
     );
   }
@@ -27,6 +29,7 @@ export async function DELETE(
     const appointmentsRef = adminDb.ref(`doza/users/${uid}/appointments`);
     const snapshot = await appointmentsRef.once("value");
     const appointments = snapshot.val() || [];
+
     const index = appointments.findIndex((a: any) => a.id === appointmentId);
     if (index === -1) {
       return NextResponse.json(
@@ -38,11 +41,17 @@ export async function DELETE(
     appointments[index].status = "cancelled";
     await appointmentsRef.set(appointments);
 
+    logger.info({ uid, appointmentId, message: "Appointment cancelled" });
     return NextResponse.json({ success: true, data: appointments[index] });
   } catch (error) {
-    console.error("DELETE appointment error:", error);
+    logger.error({
+      uid,
+      appointmentId,
+      message: "Cancel appointment failed",
+      error,
+    });
     return NextResponse.json(
-      { success: false, error: "Internal server error" },
+      { success: false, error: "Unable to cancel appointment" },
       { status: 500 },
     );
   }

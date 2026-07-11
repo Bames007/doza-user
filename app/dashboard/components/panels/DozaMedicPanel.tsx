@@ -24,7 +24,7 @@ import {
   Calendar as CalendarIcon,
 } from "lucide-react";
 import { cn } from "@/app/utils/utils";
-import { authFetcher } from "@/app/utils/client-auth";
+import { authFetcher, authPost } from "@/app/utils/client-auth";
 import { poppins, bebasNeue } from "@/app/constants";
 
 // --- Helpers ---
@@ -50,6 +50,32 @@ const CATEGORIES = [
   { id: "other", label: "Others", icon: <Users size={14} /> },
 ];
 
+// --- Skeleton Loader ---
+function SkeletonCard() {
+  return (
+    <div className="bg-white rounded-[48px] border border-slate-100 p-6 animate-pulse">
+      <div className="flex justify-between items-start mb-6">
+        <div className="w-20 h-20 rounded-[28px] bg-slate-200" />
+        <div className="w-12 h-12 rounded-2xl bg-slate-200" />
+      </div>
+      <div className="h-6 w-2/3 bg-slate-200 rounded-lg mb-2" />
+      <div className="h-4 w-1/3 bg-slate-100 rounded-lg mb-4" />
+      <div className="flex gap-4 mb-4">
+        <div className="h-4 w-20 bg-slate-100 rounded-lg" />
+        <div className="h-4 w-16 bg-slate-100 rounded-lg" />
+      </div>
+      <div className="h-4 w-24 bg-slate-100 rounded-lg mb-6" />
+      <div className="flex justify-between items-center pt-4 border-t border-slate-50">
+        <div className="space-y-1">
+          <div className="h-3 w-10 bg-slate-100 rounded" />
+          <div className="h-6 w-16 bg-slate-200 rounded-lg" />
+        </div>
+        <div className="w-12 h-12 rounded-2xl bg-slate-200" />
+      </div>
+    </div>
+  );
+}
+
 export default function DozaMedicsPanel({ user }: any) {
   const [selectedCategory, setSelectedCategory] = useState("nurse");
   const [compareList, setCompareList] = useState<any[]>([]);
@@ -59,7 +85,6 @@ export default function DozaMedicsPanel({ user }: any) {
     "details" | "schedule" | "payment"
   >("details");
 
-  // Booking State
   const [consultType, setConsultType] = useState<"online" | "inPerson">(
     "inPerson",
   );
@@ -82,7 +107,6 @@ export default function DozaMedicsPanel({ user }: any) {
     [apiResponse],
   );
 
-  // Notifications
   const triggerNotify = (
     msg: string,
     type: "success" | "error" = "success",
@@ -91,10 +115,8 @@ export default function DozaMedicsPanel({ user }: any) {
     setTimeout(() => setNotification(null), 5000);
   };
 
-  // Payment – dynamically import Paystack only on client
   const handlePayment = async () => {
-    if (typeof window === "undefined") return; // safety for SSR
-
+    if (typeof window === "undefined") return;
     setIsProcessing(true);
     try {
       const PaystackPop = (await import("@paystack/inline-js")).default;
@@ -104,20 +126,47 @@ export default function DozaMedicsPanel({ user }: any) {
         email: user?.email || "patient@doza.health",
         amount: (viewingMedic.price || 0) * 100,
         currency: "NGN",
-        onSuccess: () => {
-          triggerNotify(
-            `Booking with ${viewingMedic.name} confirmed!`,
-            "success",
-          );
-          setViewingMedic(null);
+        onSuccess: async () => {
+          setIsProcessing(true);
+          try {
+            const result = await authPost("/api/appointments", {
+              medicId: viewingMedic.id,
+              medicName: viewingMedic.name,
+              date: selectedDate?.toISOString().split("T")[0],
+              time: selectedTime,
+              reason: `Consultation (${consultType})`,
+              notes:
+                consultType === "inPerson"
+                  ? `Address: ${patientAddress}`
+                  : `Duration: ${selectedDuration}`,
+            });
+            if (result.success) {
+              triggerNotify(
+                `Booking with ${viewingMedic.name} confirmed!`,
+                "success",
+              );
+              setViewingMedic(null);
+            } else {
+              triggerNotify(
+                result.error || "Failed to save. Please contact support.",
+                "error",
+              );
+            }
+          } catch {
+            triggerNotify(
+              "Failed to save booking. Please contact support.",
+              "error",
+            );
+          } finally {
+            setIsProcessing(false);
+          }
         },
         onCancel: () => {
           setIsProcessing(false);
           triggerNotify("Payment cancelled", "error");
         },
       });
-    } catch (err) {
-      console.error("Failed to load Paystack", err);
+    } catch {
       triggerNotify(
         "Payment service unavailable. Please try again later.",
         "error",
@@ -126,7 +175,6 @@ export default function DozaMedicsPanel({ user }: any) {
     }
   };
 
-  // Reset booking state when medic changes
   useEffect(() => {
     if (viewingMedic) {
       setBookingStep("details");
@@ -138,12 +186,10 @@ export default function DozaMedicsPanel({ user }: any) {
     }
   }, [viewingMedic]);
 
-  // Limit date to today + 30 days
   const minDate = new Date();
   const maxDate = new Date();
   maxDate.setDate(maxDate.getDate() + 30);
 
-  // Generate time slots based on medic's availability (static for now)
   const timeSlots = useMemo(() => {
     if (!viewingMedic) return [];
     return generateTimeSlots(
@@ -154,7 +200,6 @@ export default function DozaMedicsPanel({ user }: any) {
 
   return (
     <div className={cn("min-h-screen bg-[#F8FAFC] pb-40", poppins.className)}>
-      {/* Custom Global CSS for the Calendar UI Improvement */}
       <style jsx global>{`
         .react-datepicker {
           border: none !important;
@@ -226,14 +271,19 @@ export default function DozaMedicsPanel({ user }: any) {
       {/* Header */}
       <header className="bg-white/80 backdrop-blur-md border-b border-slate-100 sticky top-0 z-[100] px-6 py-6">
         <div className="max-w-7xl mx-auto flex flex-col lg:flex-row justify-between items-center gap-6">
-          <h1
-            className={cn(
-              "text-5xl text-slate-900 tracking-tighter",
-              bebasNeue.className,
-            )}
-          >
-            DOZA <span className="text-emerald-500">MEDICS</span>
-          </h1>
+          <div>
+            <h1
+              className={cn(
+                "text-5xl text-slate-900 tracking-tighter",
+                bebasNeue.className,
+              )}
+            >
+              DOZA <span className="text-emerald-500">MEDICS</span>
+            </h1>
+            <p className="text-xs text-slate-400 mt-1 font-medium">
+              Find and book healthcare professionals near you
+            </p>
+          </div>
           <nav className="flex flex-wrap justify-center gap-2 bg-slate-50 p-1.5 rounded-[32px] border border-slate-100">
             {CATEGORIES.map((cat) => (
               <button
@@ -256,10 +306,19 @@ export default function DozaMedicsPanel({ user }: any) {
       {/* Main Grid */}
       <main className="max-w-7xl mx-auto px-6 py-12">
         {isLoading ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+            {[...Array(6)].map((_, i) => (
+              <SkeletonCard key={i} />
+            ))}
+          </div>
+        ) : medics.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 gap-4">
-            <Loader2 className="animate-spin text-emerald-500 w-12 h-12" />
-            <p className="text-[10px] font-black uppercase text-slate-400 tracking-widest">
-              Loading professionals...
+            <Stethoscope size={48} className="text-slate-200" />
+            <p className="text-sm font-bold text-slate-400">
+              No professionals found
+            </p>
+            <p className="text-xs text-slate-300">
+              Try selecting a different category
             </p>
           </div>
         ) : (
@@ -318,7 +377,7 @@ export default function DozaMedicsPanel({ user }: any) {
         )}
       </AnimatePresence>
 
-      {/* Compare Modal (Enhanced) */}
+      {/* Compare Modal */}
       <AnimatePresence>
         {showCompareModal && (
           <div className="fixed inset-0 z-[250] flex items-center justify-center p-4">
@@ -349,7 +408,6 @@ export default function DozaMedicsPanel({ user }: any) {
                   <X size={20} />
                 </button>
               </div>
-
               <div className="overflow-x-auto">
                 <table className="w-full text-left border-collapse">
                   <thead>
@@ -440,7 +498,6 @@ export default function DozaMedicsPanel({ user }: any) {
               exit={{ y: 100, opacity: 0 }}
               className="relative bg-white w-full max-w-3xl rounded-t-[48px] md:rounded-[56px] shadow-2xl overflow-hidden max-h-[95vh] flex flex-col"
             >
-              {/* Modal Header */}
               <div className="px-8 py-6 border-b border-slate-50 flex justify-between items-center bg-white sticky top-0 z-20">
                 <div className="flex items-center gap-5">
                   <img
@@ -474,7 +531,6 @@ export default function DozaMedicsPanel({ user }: any) {
               </div>
 
               <div className="p-8 overflow-y-auto">
-                {/* Step Indicator */}
                 <div className="flex gap-3 mb-8">
                   {["details", "schedule", "payment"].map((step, idx) => (
                     <div
@@ -489,9 +545,8 @@ export default function DozaMedicsPanel({ user }: any) {
                   ))}
                 </div>
 
-                {/* Step 1: Details */}
                 {bookingStep === "details" && (
-                  <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4">
+                  <div className="space-y-8">
                     <div className="grid grid-cols-2 gap-4">
                       <DetailBox
                         label="Experience"
@@ -521,10 +576,8 @@ export default function DozaMedicsPanel({ user }: any) {
                   </div>
                 )}
 
-                {/* Step 2: Schedule */}
                 {bookingStep === "schedule" && (
-                  <div className="space-y-8 animate-in fade-in slide-in-from-right-4">
-                    {/* Consultation Type */}
+                  <div className="space-y-8">
                     <div className="grid grid-cols-2 gap-4">
                       <button
                         onClick={() => setConsultType("inPerson")}
@@ -569,8 +622,6 @@ export default function DozaMedicsPanel({ user }: any) {
                         </span>
                       </button>
                     </div>
-
-                    {/* Address (in-person) */}
                     {consultType === "inPerson" && (
                       <div>
                         <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">
@@ -585,8 +636,6 @@ export default function DozaMedicsPanel({ user }: any) {
                         />
                       </div>
                     )}
-
-                    {/* Duration (online) */}
                     {consultType === "online" && (
                       <div>
                         <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 text-center">
@@ -610,8 +659,6 @@ export default function DozaMedicsPanel({ user }: any) {
                         </div>
                       </div>
                     )}
-
-                    {/* Improved UI Date Picker */}
                     <div className="space-y-2">
                       <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest">
                         Select Date
@@ -631,8 +678,6 @@ export default function DozaMedicsPanel({ user }: any) {
                         />
                       </div>
                     </div>
-
-                    {/* Time Slots */}
                     <div>
                       <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">
                         Available Times
@@ -654,7 +699,6 @@ export default function DozaMedicsPanel({ user }: any) {
                         ))}
                       </div>
                     </div>
-
                     <button
                       disabled={
                         !selectedDate ||
@@ -670,9 +714,8 @@ export default function DozaMedicsPanel({ user }: any) {
                   </div>
                 )}
 
-                {/* Step 3: Payment */}
                 {bookingStep === "payment" && (
-                  <div className="space-y-8 animate-in zoom-in-95">
+                  <div className="space-y-8">
                     <div className="bg-emerald-50/50 border border-emerald-100 p-8 rounded-[40px] space-y-6">
                       <div className="flex justify-between items-center">
                         <span className="text-[10px] font-black text-emerald-600 uppercase">
@@ -752,8 +795,7 @@ export default function DozaMedicsPanel({ user }: any) {
   );
 }
 
-// --- Subcomponents (unchanged) ---
-
+// --- Subcomponents ---
 function MedicCard({ medic, onOpen, isComparing, onCompare }: any) {
   return (
     <motion.div
@@ -781,12 +823,10 @@ function MedicCard({ medic, onOpen, isComparing, onCompare }: any) {
           <Scale size={18} />
         </button>
       </div>
-
       <h3 className="text-xl font-bold text-slate-900 mb-1">{medic.name}</h3>
       <p className="text-emerald-500 text-[9px] font-black uppercase tracking-widest mb-4">
         {medic.specialty}
       </p>
-
       <div className="flex items-center gap-4 mb-4">
         <div className="flex items-center gap-1 text-slate-400 text-[10px]">
           <MapPin size={12} /> {medic.city}
@@ -795,12 +835,10 @@ function MedicCard({ medic, onOpen, isComparing, onCompare }: any) {
           <Clock size={12} /> {medic.experience}y
         </div>
       </div>
-
       <div className="flex items-center gap-1 text-slate-400 text-[9px] mb-6">
         <Languages size={10} /> {medic.languages?.slice(0, 2).join(", ")}
         {medic.languages?.length > 2 && "..."}
       </div>
-
       <div className="flex items-center justify-between pt-4 border-t border-slate-50">
         <div>
           <p className="text-[9px] font-black text-slate-300 uppercase">Rate</p>
