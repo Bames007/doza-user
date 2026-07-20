@@ -15,6 +15,7 @@ import SocialChallengesPanel from "./components/panels/SocialChallengePanel";
 import DozaSportShopPanel from "./components/panels/DozaSportShopPanel";
 import DozaMedicalShopPanel from "./components/panels/DozaMedicalShopPanel";
 import AppointmentsPanel from "./components/panels/AppointmentPanel";
+import DozaPanel from "./components/panels/DozaPanel";
 
 export default function DashboardPage() {
   const { activePanel } = useDashboard();
@@ -37,6 +38,8 @@ export default function DashboardPage() {
         return <DozaMedicalShopPanel />;
       case "doza-medics":
         return <DozaMedicsPanel />;
+      case "doza-panel":
+        return <DozaPanel />;
       case "doza-map":
         return <DozaMapPanel />;
       case "profile":

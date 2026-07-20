@@ -1,21 +1,46 @@
+// app/api/dashboard/summary/route.ts
+// URL: /api/dashboard/summary
+// Method: GET
+
+import { NextRequest, NextResponse } from "next/server";
 import { adminDb, adminAuth } from "@/app/utils/firebaseAdmin";
-import { NextResponse } from "next/server";
+import { verifySessionCookie } from "@/app/utils/auth"; // ✅ import session-cookie helper
 import logger from "@/app/utils/logger";
 
-export async function GET(request: Request) {
+export async function GET(request: NextRequest) {
   try {
-    const authHeader = request.headers.get("Authorization");
-    if (!authHeader?.startsWith("Bearer ")) {
+    // 1. Try session cookie (primary auth method)
+    let uid = await verifySessionCookie(request);
+
+    // 2. Fallback to x-user-id header (from our api.ts)
+    if (!uid) {
+      // headers.get returns string | null — keep null to match uid's type
+      uid = request.headers.get("x-user-id") || null;
+    }
+
+    // 3. Fallback to Bearer token (legacy support)
+    if (!uid) {
+      const authHeader = request.headers.get("Authorization");
+      if (authHeader?.startsWith("Bearer ")) {
+        const token = authHeader.split("Bearer ")[1];
+        try {
+          const decodedToken = await adminAuth.verifyIdToken(token);
+          uid = decodedToken.uid;
+        } catch {
+          // token invalid – ignore
+        }
+      }
+    }
+
+    if (!uid) {
+      logger.warn("Dashboard summary: Unauthorized – no valid auth");
       return NextResponse.json(
         { success: false, error: "Unauthorized" },
         { status: 401 },
       );
     }
 
-    const token = authHeader.split("Bearer ")[1];
-    const decodedToken = await adminAuth.verifyIdToken(token);
-    const uid = decodedToken.uid;
-
+    // ─── Fetch all data (unchanged) ──────────────────────────────────
     const [medsSnap, apptsSnap, healthSnap, familySnap, ordersSnap] =
       await Promise.all([
         adminDb.ref(`doza/users/${uid}/medications`).get(),
@@ -34,7 +59,7 @@ export async function GET(request: Request) {
     const familyReqs = familySnap.val() || {};
     const orders = ordersSnap.val() || {};
 
-    // --- HEALTH RECORDS ---
+    // ── Health Records ──
     const healthRecords = Array.isArray(healthVal)
       ? healthVal
       : Object.values(healthVal);
@@ -55,7 +80,7 @@ export async function GET(request: Request) {
     const steps = getLatest("steps")?.value || "—";
     const weight = getLatest("weight")?.value || "—";
 
-    // --- APPOINTMENTS ---
+    // ── Appointments ──
     const apptsArray = Array.isArray(appts) ? appts : Object.values(appts);
 
     const upcomingAppointments = apptsArray
@@ -71,7 +96,8 @@ export async function GET(request: Request) {
           new Date(`${b.date}T${b.time}`).getTime(),
       );
 
-    // --- NOTIFICATIONS ---
+    // ── Notifications ──
+    // (unchanged – same logic as before)
     Object.entries(meds).forEach(([id, med]: [string, any]) => {
       med.doses?.forEach((dose: any) => {
         const doseTime = new Date(dose.scheduledTime).getTime();
@@ -130,10 +156,12 @@ export async function GET(request: Request) {
       }
     });
 
+    notifications.sort((a, b) => b.timestamp - a.timestamp);
+
     return NextResponse.json({
       success: true,
       data: {
-        notifications: notifications.sort((a, b) => b.timestamp - a.timestamp),
+        notifications: notifications.slice(0, 20),
         healthRecords: {
           heartRate,
           bloodPressure,

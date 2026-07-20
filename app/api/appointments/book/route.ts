@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { verifyIdToken } from "@/app/utils/auth";
+import { verifySessionCookie } from "@/app/utils/auth";
 import { adminDb } from "@/app/utils/firebaseAdmin";
 import { z } from "zod";
 import logger from "@/app/utils/logger";
@@ -16,7 +16,7 @@ const paystackBookingSchema = z.object({
 });
 
 export async function POST(req: NextRequest) {
-  const uid = await verifyIdToken(req);
+  const uid = await verifySessionCookie(req);
   if (!uid) {
     return NextResponse.json(
       { success: false, error: "Unauthorized" },

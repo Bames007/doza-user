@@ -1,7 +1,9 @@
+// app/dashboard/panels/DashboardPanel.tsx
+
 "use client";
 
 import React, { useMemo, useState, useEffect, useRef } from "react";
-import { useUser } from "@/app/dashboard/hooks/useProfile";
+import { useUserContext } from "../../UserContext";
 import useSWR from "swr";
 import { motion, AnimatePresence, Transition } from "framer-motion";
 import * as THREE from "three";
@@ -18,11 +20,37 @@ import {
   Clock,
   History,
   ClipboardList,
+  Bell,
+  X,
+  Check,
+  AlertCircle,
+  Loader2,
+  Copy,
+  ChevronDown,
+  ChevronUp,
+  Pill,
+  Microscope,
 } from "lucide-react";
 import { useDashboard } from "../../DashboardContext";
 import { authFetcher } from "@/app/utils/client-auth";
 import { cn } from "@/app/utils/utils";
 import { poppins, bebasNeue } from "@/app/constants";
+import { useActiveSession } from "@/app/dashboard/hooks/useSession";
+import { usePendingLinkRequests } from "../../hooks/usePendingLinkRequest";
+
+// ─── Hook: fetch session history ──────────────────────────────────
+function useSessionHistory(userId?: string) {
+  const { data, error } = useSWR(
+    userId ? `/api/user/${userId}/sessions` : null,
+    authFetcher,
+    { revalidateOnFocus: true },
+  );
+  return {
+    sessions: data?.data || [],
+    loading: !data && !error,
+    error,
+  };
+}
 
 const spring: Transition = {
   type: "spring",
@@ -30,7 +58,8 @@ const spring: Transition = {
   damping: 25,
 };
 
-// Simplified translation dictionary for medical technical terms
+// ─── Helpers ──────────────────────────────────────────────────────
+
 const translateMedicalType = (type: string): string => {
   switch (type) {
     case "heartRate":
@@ -56,7 +85,7 @@ const formatHealthValue = (record: any): string => {
 const getUnitLabel = (type: string): string => {
   switch (type) {
     case "heartRate":
-      return "bpm (beats per minute)";
+      return "bpm";
     case "bloodPressure":
       return "mmHg";
     case "steps":
@@ -68,13 +97,27 @@ const getUnitLabel = (type: string): string => {
   }
 };
 
+// ─── Main Component ──────────────────────────────────────────────
+
 export default function DashboardPanel() {
-  const { user, isLoading: userLoading } = useUser();
+  const user = useUserContext();
+  const userId = user?.id;
   const { setActivePanel } = useDashboard();
   const [tipIndex, setTipIndex] = useState(0);
+  const [expandedSessionId, setExpandedSessionId] = useState<string | null>(
+    null,
+  );
 
+  // ─── Active session ─────────────────────────────────────────────
+  const { session: activeSession } = useActiveSession(userId);
+
+  // ─── Session history ────────────────────────────────────────────
+  const { sessions: sessionHistory, loading: historyLoading } =
+    useSessionHistory(userId);
+
+  // ─── Dashboard data ─────────────────────────────────────────────
   const { data: dashboardData, isLoading: dataLoading } = useSWR(
-    "/api/dashboard/summary",
+    userId ? "/api/dashboard/summary" : null,
     authFetcher,
     {
       revalidateOnFocus: false,
@@ -95,7 +138,6 @@ export default function DashboardPanel() {
 
   const recentEntries = healthRecords.recentEntries || [];
 
-  // Sort appointments to guarantee the most urgent/closest date is first
   const sortedAppointments = useMemo(() => {
     if (!upcomingAppointments || upcomingAppointments.length === 0) return [];
     return [...upcomingAppointments].sort((a, b) => {
@@ -116,7 +158,82 @@ export default function DashboardPanel() {
     return notifications.map((n: any) => n.message).slice(0, 5);
   }, [notifications]);
 
-  if (userLoading || dataLoading) return <LoadingState />;
+  // ─── Pending link requests ──────────────────────────────────────
+  const { pendingRequests, mutate: mutatePending } =
+    usePendingLinkRequests(userId);
+
+  const [activeRequest, setActiveRequest] = useState<any | null>(null);
+  const [showPopup, setShowPopup] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  // Load pending request from localStorage on mount (persistence)
+  useEffect(() => {
+    if (!userId) return;
+    const stored = localStorage.getItem(`pending-request-${userId}`);
+    if (stored) {
+      try {
+        const parsed = JSON.parse(stored);
+        if (parsed.otpExpires > Date.now()) {
+          setActiveRequest(parsed);
+          setShowPopup(true);
+        } else {
+          localStorage.removeItem(`pending-request-${userId}`);
+        }
+      } catch (e) {
+        localStorage.removeItem(`pending-request-${userId}`);
+      }
+    }
+  }, [userId]);
+
+  // Update when new pending requests arrive from API
+  useEffect(() => {
+    if (!userId) return;
+    if (pendingRequests.length > 0) {
+      const req = pendingRequests[0];
+      if (req.otpExpires > Date.now()) {
+        setActiveRequest(req);
+        setShowPopup(true);
+        localStorage.setItem(`pending-request-${userId}`, JSON.stringify(req));
+      } else {
+        localStorage.removeItem(`pending-request-${userId}`);
+        if (activeRequest && activeRequest.requestId === req.requestId) {
+          setShowPopup(false);
+          setActiveRequest(null);
+        }
+      }
+    } else {
+      localStorage.removeItem(`pending-request-${userId}`);
+    }
+  }, [pendingRequests, userId]);
+
+  const handleDismissPopup = () => {
+    setShowPopup(false);
+    setActiveRequest(null);
+    if (userId) {
+      localStorage.removeItem(`pending-request-${userId}`);
+    }
+  };
+
+  const handleCopy = (otp: string) => {
+    navigator.clipboard.writeText(otp);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 5000);
+  };
+
+  // Helper: format duration
+  const formatDuration = (start: number, end?: number) => {
+    const now = end || Date.now();
+    const diff = Math.floor((now - start) / 1000);
+    const mins = Math.floor(diff / 60);
+    const secs = diff % 60;
+    return `${mins}m ${secs}s`;
+  };
+
+  // ─── Loading State ──────────────────────────────────────────────
+  if (!user) return <LoadingState />;
+  if (dataLoading) return <LoadingState />;
+
+  // ─── Render ──────────────────────────────────────────────────────
 
   return (
     <div
@@ -125,8 +242,36 @@ export default function DashboardPanel() {
         poppins.className,
       )}
     >
+      {/* ─── Active Session Banner ────────────────────────────────── */}
+      {activeSession && (
+        <motion.div
+          initial={{ opacity: 0, y: -20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="sticky top-0 z-40 bg-emerald-500 text-white px-4 py-3 shadow-lg flex items-center justify-between flex-wrap gap-2"
+        >
+          <div className="flex items-center gap-2">
+            <div className="h-3 w-3 rounded-full bg-white animate-pulse" />
+            <span className="font-medium">
+              Session active with{" "}
+              {activeSession.centerName || "Healthcare Center"}
+            </span>
+            <span className="text-xs opacity-80">
+              (started {new Date(activeSession.startTime).toLocaleTimeString()})
+            </span>
+          </div>
+          <div className="flex items-center gap-3 text-sm">
+            <button
+              onClick={() => setActivePanel("doza-panel")}
+              className="bg-white/20 hover:bg-white/30 px-3 py-1 rounded-lg transition-colors"
+            >
+              View Details
+            </button>
+          </div>
+        </motion.div>
+      )}
+
       <div className="max-w-7xl mx-auto px-4 md:px-6 space-y-5 md:space-y-8">
-        {/* --- HEADER --- */}
+        {/* ─── HEADER ────────────────────────────────────────────────── */}
         <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white p-5 md:p-8 rounded-[28px] border border-slate-200/60 shadow-sm">
           <div>
             <div className="flex items-center gap-2 mb-1">
@@ -143,7 +288,7 @@ export default function DashboardPanel() {
             >
               Welcome,{" "}
               <span className="text-emerald-600">
-                {user?.fullName?.split(" ")[0]}
+                {user?.fullName?.split(" ")[0] || "User"}
               </span>
             </h1>
           </div>
@@ -156,7 +301,7 @@ export default function DashboardPanel() {
         </header>
 
         <div className="grid grid-cols-1 md:grid-cols-12 gap-5 md:gap-6">
-          {/* LEFT COLUMN: HEALTH METRICS & ACTIVITY */}
+          {/* ─── LEFT COLUMN ───────────────────────────────────────── */}
           <div className="md:col-span-8 space-y-5 md:space-y-6">
             {/* LATEST READINGS */}
             <BentoTile className="bg-white px-4 py-6 md:p-8">
@@ -216,7 +361,144 @@ export default function DashboardPanel() {
               </div>
             </BentoTile>
 
-            {/* HISTORICAL ENTRIES LIST */}
+            {/* ─── ONGOING SESSION CARD ───────────────────────────── */}
+            {activeSession && (
+              <BentoTile className="bg-white px-4 py-6 md:p-8 border-l-4 border-emerald-500">
+                <div className="flex items-start justify-between">
+                  <div>
+                    <div className="flex items-center gap-2 text-emerald-600 mb-2">
+                      <Activity className="w-5 h-5 animate-pulse" />
+                      <span className="text-[10px] font-black uppercase tracking-widest">
+                        Ongoing Session
+                      </span>
+                    </div>
+                    <h3 className="text-lg font-bold text-slate-900">
+                      {activeSession.centerName || "Healthcare Center"}
+                    </h3>
+                    <p className="text-sm text-slate-600">
+                      Started{" "}
+                      {new Date(activeSession.startTime).toLocaleString()}
+                    </p>
+                    <div className="mt-2 inline-flex items-center gap-1 bg-emerald-50 text-emerald-700 px-3 py-1 rounded-full text-xs font-medium">
+                      <Clock className="w-3 h-3" />
+                      <span>
+                        Duration: {formatDuration(activeSession.startTime)}
+                      </span>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setActivePanel("doza-panel")}
+                    className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-sm font-medium transition"
+                  >
+                    View Details
+                  </button>
+                </div>
+              </BentoTile>
+            )}
+
+            {/* ─── SESSION HISTORY ────────────────────────────────── */}
+            {!historyLoading && sessionHistory.length > 0 && (
+              <BentoTile className="bg-white px-4 py-6 md:p-8">
+                <div className="flex items-center gap-2 mb-4">
+                  <History className="w-5 h-5 text-emerald-500" />
+                  <h3 className="text-sm md:text-lg font-black text-slate-900 uppercase tracking-tight">
+                    Session History
+                  </h3>
+                  <span className="ml-auto text-xs text-slate-500 bg-slate-100 px-2 py-1 rounded-full">
+                    {sessionHistory.length} sessions
+                  </span>
+                </div>
+
+                <div className="divide-y divide-slate-100">
+                  {sessionHistory.slice(0, 10).map((session: any) => {
+                    const isExpanded = expandedSessionId === session.sessionId;
+                    return (
+                      <div
+                        key={session.sessionId}
+                        className="py-3 first:pt-0 last:pb-0"
+                      >
+                        <button
+                          onClick={() =>
+                            setExpandedSessionId(
+                              isExpanded ? null : session.sessionId,
+                            )
+                          }
+                          className="w-full flex items-center justify-between text-left"
+                        >
+                          <div>
+                            <p className="font-semibold text-slate-800">
+                              {session.centerName}
+                            </p>
+                            <p className="text-xs text-slate-500">
+                              {new Date(session.startTime).toLocaleDateString()}{" "}
+                              –{" "}
+                              {session.endTime
+                                ? formatDuration(
+                                    session.startTime,
+                                    session.endTime,
+                                  )
+                                : "Ongoing"}
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span
+                              className={cn(
+                                "text-[10px] font-bold px-2 py-0.5 rounded-full",
+                                session.status === "ended"
+                                  ? "bg-slate-100 text-slate-600"
+                                  : "bg-emerald-100 text-emerald-700",
+                              )}
+                            >
+                              {session.status || "ended"}
+                            </span>
+                            {isExpanded ? (
+                              <ChevronUp className="w-4 h-4 text-slate-400" />
+                            ) : (
+                              <ChevronDown className="w-4 h-4 text-slate-400" />
+                            )}
+                          </div>
+                        </button>
+
+                        {isExpanded && (
+                          <div className="mt-3 pl-2 border-l-2 border-emerald-200 space-y-2">
+                            <div className="grid grid-cols-2 gap-2 text-sm">
+                              <div>
+                                <span className="text-xs text-slate-500 block">
+                                  Started
+                                </span>
+                                <span className="font-medium">
+                                  {new Date(session.startTime).toLocaleString()}
+                                </span>
+                              </div>
+                              <div>
+                                <span className="text-xs text-slate-500 block">
+                                  Ended
+                                </span>
+                                <span className="font-medium">
+                                  {session.endTime
+                                    ? new Date(session.endTime).toLocaleString()
+                                    : "—"}
+                                </span>
+                              </div>
+                            </div>
+                            <div className="flex gap-3 text-xs text-slate-600">
+                              <span className="flex items-center gap-1">
+                                <Pill className="w-3 h-3" /> 0 prescriptions
+                              </span>
+                              <span className="flex items-center gap-1">
+                                <Microscope className="w-3 h-3" /> 0 tests
+                              </span>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </BentoTile>
+            )}
+
+            {/* HISTORICAL ENTRIES LIST (existing) */}
             <BentoTile className="bg-white px-4 py-6 md:p-8">
               <div className="flex justify-between items-center mb-5">
                 <h3 className="text-sm md:text-lg font-black text-slate-900 flex items-center gap-2 uppercase tracking-tight">
@@ -263,12 +545,11 @@ export default function DashboardPanel() {
             </BentoTile>
           </div>
 
-          {/* RIGHT COLUMN: APPOINTMENTS & HEALTH INSIGHTS */}
+          {/* ─── RIGHT COLUMN ────────────────────────────────────── */}
           <div className="md:col-span-4 space-y-5 md:space-y-6">
-            {/* --- APPOINTMENTS SECTION --- */}
+            {/* APPOINTMENTS SECTION (unchanged) */}
             {sortedAppointments.length > 0 ? (
               <div className="space-y-4">
-                {/* Main Feature: Most immediate upcoming appointment sorted chronologically */}
                 <div className="bg-slate-900 rounded-[28px] p-6 md:p-8 text-white relative overflow-hidden shadow-xl">
                   <div className="relative z-10">
                     <div className="flex items-center gap-2 mb-6">
@@ -302,7 +583,6 @@ export default function DashboardPanel() {
                   </div>
                 </div>
 
-                {/* Other Appointments Later down the list */}
                 {sortedAppointments.length > 1 && (
                   <div className="space-y-3">
                     <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">
@@ -341,7 +621,6 @@ export default function DashboardPanel() {
                 )}
               </div>
             ) : (
-              /* No Appointments State */
               <div className="bg-white rounded-[28px] p-6 md:p-8 border border-slate-100 shadow-sm">
                 <div className="text-center space-y-4">
                   <Calendar size={32} className="text-slate-300 mx-auto" />
@@ -364,7 +643,7 @@ export default function DashboardPanel() {
               </div>
             )}
 
-            {/* HEALTH TIPS CAROUSEL */}
+            {/* HEALTH TIPS CAROUSEL (unchanged) */}
             <div className="bg-emerald-600 rounded-[28px] p-6 md:p-8 text-white relative overflow-hidden min-h-[220px] shadow-lg">
               <ThreeBackground />
               <div className="relative z-10 flex flex-col h-full justify-between">
@@ -412,13 +691,125 @@ export default function DashboardPanel() {
           </div>
         </div>
       </div>
+
+      {/* ─── PENDING LINK REQUEST POPUP ────────────────────────────── */}
+      <AnimatePresence>
+        {showPopup && activeRequest && userId && (
+          <motion.div
+            initial={{ opacity: 0, y: -20, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -20, scale: 0.95 }}
+            className="fixed top-4 right-4 z-50 w-full max-w-sm sm:max-w-md"
+          >
+            <div className="bg-white rounded-2xl shadow-2xl border border-slate-200/80 overflow-hidden">
+              {/* Header */}
+              <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 bg-gradient-to-r from-emerald-50 to-teal-50">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 bg-emerald-100 rounded-xl">
+                    <Bell className="w-4 h-4 text-emerald-600" />
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-bold text-slate-900">
+                      Link Request
+                    </h4>
+                    <p className="text-[10px] text-slate-500">
+                      {activeRequest.centerName || "Healthcare Center"}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={handleDismissPopup}
+                  className="p-1 hover:bg-slate-100 rounded-lg transition-colors"
+                >
+                  <X className="w-4 h-4 text-slate-500" />
+                </button>
+              </div>
+
+              {/* Body */}
+              <div className="px-5 py-4 space-y-4">
+                <p className="text-sm text-slate-700">
+                  <span className="font-semibold">
+                    {activeRequest.centerName || "A healthcare center"}
+                  </span>{" "}
+                  wants to link with you. Please share this 6‑digit OTP with the
+                  staff to complete the link.
+                </p>
+
+                {/* OTP Display */}
+                <div className="bg-slate-50 rounded-xl p-4 border border-slate-200 text-center">
+                  <p className="text-xs font-medium text-slate-500 uppercase tracking-wider mb-1">
+                    Your One‑Time Password
+                  </p>
+                  <div className="flex items-center justify-center gap-2">
+                    {(activeRequest.otp || "")
+                      .split("")
+                      .map((digit: string, idx: number) => (
+                        <div
+                          key={idx}
+                          className="w-10 h-12 bg-white rounded-lg border border-slate-300 flex items-center justify-center text-2xl font-bold text-slate-800 font-mono shadow-sm"
+                        >
+                          {digit}
+                        </div>
+                      ))}
+                  </div>
+                  <div className="flex items-center justify-center gap-2 mt-2 text-xs text-slate-500">
+                    <Clock className="w-3.5 h-3.5" />
+                    <span>
+                      Expires in{" "}
+                      {(() => {
+                        const diff = Math.max(
+                          0,
+                          Math.floor(
+                            (activeRequest.otpExpires - Date.now()) / 1000,
+                          ),
+                        );
+                        const mins = Math.floor(diff / 60);
+                        const secs = diff % 60;
+                        return `${mins}:${secs.toString().padStart(2, "0")}`;
+                      })()}
+                    </span>
+                  </div>
+                  <button
+                    onClick={() => handleCopy(activeRequest.otp || "")}
+                    className="mt-3 text-sm text-emerald-600 font-medium flex items-center gap-1 mx-auto hover:underline transition-colors"
+                  >
+                    {copied ? (
+                      <>
+                        <Check className="w-4 h-4" /> Copied!
+                      </>
+                    ) : (
+                      <>
+                        <Copy className="w-4 h-4" /> Copy OTP
+                      </>
+                    )}
+                  </button>
+                </div>
+
+                {/* Disclaimer */}
+                <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs text-amber-700 flex items-start gap-2">
+                  <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                  <span>
+                    <strong>Never share this OTP</strong> with anyone except the
+                    center staff. Doza will never ask for this code outside of
+                    this session.
+                  </span>
+                </div>
+
+                <p className="text-[10px] text-slate-400">
+                  This code will expire in 20 minutes. If it expires, ask the
+                  center to send a new request.
+                </p>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
 
-// --------------------------------------------------------------------------------
-// SUB-COMPONENTS
-// --------------------------------------------------------------------------------
+// ─── Subcomponents ──────────────────────────────────────────────────
+
 function StatCard({ icon: Icon, label, val, unit, color, bg, hasChart }: any) {
   return (
     <div className="p-4 rounded-[22px] bg-slate-50/50 border border-slate-100 flex flex-col group active:scale-95 transition-all">
@@ -564,9 +955,7 @@ function BentoTile({ children, className, onClick }: any) {
   );
 }
 
-// --------------------------------------------------------------------------------
-// PREMIUM SKELETON LOADING STATE UI
-// --------------------------------------------------------------------------------
+// ─── Loading State ──────────────────────────────────────────────────
 function LoadingState() {
   const PulseItem = ({ className }: { className: string }) => (
     <div
@@ -597,7 +986,6 @@ function LoadingState() {
         <div className="grid grid-cols-1 md:grid-cols-12 gap-5 md:gap-6">
           {/* Left Column Skeleton */}
           <div className="md:col-span-8 space-y-5 md:space-y-6">
-            {/* Health Grid Card Container Skeleton */}
             <div className="bg-white p-6 md:p-8 rounded-[30px] border border-slate-100 shadow-sm space-y-6">
               <div className="flex justify-between items-center">
                 <PulseItem className="h-5 w-44" />
@@ -625,7 +1013,6 @@ function LoadingState() {
               </div>
             </div>
 
-            {/* List Row Skeletons */}
             <div className="bg-white p-6 md:p-8 rounded-[30px] border border-slate-100 shadow-sm space-y-4">
               <PulseItem className="h-5 w-36 mb-2" />
               {[1, 2, 3].map((i) => (
@@ -648,7 +1035,6 @@ function LoadingState() {
 
           {/* Right Column Skeleton */}
           <div className="md:col-span-4 space-y-5 md:space-y-6">
-            {/* Primary Main Countdown Appointment Item */}
             <div className="bg-slate-900 rounded-[28px] p-6 md:p-8 space-y-6 shadow-xl">
               <div className="flex items-center gap-2">
                 <PulseItem className="h-4 w-4 bg-slate-800" />
@@ -664,7 +1050,6 @@ function LoadingState() {
               </div>
             </div>
 
-            {/* Insight Tip Widget Box */}
             <div className="bg-emerald-600 rounded-[28px] p-6 md:p-8 h-56 flex flex-col justify-between shadow-lg">
               <div className="space-y-4">
                 <div className="flex items-center gap-2">

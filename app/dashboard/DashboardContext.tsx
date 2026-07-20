@@ -8,6 +8,7 @@ export type PanelId =
   | "medications"
   | "challenges"
   | "family-friends"
+  | "doza-panel"
   | "doza-medics"
   | "doza-map"
   | "profile"

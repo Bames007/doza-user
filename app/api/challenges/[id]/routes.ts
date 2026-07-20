@@ -1,14 +1,14 @@
 // This file defines the API routes for handling individual challenge operations such as fetching details and deleting a challenge. It ensures that only authenticated users can access these routes and that only the creator of a challenge can delete it.
 //api/challenges/[id]/route.ts
 import { NextRequest, NextResponse } from "next/server";
-import { verifyIdToken } from "@/app/utils/auth";
+import { verifySessionCookie } from "@/app/utils/auth";
 import { adminDb } from "@/app/utils/firebaseAdmin";
 
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const uid = await verifyIdToken(request);
+  const uid = await verifySessionCookie(request);
   if (!uid) {
     return NextResponse.json(
       { success: false, error: "Unauthorized" },
@@ -42,7 +42,7 @@ export async function DELETE(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const uid = await verifyIdToken(request);
+  const uid = await verifySessionCookie(request);
   if (!uid) {
     return NextResponse.json(
       { success: false, error: "Unauthorized" },

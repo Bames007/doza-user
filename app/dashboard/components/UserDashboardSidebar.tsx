@@ -1,6 +1,9 @@
+// app/dashboard/UserDashboardSidebar.tsx
+
 "use client";
 
 import { useDashboard } from "../DashboardContext";
+import { useUserContext } from "../UserContext";
 import Image from "next/image";
 import { useState, useEffect, useRef } from "react";
 import {
@@ -16,18 +19,45 @@ import {
   Bell,
   Pill,
   Handshake,
-  MoreHorizontal,
   Grid,
   ChevronRight,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useNotifications } from "../hooks/useNotification";
 import { bebasNeue, poppins } from "@/app/constants";
+import { cn } from "@/app/utils/utils";
 
+// ─── Custom Logo Icon for Doza Panel ──────────────────────────────
+const LogoIcon = ({
+  className,
+  active,
+}: {
+  className?: string;
+  active?: boolean;
+}) => (
+  <div
+    className={cn(
+      "relative flex items-center justify-center transition-all duration-200",
+      className,
+      active && "filter brightness-0 invert",
+    )}
+  >
+    <Image
+      src="/logo.png"
+      alt="Doza"
+      width={20}
+      height={20}
+      className="object-contain"
+    />
+  </div>
+);
+
+// ─── Navigation Items ──────────────────────────────────────────────
 const navigationItems = [
   { name: "Dashboard", panelId: "dashboard", icon: LayoutDashboard },
   { name: "Health Tracker", panelId: "health-tracker", icon: Heart },
   { name: "Medications", panelId: "medications", icon: Pill },
+  { name: "Doza History", panelId: "doza-panel", icon: LogoIcon },
   { name: "Challenges", panelId: "challenges", icon: Handshake },
   { name: "Family & Friends", panelId: "family-friends", icon: Users },
   { name: "Doza Medics", panelId: "doza-medics", icon: Stethoscope },
@@ -47,23 +77,14 @@ const bottomItems = [
   { id: "logout", icon: LogOut, label: "Logout", action: "logout" },
 ];
 
-interface UserData {
-  id: string;
-  email: string;
-  fullName: string;
-  avatar?: string;
-  subscription?: string;
-}
-
 interface UserDashboardSidebarProps {
-  user: UserData;
   isMobile: boolean;
 }
 
 export default function UserDashboardSidebar({
-  user,
   isMobile,
 }: UserDashboardSidebarProps) {
+  const user = useUserContext(); // ✅ get user from context
   const { activePanel, setActivePanel } = useDashboard();
   const [isInactive, setIsInactive] = useState(false);
   const [showMoreMenu, setShowMoreMenu] = useState(false);
@@ -98,6 +119,28 @@ export default function UserDashboardSidebar({
     window.location.href = "/";
   };
 
+  // Helper to render icon
+  const renderIcon = (
+    item: (typeof navigationItems)[0],
+    isActive: boolean,
+    size: number,
+    className: string,
+  ) => {
+    if (item.name === "Doza History") {
+      return <LogoIcon className={className} active={isActive} />;
+    }
+    const Icon = item.icon;
+    return <Icon size={size} className={className} />;
+  };
+
+  // ─── Loading state (if user not yet loaded) ──────────────────────
+  if (!user) {
+    return (
+      <div className="w-72 h-screen bg-white border-r border-emerald-50 animate-pulse" />
+    );
+  }
+
+  // ─── Mobile View ──────────────────────────────────────────────────
   if (isMobile) {
     return (
       <div className={poppins.className}>
@@ -127,18 +170,29 @@ export default function UserDashboardSidebar({
 
         {/* Floating Mobile Nav */}
         <div
-          className={`fixed bottom-6 left-4 right-4 z-50 transition-all duration-500 ${isInactive ? "opacity-20 translate-y-4 scale-90" : "opacity-100 translate-y-0"}`}
+          className={`fixed bottom-6 left-4 right-4 z-50 transition-all duration-500 ${
+            isInactive
+              ? "opacity-20 translate-y-4 scale-90"
+              : "opacity-100 translate-y-0"
+          }`}
         >
           <div className="bg-emerald-600 rounded-[2rem] p-2 flex items-center justify-around shadow-2xl shadow-emerald-900/20 border border-white/20">
-            {navigationItems.slice(0, 4).map((item) => (
-              <button
-                key={item.panelId}
-                onClick={() => handleNavigation(item.panelId)}
-                className={`p-4 rounded-2xl transition-all ${activePanel === item.panelId ? "bg-white text-emerald-600 shadow-lg" : "text-emerald-100"}`}
-              >
-                <item.icon size={22} />
-              </button>
-            ))}
+            {navigationItems.slice(0, 4).map((item) => {
+              const isActive = activePanel === item.panelId;
+              return (
+                <button
+                  key={item.panelId}
+                  onClick={() => handleNavigation(item.panelId)}
+                  className={`p-4 rounded-2xl transition-all ${
+                    isActive
+                      ? "bg-white text-emerald-600 shadow-lg"
+                      : "text-emerald-100"
+                  }`}
+                >
+                  {renderIcon(item, isActive, 22, "")}
+                </button>
+              );
+            })}
             <button
               onClick={() => setShowMoreMenu(true)}
               className="p-4 rounded-2xl text-emerald-100 bg-emerald-500/50"
@@ -170,7 +224,7 @@ export default function UserDashboardSidebar({
                   className="flex items-center gap-6 text-white group"
                 >
                   <div className="w-14 h-14 rounded-2xl bg-white/20 flex items-center justify-center group-active:bg-white group-active:text-emerald-600 transition-colors">
-                    <item.icon size={28} />
+                    {renderIcon(item, false, 28, "")}
                   </div>
                   <span className={`text-4xl font-bold ${bebasNeue.className}`}>
                     {item.name}
@@ -184,7 +238,7 @@ export default function UserDashboardSidebar({
     );
   }
 
-  // ---------- DESKTOP VIEW ----------
+  // ─── DESKTOP VIEW ──────────────────────────────────────────────────
   return (
     <div
       className={`w-72 h-screen bg-white border-r border-emerald-50 flex flex-col sticky top-0 overflow-hidden ${poppins.className}`}
@@ -192,7 +246,7 @@ export default function UserDashboardSidebar({
       {/* 1. Header Section */}
       <div className="p-6 pb-4">
         <div className="flex items-center gap-3 mb-6">
-          <div className="w-10 h-10  rounded-xl flex items-center justify-center shadow-lg shadow-emerald-200">
+          <div className="w-10 h-10 rounded-xl flex items-center justify-center shadow-lg shadow-emerald-200">
             <Image src="/logo.png" alt="Doza" width={22} height={22} />
           </div>
           <span
@@ -254,14 +308,14 @@ export default function UserDashboardSidebar({
                   : "text-slate-500 hover:bg-emerald-50 hover:text-emerald-600"
               }`}
             >
-              <item.icon
-                size={18}
-                className={
-                  isActive
-                    ? "text-white"
-                    : "text-emerald-500/50 group-hover:text-emerald-600"
-                }
-              />
+              {renderIcon(
+                item,
+                isActive,
+                18,
+                isActive
+                  ? "text-white"
+                  : "text-emerald-500/50 group-hover:text-emerald-600",
+              )}
               <span className="text-xs font-bold">{item.name}</span>
               {isActive && (
                 <motion.div
@@ -285,8 +339,11 @@ export default function UserDashboardSidebar({
                   ? handleLogout()
                   : handleNavigation(item.panelId!)
               }
-              className={`p-2.5 rounded-xl transition-all relative group
-                ${activePanel === item.panelId ? "bg-white text-emerald-600" : "text-emerald-100 hover:text-white hover:bg-white/10"}`}
+              className={`p-2.5 rounded-xl transition-all relative group ${
+                activePanel === item.panelId
+                  ? "bg-white text-emerald-600"
+                  : "text-emerald-100 hover:text-white hover:bg-white/10"
+              }`}
               title={item.label}
             >
               <item.icon size={16} />

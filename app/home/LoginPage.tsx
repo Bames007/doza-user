@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Eye,
@@ -9,10 +9,8 @@ import {
   Mail,
   Shield,
   AlertCircle,
-  Activity,
   ArrowRight,
   ChevronLeft,
-  Phone,
   RefreshCw,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
@@ -30,24 +28,7 @@ const LoginPage: React.FC = () => {
 
   const router = useRouter();
 
-  // --- "Remember Me" Check on Mount ---
-  useEffect(() => {
-    const session = localStorage.getItem("userSession");
-    if (session) {
-      try {
-        const { user, expiresAt } = JSON.parse(session);
-        if (Date.now() < expiresAt) {
-          router.push("/dashboard");
-        } else {
-          localStorage.removeItem("userSession");
-        }
-      } catch {
-        localStorage.removeItem("userSession");
-      }
-    }
-  }, [router]);
-
-  // --- Validation Logic ---
+  // --- Validation ---
   const validateField = (name: string, value: string): string => {
     switch (name) {
       case "email":
@@ -82,7 +63,7 @@ const LoginPage: React.FC = () => {
     !formData.email.trim() ||
     !formData.password.trim();
 
-  // --- Auth Logic (calls the server API) ---
+  // --- Login via backend API ---
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
@@ -112,30 +93,25 @@ const LoginPage: React.FC = () => {
 
       const data = await res.json();
 
-      if (!res.ok || !data.success) {
-        setError(data.error || "User does not exist");
-        setLoading(false);
-        return;
+      if (!res.ok) {
+        throw new Error(data.error || "Login failed");
       }
 
-      // Store session data in localStorage – expiry matches server cookie (14 days max)
-      const expiryDuration = rememberMe
-        ? 14 * 24 * 60 * 60 * 1000 // 14 days (max allowed for server cookie)
-        : 24 * 60 * 60 * 1000; // 1 day
+      // Store user info in localStorage for client‑side context
+      if (data.data?.user) {
+        localStorage.setItem(
+          "userSession",
+          JSON.stringify({
+            user: data.data.user,
+            loginTime: new Date().toISOString(),
+          }),
+        );
+      }
 
-      const sessionData = {
-        user: {
-          ...data.data.user,
-          expiresAt: Date.now() + expiryDuration,
-        },
-        loginTime: new Date().toISOString(),
-      };
-      localStorage.setItem("userSession", JSON.stringify(sessionData));
-
+      // Navigate to dashboard
       router.push("/dashboard");
     } catch (err: any) {
-      setError("An unexpected error occurred. Please try again.");
-    } finally {
+      setError(err.message || "Invalid email or password");
       setLoading(false);
     }
   };
@@ -161,8 +137,6 @@ const LoginPage: React.FC = () => {
           {/* LEFT COLUMN: BRANDING (Desktop Only) */}
           <div className="hidden lg:flex lg:col-span-5 bg-emerald-600 p-16 flex-col justify-between relative overflow-hidden">
             <div className="absolute inset-0 bg-gradient-to-br from-emerald-500 to-teal-700" />
-
-            {/* Texture/Pattern */}
             <div className="absolute inset-0 opacity-10 bg-[radial-gradient(circle_at_1px_1px,white_1px,transparent_0)] bg-[length:32px_32px]" />
 
             <div className="relative z-10">

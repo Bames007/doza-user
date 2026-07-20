@@ -1,6 +1,9 @@
 // app/api/user/profile/route.ts
+// GET and PUT for user profile
+// Uses Bearer token (Firebase ID token) for auth
+
 import { NextRequest, NextResponse } from "next/server";
-import { verifyIdToken } from "@/app/utils/auth";
+import { verifySessionCookie } from "@/app/utils/auth";
 import { adminDb } from "@/app/utils/firebaseAdmin";
 import { z } from "zod";
 import logger from "@/app/utils/logger";
@@ -19,25 +22,30 @@ const profileUpdateSchema = z.object({
     .optional(),
 });
 
+// ─── GET ─────────────────────────────────────────────────────────────
 export async function GET(request: NextRequest) {
-  const uid = await verifyIdToken(request);
-  if (!uid) {
-    return NextResponse.json(
-      { success: false, error: "Unauthorized" },
-      { status: 401 },
-    );
-  }
-
+  let uid: string | null = null;
   try {
+    uid = await verifySessionCookie(request);
+    if (!uid) {
+      logger.warn("Profile GET: Missing or invalid token");
+      return NextResponse.json(
+        { success: false, error: "Unauthorized" },
+        { status: 401 },
+      );
+    }
+
     const profileRef = adminDb.ref(`doza/users/${uid}/personalProfile`);
     const snapshot = await profileRef.once("value");
     const profile = snapshot.val() || {};
 
+    // Ensure emergencyContacts exists
     if (!profile.emergencyContacts) profile.emergencyContacts = [];
 
     // Build fullName from fname and lname (first & last name in your DB)
     const fullName = `${profile.fname || ""} ${profile.lname || ""}`.trim();
 
+    logger.info({ uid }, "Profile fetched successfully");
     return NextResponse.json({
       success: true,
       data: {
@@ -46,7 +54,7 @@ export async function GET(request: NextRequest) {
       },
     });
   } catch (error) {
-    logger.error({ uid, message: "GET profile error", error });
+    logger.error({ uid, error: String(error) }, "GET profile error");
     return NextResponse.json(
       { success: false, error: "Unable to retrieve profile" },
       { status: 500 },
@@ -54,16 +62,19 @@ export async function GET(request: NextRequest) {
   }
 }
 
+// ─── PUT ─────────────────────────────────────────────────────────────
 export async function PUT(request: NextRequest) {
-  const uid = await verifyIdToken(request);
-  if (!uid) {
-    return NextResponse.json(
-      { success: false, error: "Unauthorized" },
-      { status: 401 },
-    );
-  }
-
+  let uid: string | null = null;
   try {
+    uid = await verifySessionCookie(request);
+    if (!uid) {
+      logger.warn("Profile PUT: Missing or invalid token");
+      return NextResponse.json(
+        { success: false, error: "Unauthorized" },
+        { status: 401 },
+      );
+    }
+
     const body = await request.json();
     const parseResult = profileUpdateSchema.safeParse(body);
 
@@ -84,10 +95,10 @@ export async function PUT(request: NextRequest) {
     const profileRef = adminDb.ref(`doza/users/${uid}/personalProfile`);
     await profileRef.update(updates);
 
-    logger.info({ uid, message: "Profile updated" });
+    logger.info({ uid, updates }, "Profile updated");
     return NextResponse.json({ success: true, data: updates });
   } catch (error) {
-    logger.error({ uid, message: "PUT profile error", error });
+    logger.error({ uid, error: String(error) }, "PUT profile error");
     return NextResponse.json(
       { success: false, error: "Unable to update profile" },
       { status: 500 },

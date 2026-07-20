@@ -1,14 +1,13 @@
 import { adminAuth } from "./firebaseAdmin";
 import { NextRequest } from "next/server";
 
-export async function verifyIdToken(request: NextRequest) {
-  const authHeader = request.headers.get("Authorization");
-  if (!authHeader || !authHeader.startsWith("Bearer ")) {
-    return null;
-  }
-  const token = authHeader.split("Bearer ")[1];
+export async function verifySessionCookie(
+  request: NextRequest,
+): Promise<string | null> {
+  const sessionCookie = request.cookies.get("__session")?.value;
+  if (!sessionCookie) return null;
   try {
-    const decoded = await adminAuth.verifyIdToken(token);
+    const decoded = await adminAuth.verifySessionCookie(sessionCookie);
     return decoded.uid;
   } catch {
     return null;

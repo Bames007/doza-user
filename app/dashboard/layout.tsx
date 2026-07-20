@@ -19,8 +19,7 @@ export default async function DashboardLayout({
   try {
     const decoded = await adminAuth.verifySessionCookie(sessionCookie, true);
     uid = decoded.uid;
-  } catch (error) {
-    console.error("Invalid session cookie", error);
+  } catch {
     redirect("/");
   }
 

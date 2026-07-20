@@ -1,4 +1,5 @@
 // app/api/auth/user-login/route.ts
+
 import { NextRequest, NextResponse } from "next/server";
 import { adminDb, adminAuth } from "@/app/utils/firebaseAdmin";
 import { z } from "zod";
@@ -10,6 +11,12 @@ const loginSchema = z.object({
   rememberMe: z.boolean().optional().default(false),
 });
 
+// ─── GET handler for testing ──────────────────────────────────────
+export async function GET() {
+  return NextResponse.json({ message: "Login route is working" });
+}
+
+// ─── POST handler ─────────────────────────────────────────────────
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
@@ -38,11 +45,23 @@ export async function POST(request: NextRequest) {
 
     // 1) Authenticate with Firebase REST API
     const signInUrl = `https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${apiKey}`;
-    const signInResponse = await fetch(signInUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, password, returnSecureToken: true }),
-    });
+    let signInResponse;
+    try {
+      signInResponse = await fetch(signInUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password, returnSecureToken: true }),
+      });
+    } catch (fetchError) {
+      logger.error(
+        { error: String(fetchError) },
+        "Firebase REST API fetch failed",
+      );
+      return NextResponse.json(
+        { success: false, error: "Unable to authenticate with Firebase" },
+        { status: 500 },
+      );
+    }
 
     const signInData = await signInResponse.json();
     if (!signInResponse.ok) {
@@ -56,27 +75,51 @@ export async function POST(request: NextRequest) {
     const { localId: uid, idToken } = signInData;
 
     // 2) Fetch user profile
-    const userRef = adminDb.ref(`doza/users/${uid}`);
-    const userSnapshot = await userRef.get();
-    const userData = userSnapshot.val();
+    let userData;
+    try {
+      const userRef = adminDb.ref(`doza/users/${uid}`);
+      const userSnapshot = await userRef.get();
+      userData = userSnapshot.val();
+    } catch (dbError) {
+      logger.error(
+        { uid, error: String(dbError) },
+        "Failed to fetch user profile",
+      );
+      return NextResponse.json(
+        { success: false, error: "Unable to retrieve user profile" },
+        { status: 500 },
+      );
+    }
 
     // 3) Check role – must be "user"
     if (!userData || userData.role !== "user") {
-      logger.warn({ uid, email, message: "Invalid role not a user" });
+      logger.warn({ uid, email, message: "Invalid role – not a user" });
       return NextResponse.json(
         { success: false, error: "User does not exist" },
         { status: 401 },
       );
     }
 
-    // 4) Create session cookie – max 14 days for "remember me"
+    // 4) Create session cookie
     const expiresIn = rememberMe
-      ? 14 * 24 * 60 * 60 * 1000 // ✅ 14 days (max allowed)
-      : 24 * 60 * 60 * 1000; // ✅ 1 day
+      ? 14 * 24 * 60 * 60 * 1000 // 14 days
+      : 24 * 60 * 60 * 1000; // 1 day
 
-    const sessionCookie = await adminAuth.createSessionCookie(idToken, {
-      expiresIn,
-    });
+    let sessionCookie;
+    try {
+      sessionCookie = await adminAuth.createSessionCookie(idToken, {
+        expiresIn,
+      });
+    } catch (cookieError) {
+      logger.error(
+        { uid, error: String(cookieError) },
+        "Failed to create session cookie",
+      );
+      return NextResponse.json(
+        { success: false, error: "Unable to create session" },
+        { status: 500 },
+      );
+    }
 
     // 5) Build response
     const fullName = `${userData.personalProfile?.fname || ""} ${
@@ -98,17 +141,18 @@ export async function POST(request: NextRequest) {
     });
 
     response.cookies.set("__session", sessionCookie, {
-      maxAge: expiresIn / 1000, // seconds
+      maxAge: expiresIn / 1000,
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
       sameSite: "lax",
       path: "/",
     });
 
-    logger.info({ uid, email, message: "User logged in successfully" });
+    logger.info({ uid, email }, "User logged in successfully");
     return response;
   } catch (error) {
-    logger.error({ message: "Login error", error });
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    logger.error({ error: errorMsg }, "Login error");
     return NextResponse.json(
       { success: false, error: "Unable to login" },
       { status: 500 },

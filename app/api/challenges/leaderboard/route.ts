@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { verifyIdToken } from "@/app/utils/auth";
+import { verifySessionCookie } from "@/app/utils/auth";
 import { adminDb } from "@/app/utils/firebaseAdmin";
 import logger from "@/app/utils/logger";
 
 export async function GET(request: NextRequest) {
-  const uid = await verifyIdToken(request);
+  const uid = await verifySessionCookie(request);
   if (!uid) {
     return NextResponse.json(
       { success: false, error: "Unauthorized" },
