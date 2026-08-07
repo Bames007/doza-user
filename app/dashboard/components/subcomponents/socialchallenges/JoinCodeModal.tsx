@@ -1,7 +1,7 @@
 import { motion } from "framer-motion";
 import { cn } from "@/app/utils/utils";
 import { bebasNeue } from "@/app/constants";
-import { Lock, ArrowRight, ShieldCheck } from "lucide-react";
+import { Lock, ArrowRight } from "lucide-react";
 import { useState } from "react";
 
 export function JoinCodeModal({
@@ -53,11 +53,10 @@ export function JoinCodeModal({
               bebasNeue.className,
             )}
           >
-            Access Private Arena
+            Join Private Challenge
           </h2>
           <p className="text-xs text-slate-400 font-medium max-w-[240px] mt-1 leading-normal">
-            Input the direct synchronization passcode issued by the campaign
-            manager.
+            Enter the invitation code provided by the challenge creator to join.
           </p>
         </div>
 
@@ -67,7 +66,7 @@ export function JoinCodeModal({
             type="text"
             value={code}
             onChange={(e) => onCodeChange(e.target.value)}
-            placeholder="PRO-CHALLENGE"
+            placeholder="CHALLENGE-CODE"
             className="w-full px-4 py-3 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:border-amber-500 focus:ring-4 focus:ring-amber-500/5 transition-all outline-none font-black uppercase tracking-widest text-center text-slate-800 placeholder:text-slate-300 placeholder:font-semibold"
           />
         </div>
@@ -85,7 +84,7 @@ export function JoinCodeModal({
             disabled={loading || !code.trim()}
             className="flex-1 flex items-center justify-center gap-1.5 py-2.5 bg-slate-900 hover:bg-slate-800 disabled:opacity-40 text-white rounded-xl text-[10px] font-bold uppercase tracking-wider transition-all shadow-sm active:scale-98"
           >
-            <span>Authenticate</span>
+            <span>Join Challenge</span>
             <ArrowRight className="w-3 h-3 stroke-[2.5]" />
           </button>
         </div>

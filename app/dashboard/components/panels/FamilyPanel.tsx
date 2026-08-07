@@ -102,24 +102,24 @@ export default function FamilyPanel() {
       className={cn("min-h-screen bg-[#F8FAFC] pb-32 pt-6", poppins.className)}
     >
       <div className="max-w-7xl mx-auto px-4 md:px-6 space-y-6">
-        {/* --- HEADER --- */}
-        <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 bg-white p-6 md:p-8 rounded-[32px] border border-slate-200/80 shadow-xs">
+        {/* ─── NEW DOZA-STYLE HEADER ─────────────────────────────── */}
+        <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-6">
           <div>
-            <div className="flex items-center gap-2 mb-1.5">
-              <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
-              <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">
-                Care Circle Active
-              </p>
+            <div className="flex items-center gap-3 mb-2">
+              <div className="h-8 w-1 rounded-full bg-gradient-to-b from-emerald-500 to-teal-600" />
+              <span className="text-[11px] font-bold text-emerald-600 uppercase tracking-[0.25em]">
+                Family Circle
+              </span>
             </div>
             <h1
               className={cn(
-                "text-4xl md:text-5xl text-slate-900 leading-none tracking-tight",
+                "text-4xl md:text-5xl text-slate-900 leading-[1.1] tracking-tight",
                 bebasNeue.className,
               )}
             >
-              DOZA <span className="text-emerald-600">FAMILY & FRIENDS</span>
+              Family <span className="text-emerald-600">&amp; Friends</span>
             </h1>
-            <p className="text-slate-600 font-semibold text-xs md:text-sm mt-1">
+            <p className="text-sm text-slate-600 mt-2 max-w-md">
               Manage your trusted medical contacts, family, and emergency
               responders.
             </p>
@@ -131,14 +131,14 @@ export default function FamilyPanel() {
               reset();
               setShowForm(true);
             }}
-            className="w-full md:w-auto flex items-center justify-center gap-2 bg-slate-900 hover:bg-slate-800 text-white px-8 py-4 rounded-2xl font-black text-[11px] uppercase tracking-wider transition-all active:scale-98 shadow-md"
+            className="flex items-center gap-2 px-5 py-3 bg-emerald-600 text-white rounded-xl font-medium hover:bg-emerald-700 transition shadow-sm shadow-emerald-200"
           >
-            <UserPlus size={16} className="stroke-[2.5]" />
+            <UserPlus size={16} />
             <span>Add Someone New</span>
           </button>
-        </header>
+        </div>
 
-        {/* --- MAIN PAGE LAYOUT --- */}
+        {/* ─── MAIN PAGE LAYOUT (unchanged) ────────────────────── */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
           {/* LEFT SIDEBAR: HELP GUIDE & SECURITY */}
           <div className="lg:col-span-4 space-y-6 order-2 lg:order-1">
@@ -250,7 +250,7 @@ export default function FamilyPanel() {
         </div>
       </div>
 
-      {/* --- ADD / EDIT POPUP MODAL --- */}
+      {/* --- ADD / EDIT POPUP MODAL (unchanged) --- */}
       <AnimatePresence>
         {showForm && (
           <Modal
@@ -324,8 +324,7 @@ export default function FamilyPanel() {
   );
 }
 
-/* --- CONTACT CARD COMPONENT --- */
-
+/* --- CONTACT CARD COMPONENT (unchanged) --- */
 function ContactCard({
   contact,
   onEdit,
@@ -500,8 +499,7 @@ function EmptyState({ onAdd }: { onAdd: () => void }) {
   );
 }
 
-/* --- ANIMATED PULSE SKELETON PLACEHOLDERS --- */
-
+/* --- ANIMATED PULSE SKELETON PLACEHOLDERS (unchanged) --- */
 function PanelSkeletonGrid() {
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 animate-pulse">

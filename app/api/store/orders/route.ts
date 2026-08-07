@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { adminDb, adminAuth } from "@/app/utils/firebaseAdmin";
-import { cookies } from "next/headers";
+import { adminDb } from "@/app/utils/firebaseAdmin";
+import { verifySessionCookie } from "@/app/utils/auth";
 import { z } from "zod";
 import logger from "@/app/utils/logger";
 
@@ -11,17 +11,9 @@ const orderSchema = z.object({
   paymentMethod: z.string().optional(),
 });
 
-async function getUserIdFromSession(): Promise<string | null> {
-  const cookieStore = await cookies();
-  const sessionCookie = cookieStore.get("__session")?.value;
-  if (!sessionCookie) return null;
-  const decoded = await adminAuth.verifySessionCookie(sessionCookie, true);
-  return decoded.uid;
-}
-
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
-    const userId = await getUserIdFromSession();
+    const userId = await verifySessionCookie(request);
     if (!userId) {
       return NextResponse.json(
         { success: false, error: "Unauthorized" },
@@ -43,9 +35,9 @@ export async function GET() {
   }
 }
 
-export async function POST(req: NextRequest) {
+export async function POST(request: NextRequest) {
   try {
-    const userId = await getUserIdFromSession();
+    const userId = await verifySessionCookie(request);
     if (!userId) {
       return NextResponse.json(
         { success: false, error: "Unauthorized" },
@@ -53,7 +45,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const body = await req.json();
+    const body = await request.json();
     const parseResult = orderSchema.safeParse(body);
     if (!parseResult.success) {
       logger.warn({
@@ -62,11 +54,7 @@ export async function POST(req: NextRequest) {
         validationErrors: parseResult.error.flatten(),
       });
       return NextResponse.json(
-        {
-          success: false,
-          error: "Invalid order data",
-          details: parseResult.error.flatten(),
-        },
+        { success: false, error: "Invalid order data" },
         { status: 400 },
       );
     }

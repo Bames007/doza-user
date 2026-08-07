@@ -1,8 +1,6 @@
-// app/dashboard/hooks/useCenterSearch.ts
 import { useState, useEffect, useMemo, useRef } from "react";
 import useSWR from "swr";
-
-const publicFetcher = (url: string) => fetch(url).then((res) => res.json());
+import { useUser } from "./useProfile"; // ✅ Changed to useProfile
 
 export interface SearchResult {
   centerId: string;
@@ -17,16 +15,25 @@ export interface SearchResult {
   matches: any[];
 }
 
+const createFetcher = (userId: string) => (url: string) =>
+  fetch(url, { headers: { "x-user-id": userId } }).then((res) => {
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return res.json();
+  });
+
 export function useCenterSearch(
   query: string,
   type: "service" | "drug" | "test",
   radius: number,
   userLocation?: { lat: number; lng: number } | null,
 ) {
+  // ✅ Use useUser to reliably get the current user ID
+  const { user } = useUser();
+  const userId = user?.id;
+
   const [debouncedQuery, setDebouncedQuery] = useState(query);
   const previousQueryRef = useRef(query);
 
-  // Only debounce when query actually changes
   useEffect(() => {
     if (previousQueryRef.current === query) return;
     previousQueryRef.current = query;
@@ -46,14 +53,17 @@ export function useCenterSearch(
     }).toString();
   }, [debouncedQuery, type, radius, userLocation]);
 
-  // Always fetch when location is available (shows all nearby on load)
   const url = userLocation ? `/api/centers/search?${searchParams}` : null;
 
-  const { data, error, isLoading, mutate } = useSWR(url, publicFetcher, {
-    revalidateOnFocus: false,
-    dedupingInterval: 30_000,
-    keepPreviousData: true, // Keep old data while loading new
-  });
+  const { data, error, isLoading, mutate } = useSWR(
+    userId && url ? [url, userId] : null,
+    ([url, uid]: [string, string]) => createFetcher(uid)(url),
+    {
+      revalidateOnFocus: false,
+      dedupingInterval: 30_000,
+      keepPreviousData: true,
+    },
+  );
 
   return {
     results: (data?.success ? data.data : []) as SearchResult[],

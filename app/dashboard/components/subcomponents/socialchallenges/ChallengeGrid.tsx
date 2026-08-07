@@ -18,6 +18,7 @@ interface ChallengeGridProps {
   onView: (challenge: Challenge) => void;
   onLeave: (id: string) => void;
 }
+
 export function ChallengeGrid({
   challenges,
   user,

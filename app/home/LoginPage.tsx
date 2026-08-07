@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion } from "framer-motion";
 import {
   Eye,
   EyeOff,
@@ -16,7 +16,6 @@ import {
 import { useRouter } from "next/navigation";
 import { bebasNeue, poppins } from "../constants";
 import Image from "next/image";
-import LoadingScreen from "../components/LoadingScreen";
 
 const LoginPage: React.FC = () => {
   const [formData, setFormData] = useState({ email: "", password: "" });
@@ -108,7 +107,10 @@ const LoginPage: React.FC = () => {
         );
       }
 
-      // Navigate to dashboard
+      // Flag for dashboard to skip intro animation
+      sessionStorage.setItem("fromLogin", "true");
+
+      // Navigate directly – dashboard will handle its own bubble (or skip it)
       router.push("/dashboard");
     } catch (err: any) {
       setError(err.message || "Invalid email or password");
@@ -120,8 +122,6 @@ const LoginPage: React.FC = () => {
     <div
       className={`min-h-screen bg-slate-50 selection:bg-emerald-100 ${poppins.className}`}
     >
-      <AnimatePresence>{loading && <LoadingScreen />}</AnimatePresence>
-
       {/* Dynamic Background Blurs */}
       <div className="fixed inset-0 overflow-hidden pointer-events-none">
         <div className="absolute -top-[10%] -left-[10%] w-[40%] h-[40%] bg-emerald-100/40 rounded-full blur-[120px]" />

@@ -1,11 +1,12 @@
 // app/dashboard/hooks/useProfile.ts
 "use client";
 
-import { getAuth, onAuthStateChanged } from "firebase/auth";
+import { onAuthStateChanged } from "firebase/auth";
 import { useEffect, useState } from "react";
 import useSWR from "swr";
 import { authFetcher } from "@/app/utils/client-auth";
 import { useUserContext } from "../UserContext";
+import { auth } from "@/app/utils/firebaseConfig";
 
 export interface UserInfo {
   id: string;
@@ -46,7 +47,6 @@ export function useUser() {
   const [authLoading, setAuthLoading] = useState(true);
 
   useEffect(() => {
-    const auth = getAuth();
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       if (user) {
         setAuthUser({

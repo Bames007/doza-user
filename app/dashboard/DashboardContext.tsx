@@ -22,6 +22,9 @@ export type PanelId =
 interface DashboardContextType {
   activePanel: PanelId;
   setActivePanel: (panel: PanelId) => void;
+
+  showPendingRequestPopup: boolean;
+  setShowPendingRequestPopup: (show: boolean) => void;
 }
 
 const DashboardContext = createContext<DashboardContextType | undefined>(
@@ -30,8 +33,17 @@ const DashboardContext = createContext<DashboardContextType | undefined>(
 
 export function DashboardProvider({ children }: { children: ReactNode }) {
   const [activePanel, setActivePanel] = useState<PanelId>("dashboard");
+  const [showPendingRequestPopup, setShowPendingRequestPopup] = useState(false);
+
   return (
-    <DashboardContext.Provider value={{ activePanel, setActivePanel }}>
+    <DashboardContext.Provider
+      value={{
+        activePanel,
+        setActivePanel,
+        showPendingRequestPopup,
+        setShowPendingRequestPopup,
+      }}
+    >
       {children}
     </DashboardContext.Provider>
   );

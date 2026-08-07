@@ -1,7 +1,4 @@
 // app/api/user/profile/route.ts
-// GET and PUT for user profile
-// Uses Bearer token (Firebase ID token) for auth
-
 import { NextRequest, NextResponse } from "next/server";
 import { verifySessionCookie } from "@/app/utils/auth";
 import { adminDb } from "@/app/utils/firebaseAdmin";
@@ -22,13 +19,14 @@ const profileUpdateSchema = z.object({
     .optional(),
 });
 
-// ─── GET ─────────────────────────────────────────────────────────────
+// GET
 export async function GET(request: NextRequest) {
   let uid: string | null = null;
   try {
+    // verifySessionCookie extracts and verifies the session cookie
     uid = await verifySessionCookie(request);
     if (!uid) {
-      logger.warn("Profile GET: Missing or invalid token");
+      logger.warn("Profile GET: Missing or invalid session cookie");
       return NextResponse.json(
         { success: false, error: "Unauthorized" },
         { status: 401 },
@@ -39,20 +37,11 @@ export async function GET(request: NextRequest) {
     const snapshot = await profileRef.once("value");
     const profile = snapshot.val() || {};
 
-    // Ensure emergencyContacts exists
     if (!profile.emergencyContacts) profile.emergencyContacts = [];
-
-    // Build fullName from fname and lname (first & last name in your DB)
     const fullName = `${profile.fname || ""} ${profile.lname || ""}`.trim();
 
     logger.info({ uid }, "Profile fetched successfully");
-    return NextResponse.json({
-      success: true,
-      data: {
-        ...profile,
-        fullName,
-      },
-    });
+    return NextResponse.json({ success: true, data: { ...profile, fullName } });
   } catch (error) {
     logger.error({ uid, error: String(error) }, "GET profile error");
     return NextResponse.json(
@@ -62,13 +51,13 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// ─── PUT ─────────────────────────────────────────────────────────────
+// PUT
 export async function PUT(request: NextRequest) {
   let uid: string | null = null;
   try {
     uid = await verifySessionCookie(request);
     if (!uid) {
-      logger.warn("Profile PUT: Missing or invalid token");
+      logger.warn("Profile PUT: Missing or invalid session cookie");
       return NextResponse.json(
         { success: false, error: "Unauthorized" },
         { status: 401 },
@@ -77,7 +66,6 @@ export async function PUT(request: NextRequest) {
 
     const body = await request.json();
     const parseResult = profileUpdateSchema.safeParse(body);
-
     if (!parseResult.success) {
       logger.warn({ uid, validationErrors: parseResult.error.flatten() });
       return NextResponse.json(
@@ -91,10 +79,8 @@ export async function PUT(request: NextRequest) {
     }
 
     const updates = parseResult.data;
-
     const profileRef = adminDb.ref(`doza/users/${uid}/personalProfile`);
     await profileRef.update(updates);
-
     logger.info({ uid, updates }, "Profile updated");
     return NextResponse.json({ success: true, data: updates });
   } catch (error) {

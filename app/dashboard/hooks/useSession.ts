@@ -6,7 +6,7 @@ import { ref, onValue, off } from "firebase/database";
 import { db } from "@/app/utils/firebaseConfig";
 
 export function useActiveSession(userId?: string) {
-  const [session, setSession] = useState<any>(null);
+  const [sessions, setSessions] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -14,17 +14,25 @@ export function useActiveSession(userId?: string) {
       setLoading(false);
       return;
     }
-    const sessionRef = ref(db, `doza/users/${userId}/activeSession`);
-    const unsubscribe = onValue(sessionRef, (snap) => {
+    // Listen to the map, not a single node
+    const sessionsRef = ref(db, `doza/users/${userId}/activeSessions`);
+    const unsubscribe = onValue(sessionsRef, (snap) => {
       setLoading(false);
       if (snap.exists()) {
-        setSession(snap.val());
+        const data = snap.val();
+        const sessionArray = Object.entries(data).map(
+          ([centerId, session]) => ({
+            ...(session as any),
+            centerId,
+          }),
+        );
+        setSessions(sessionArray);
       } else {
-        setSession(null);
+        setSessions([]);
       }
     });
-    return () => off(sessionRef);
+    return () => off(sessionsRef);
   }, [userId]);
 
-  return { session, loading };
+  return { sessions, loading };
 }

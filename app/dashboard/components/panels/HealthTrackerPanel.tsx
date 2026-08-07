@@ -1,14 +1,18 @@
+// app/dashboard/panels/HealthTracker.tsx
 "use client";
 
 import { useState, useMemo, useRef, useEffect } from "react";
 import useSWR from "swr";
-import { ActivityIcon, Download, FileSpreadsheet, Plus } from "lucide-react";
-import { AnimatePresence } from "framer-motion";
+import { Download, FileSpreadsheet, Plus, Stethoscope } from "lucide-react";
+import { AnimatePresence, motion } from "framer-motion";
 import html2canvas from "html2canvas";
 import jsPDF from "jspdf";
+import Image from "next/image";
 
 import { authFetcher } from "@/app/utils/client-auth";
 import { useUser } from "../../hooks/useProfile";
+import { cn } from "@/app/utils/utils";
+import { bebasNeue, poppins } from "@/app/constants";
 
 import {
   metricConfig,
@@ -210,7 +214,6 @@ export default function HealthTracker() {
 
   if (!mounted) return null;
 
-  // --- INTERCEPT SYNC WITH SKELETON PLACEHOLDER ---
   if (isLoading) {
     return <HealthTrackerSkeleton />;
   }
@@ -224,8 +227,8 @@ export default function HealthTracker() {
   };
 
   return (
-    <div className="min-h-screen bg-[#fcfdfe] text-slate-900 font-poppins selection:bg-slate-100 antialiased">
-      {/* Hidden PDF Engine Canvas Component Layer */}
+    <div className="min-h-screen bg-[#f8fafc] text-slate-900 selection:bg-emerald-100 antialiased">
+      {/* Hidden PDF Engine */}
       <div style={{ position: "absolute", left: "-9999px", top: "-9999px" }}>
         <div
           ref={pdfTemplateRef}
@@ -234,7 +237,7 @@ export default function HealthTracker() {
           <div className="flex justify-between items-center border-b border-slate-100 pb-4 mb-6">
             <div>
               <h1 className="text-xl font-black uppercase tracking-tight text-slate-900 leading-none">
-                DOZA<span className="text-[#22C55E]">.</span>
+                DOZA<span className="text-emerald-500">.</span>
               </h1>
               <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mt-1">
                 Official Medical Data Report
@@ -252,7 +255,6 @@ export default function HealthTracker() {
           </div>
 
           <div className="grid grid-cols-3 gap-3 mb-6 text-center">
-            =
             {[
               { label: "Activity Average", val: stats.avg },
               { label: "Lowest Value", val: stats.min },
@@ -260,7 +262,7 @@ export default function HealthTracker() {
             ].map((s, idx) => (
               <div
                 key={idx}
-                className="bg-slate-50 border border-slate-100 rounded-lg p-2.5"
+                className="bg-slate-50 border border-slate-100 rounded-xl p-3 shadow-2xs"
               >
                 <p className="text-[8px] font-bold text-slate-400 tracking-wider uppercase mb-0.5">
                   {s.label}
@@ -279,7 +281,7 @@ export default function HealthTracker() {
             <p className="text-center text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">
               Historical Timeline Log ({metricConfig[selectedType].label})
             </p>
-            <div className="w-full h-[220px] border border-slate-100 rounded-xl p-3 flex items-center justify-center bg-white">
+            <div className="w-full h-[220px] border border-slate-100 rounded-xl p-3 flex items-center justify-center bg-white shadow-2xs">
               <img
                 id="captured-chart"
                 alt="Health Data Curve Chart"
@@ -343,101 +345,123 @@ export default function HealthTracker() {
         </div>
       </div>
 
-      {/* Main View Area Wrapper */}
-      <main className="max-w-7xl mx-auto px-3 sm:px-4 pt-3 sm:pt-5 pb-24 sm:pb-8">
-        {/* Native-Optimized App Bar Header */}
-        <header className="sticky top-3 z-40 flex items-center justify-between gap-4 bg-white/70 backdrop-blur-md p-2.5 pl-4 rounded-2xl border border-slate-200/80 shadow-[0_8px_30px_rgb(15,23,42,0.04)] transition-all duration-300 mb-8 mx-1">
-          {/* Left Section: Branding */}
-          <div className="flex items-center gap-3 select-none">
-            <div className="relative flex items-center justify-center w-8 h-8 rounded-xl bg-emerald-50 border border-emerald-100/80 text-emerald-600">
-              <ActivityIcon
-                size={18}
-                strokeWidth={2.5}
-                className="animate-[pulse_3s_ease-in-out_infinite]"
-              />
-              <span className="absolute top-1 right-1 flex h-2 w-2">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
-              </span>
-            </div>
+      {/* Main View */}
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 pt-4 sm:pt-6 pb-24 sm:pb-8 space-y-6">
+        {/* Header – Doza styled */}
 
-            <div className="flex flex-col">
-              <h1 className="font-black text-lg text-slate-900 tracking-tight leading-none">
-                DOZA
+        <div
+          className={cn(
+            "space-y-8 p-3 md:p-6 max-w-7xl mx-auto",
+            poppins.className,
+          )}
+        >
+          <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-6 pb-6 border-b border-slate-100">
+            <div>
+              <div className="flex items-center gap-3 mb-2">
+                <div className="h-8 w-1 rounded-full bg-gradient-to-b from-emerald-500 to-teal-600" />
+                <span className="text-[11px] font-bold text-emerald-600 uppercase tracking-[0.25em]">
+                  Vitals Monitoring
+                </span>
+              </div>
+              <h1
+                className={cn(
+                  "text-4xl md:text-5xl text-slate-900 leading-[1.05] tracking-tight pt-1",
+                  bebasNeue.className,
+                )}
+              >
+                Health <span className="text-emerald-600">Tracker</span>
               </h1>
-              <span className="text-[11px] text-slate-500 font-medium tracking-normal mt-0.5 leading-none">
-                Vitals Engine
-              </span>
-            </div>
-          </div>
-
-          {/* Right Section: Actions */}
-          <div className="flex items-center gap-2">
-            <div className="flex items-center bg-slate-50 rounded-xl p-1 border border-slate-200/60 shadow-sm">
-              <button
-                onClick={handleExportCSV}
-                title="Export CSV Data"
-                className="p-2 text-slate-500 hover:text-slate-900 hover:bg-white rounded-lg transition-all duration-200 active:scale-95 shadow-none hover:shadow-sm border border-transparent hover:border-slate-200/40"
-              >
-                <FileSpreadsheet size={15} strokeWidth={2} />
-              </button>
-
-              <div className="w-[1px] h-3 bg-slate-200 mx-1" />
-
-              <button
-                onClick={handleExportPDF}
-                disabled={isExporting}
-                title="Export PDF Report"
-                className="p-2 text-slate-500 hover:text-slate-900 hover:bg-white rounded-lg transition-all duration-200 active:scale-95 shadow-none hover:shadow-sm border border-transparent hover:border-slate-200/40 disabled:opacity-30 disabled:pointer-events-none"
-              >
-                <Download size={15} strokeWidth={2} />
-              </button>
+              <p className="text-xs md:text-sm text-slate-500 max-w-lg font-medium leading-relaxed mt-1">
+                Monitor your heart rate, blood pressure, and other vital metrics
+                seamlessly with advanced telemetry.
+              </p>
             </div>
 
-            <button
-              onClick={() => setShowForm(true)}
-              className="relative overflow-hidden bg-slate-900 hover:bg-slate-800 text-white px-4 py-2.5 rounded-xl text-xs font-semibold tracking-wide flex items-center gap-1.5 shadow-[0_4px_12px_rgba(15,23,42,0.15)] transition-all duration-200 active:scale-[0.98]"
-            >
-              <Plus size={14} strokeWidth={2.5} className="text-emerald-400" />
-              <span>Add Entry</span>
-            </button>
-          </div>
-        </header>
+            {/* Action buttons with micro‑interactions */}
+            <div className="flex items-center gap-3 shrink-0">
+              <motion.div
+                whileHover={{ scale: 1.01 }}
+                whileTap={{ scale: 0.98 }}
+                className="flex items-center bg-white rounded-2xl p-1 border border-slate-200/80 shadow-xs"
+              >
+                <button
+                  onClick={handleExportCSV}
+                  title="Export CSV"
+                  className="p-2.5 text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 rounded-xl transition-all duration-200"
+                >
+                  <FileSpreadsheet size={16} />
+                </button>
+                <div className="w-px h-5 bg-slate-200/80 mx-0.5" />
+                <button
+                  onClick={handleExportPDF}
+                  disabled={isExporting}
+                  title="Export PDF"
+                  className="p-2.5 text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 rounded-xl transition-all duration-200 disabled:opacity-50"
+                >
+                  <Download size={16} />
+                </button>
+              </motion.div>
 
-        {/* Aggregated Trends Metrics Row Card Subcomponent */}
+              <motion.button
+                whileHover={{ y: -1, scale: 1.01 }}
+                whileTap={{ scale: 0.97 }}
+                onClick={() => setShowForm(true)}
+                className="flex items-center gap-2 px-5 py-3 bg-emerald-600 text-white rounded-2xl font-bold text-xs shadow-md shadow-emerald-600/25 hover:bg-emerald-700 transition-all duration-300"
+              >
+                <Plus size={16} />
+                <span>Add Entry</span>
+              </motion.button>
+            </div>
+          </div>
+        </div>
+
+        {/* Metric Stats Cards */}
         <MetricStatsCards stats={stats} currentMetric={selectedType} />
 
-        {/* Dynamic Telemetry Context Interface Split Grid Area */}
-        <div className="grid grid-cols-1 lg:grid-cols-4 gap-4 items-start mt-4">
+        {/* Telemetry & Metric Selector */}
+        <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
           <aside className="w-full flex flex-col gap-4">
             <MetricSelector
               selectedType={selectedType}
               onSelectMetric={setSelectedType}
             />
-            <div className="bg-slate-900 p-4 rounded-xl text-white shadow-sm relative overflow-hidden hidden lg:block border border-slate-800">
-              <p className="text-[9px] font-black uppercase tracking-widest text-[#22C55E] mb-1">
-                Health Tip
-              </p>
-              <p className="text-[11px] font-medium text-slate-300 leading-relaxed">
+            {/* Health Tip Card – hidden on mobile */}
+            <motion.div
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.2 }}
+              className="hidden lg:block bg-gradient-to-br from-slate-900 to-slate-800 p-5 rounded-2xl text-white shadow-md shadow-slate-950/10 border border-slate-800 relative overflow-hidden group"
+            >
+              <div className="absolute top-0 right-0 w-24 h-24 bg-emerald-500/10 rounded-full blur-2xl group-hover:bg-emerald-500/25 transition-all duration-500" />
+              <div className="flex items-center gap-2 mb-2">
+                <Stethoscope className="w-3.5 h-3.5 text-emerald-400" />
+                <span className="text-[10px] font-extrabold uppercase tracking-widest text-emerald-400">
+                  Clinical Insight
+                </span>
+              </div>
+              <p className="text-xs font-medium text-slate-300 leading-relaxed">
                 {metricConfig[selectedType].tip}
               </p>
-            </div>
+            </motion.div>
           </aside>
 
-          <div
+          {/* Chart Card with hover lift */}
+          <motion.div
             ref={chartRef}
-            className="lg:col-span-3 bg-white p-4 sm:p-5 rounded-2xl border border-slate-100 shadow-sm min-w-0"
+            whileHover={{ y: -2 }}
+            transition={{ type: "spring", stiffness: 400, damping: 25 }}
+            className="lg:col-span-3 bg-white p-5 sm:p-6 rounded-2xl border border-slate-200/80 shadow-xs hover:shadow-md transition-all duration-300 flex flex-col justify-between"
           >
             <TelemetryChart
               chartData={chartData}
               currentMetric={selectedType}
               filteredRecords={filteredRecords}
             />
-          </div>
+          </motion.div>
         </div>
       </main>
 
-      {/* Input Overlay Modal */}
+      {/* Data Entry Modal */}
       <AnimatePresence>
         {showForm && (
           <DataEntryModal
@@ -451,55 +475,70 @@ export default function HealthTracker() {
   );
 }
 
-/* --- LIGHTWEIGHT METRIC-ALIGNED SHIMMER COMPONENT --- */
+/* --- Skeleton – styled to match the new design language --- */
 function HealthTrackerSkeleton() {
   return (
-    <div className="min-h-screen bg-[#fcfdfe] max-w-7xl mx-auto px-3 sm:px-4 pt-3 sm:pt-5 pb-24 sm:pb-8 animate-pulse">
-      {/* Header Mock */}
-      <div className="h-16 bg-white rounded-2xl border border-slate-200/60 mb-8 w-full" />
+    <div className="min-h-screen bg-[#f8fafc] max-w-7xl mx-auto px-4 sm:px-6 pt-4 sm:pt-6 pb-24 sm:pb-8 animate-pulse space-y-6">
+      {/* Header Skeleton */}
+      <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-6 pb-6 border-b border-slate-100">
+        <div className="flex-1 space-y-2">
+          <div className="flex items-center gap-3">
+            <div className="h-8 w-1 rounded-full bg-slate-200" />
+            <div className="h-3 w-32 bg-slate-200 rounded-full" />
+          </div>
+          <div className="h-10 w-64 md:w-80 bg-slate-200 rounded-xl" />
+          <div className="h-3.5 w-48 bg-slate-200 rounded-lg" />
+        </div>
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-1 bg-white p-1 rounded-2xl border border-slate-200/80 shadow-xs">
+            <div className="w-10 h-10 bg-slate-200 rounded-xl" />
+            <div className="w-px h-5 bg-slate-200" />
+            <div className="w-10 h-10 bg-slate-200 rounded-xl" />
+          </div>
+          <div className="w-24 h-11 bg-slate-200 rounded-2xl" />
+        </div>
+      </div>
 
-      {/* Top Stats Strip Mock (3 Columns to replicate MetricStatsCards footprint) */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
+      {/* Stats Row Skeleton */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         {Array.from({ length: 3 }).map((_, idx) => (
           <div
             key={idx}
-            className="h-24 bg-white rounded-2xl border border-slate-100 p-4 space-y-3"
+            className="h-24 bg-white rounded-2xl border border-slate-200/80 shadow-xs p-4 space-y-3"
           >
-            <div className="h-3 bg-slate-200 rounded w-1/3" />
-            <div className="h-6 bg-slate-200 rounded w-1/2" />
+            <div className="h-3 bg-slate-200 rounded-full w-1/3" />
+            <div className="h-6 bg-slate-200 rounded-lg w-1/2" />
           </div>
         ))}
       </div>
 
-      {/* Split Interactive Dashboard Arena Mock */}
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-4 items-start">
-        {/* Left Vertical Metric Controls Menu Shimmer */}
+      {/* Main Area Skeleton */}
+      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
         <div className="space-y-3">
           {Array.from({ length: 5 }).map((_, idx) => (
             <div
               key={idx}
-              className="h-14 bg-white rounded-xl border border-slate-100"
+              className="h-14 bg-white rounded-2xl border border-slate-200/80 shadow-xs"
             />
           ))}
-          <div className="h-24 bg-slate-900 rounded-xl hidden lg:block" />
+          <div className="h-24 bg-slate-900 rounded-2xl hidden lg:block" />
         </div>
 
-        {/* Main Canvas Chart Graph Window Mock */}
-        <div className="lg:col-span-3 h-[380px] bg-white rounded-2xl border border-slate-100 p-6 flex flex-col justify-between">
+        <div className="lg:col-span-3 h-[380px] bg-white rounded-2xl border border-slate-200/80 shadow-xs p-6 flex flex-col justify-between">
           <div className="flex justify-between items-center">
-            <div className="h-4 bg-slate-200 rounded w-1/4" />
-            <div className="h-4 bg-slate-100 rounded w-12" />
+            <div className="h-4 bg-slate-200 rounded-lg w-1/4" />
+            <div className="h-4 bg-slate-200 rounded-lg w-12" />
           </div>
-          {/* Geometric lines block mocking multi-axis vector bars */}
           <div className="w-full h-48 bg-slate-50 rounded-xl flex items-end justify-between p-4 space-x-2">
-            <div className="w-full h-[30%] bg-slate-200/60 rounded" />
-            <div className="w-full h-[55%] bg-slate-200/60 rounded" />
-            <div className="w-full h-[40%] bg-slate-200/60 rounded" />
-            <div className="w-full h-[75%] bg-slate-200/60 rounded" />
-            <div className="w-full h-[50%] bg-slate-200/60 rounded" />
-            <div className="w-full h-[85%] bg-slate-200/60 rounded" />
+            {Array.from({ length: 7 }).map((_, i) => (
+              <div
+                key={i}
+                className="w-full bg-slate-200/60 rounded-lg"
+                style={{ height: `${20 + Math.random() * 60}%` }}
+              />
+            ))}
           </div>
-          <div className="h-3 bg-slate-100 rounded w-1/2 mx-auto" />
+          <div className="h-3 bg-slate-200 rounded-lg w-1/2 mx-auto" />
         </div>
       </div>
     </div>

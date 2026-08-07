@@ -3,10 +3,14 @@
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { motion } from "framer-motion";
-import { X, Loader2, Check } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
+import { X, Loader2, Plus, Calendar, ChevronDown, Check } from "lucide-react";
+import Image from "next/image";
 import { authPost } from "@/app/utils/client-auth";
 import { metricConfig, MetricType } from "@/app/types/healthtracker";
+import { poppins, bebasNeue } from "@/app/constants";
+import { cn } from "@/app/utils/utils";
+import { useState, useEffect, useRef } from "react";
 
 const standardSchema = z.object({
   date: z.string().min(1, "Please choose a date"),
@@ -29,12 +33,18 @@ interface DataEntryModalProps {
 }
 
 export function DataEntryModal({
-  currentMetric,
+  currentMetric: initialMetric,
   onClose,
   onSuccess,
 }: DataEntryModalProps) {
-  const isBP = currentMetric === "bloodPressure";
-  const label = metricConfig[currentMetric].label;
+  const [selectedMetric, setSelectedMetric] =
+    useState<MetricType>(initialMetric);
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  const isBP = selectedMetric === "bloodPressure";
+  const label = metricConfig[selectedMetric]?.label ?? "Metric";
+  const unit = metricConfig[selectedMetric]?.unit ?? "";
 
   const standardForm = useForm<StandardFormValues>({
     resolver: zodResolver(standardSchema),
@@ -50,6 +60,29 @@ export function DataEntryModal({
     },
   });
 
+  // Close custom dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        dropdownRef.current &&
+        !dropdownRef.current.contains(event.target as Node)
+      ) {
+        setIsDropdownOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  // Reset relevant form errors or state when switching metric type inside modal
+  useEffect(() => {
+    if (isBP) {
+      bpForm.clearErrors();
+    } else {
+      standardForm.clearErrors();
+    }
+  }, [selectedMetric]);
+
   const executeFormSubmit = async (payloadData: Record<string, any>) => {
     let finalValue: any;
     if (isBP) {
@@ -63,7 +96,7 @@ export function DataEntryModal({
 
     const res = await authPost("/api/health-records", {
       date: payloadData.date,
-      type: currentMetric,
+      type: selectedMetric,
       value: finalValue,
     });
 
@@ -85,30 +118,45 @@ export function DataEntryModal({
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
         onClick={onClose}
-        className="fixed inset-0 bg-slate-950/40 backdrop-blur-md z-[100]"
+        className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm z-[100]"
       />
 
       <motion.div
         initial={{ y: "30%", opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
         exit={{ y: "30%", opacity: 0 }}
-        transition={{ type: "spring", damping: 26, stiffness: 220 }}
-        className="fixed bottom-0 sm:bottom-auto sm:top-1/2 sm:left-1/2 sm:-translate-x-1/2 sm:-translate-y-1/2 w-full sm:max-w-md bg-white rounded-t-[2.5rem] sm:rounded-2xl p-7 shadow-2xl border border-slate-100 z-[101] font-poppins"
+        transition={{ type: "spring", damping: 28, stiffness: 240 }}
+        className={cn(
+          "fixed bottom-0 sm:bottom-auto sm:top-1/2 sm:left-1/2 sm:-translate-x-1/2 sm:-translate-y-1/2 w-full sm:max-w-md bg-white rounded-t-[2rem] sm:rounded-2xl p-6 sm:p-7 shadow-2xl border border-slate-100 z-[101]",
+          poppins.className,
+        )}
         role="dialog"
         aria-modal="true"
       >
-        <div className="flex justify-between items-start mb-6">
-          <div>
-            <h3 className="font-black text-2xl text-slate-900 uppercase italic leading-none">
-              Add New {label}
+        {/* Header */}
+        <div className="flex justify-between items-start mb-5 pb-4 border-b border-slate-100/80">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              <div className="relative w-5 h-5 flex items-center justify-center">
+                <Image
+                  src="/logo.png"
+                  alt="Doza Logo"
+                  width={20}
+                  height={20}
+                  className="object-contain"
+                />
+              </div>
+              <p className="text-[9px] font-extrabold text-emerald-600 uppercase tracking-[0.25em]">
+                Doza Log
+              </p>
+            </div>
+            <h3 className="font-extrabold text-xl text-slate-900 uppercase tracking-tight leading-none">
+              Add New Reading
             </h3>
-            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mt-1.5">
-              Save your latest reading below
-            </p>
           </div>
           <button
             onClick={onClose}
-            className="p-2 text-slate-400 hover:text-slate-900 bg-slate-50 hover:bg-slate-100 rounded-xl transition-all"
+            className="p-2 text-slate-400 hover:text-slate-900 bg-slate-50 hover:bg-slate-100 rounded-xl transition-all cursor-pointer"
           >
             <X size={15} strokeWidth={2.5} />
           </button>
@@ -120,84 +168,184 @@ export function DataEntryModal({
               ? bpForm.handleSubmit(executeFormSubmit)
               : standardForm.handleSubmit(executeFormSubmit)
           }
-          className="space-y-5"
+          className="space-y-4"
         >
-          <div>
-            <label className="block text-[9px] font-black text-slate-400 uppercase tracking-[0.4em] mb-2.5">
-              Date of Reading
+          {/* Custom Metric Selector Dropdown */}
+          <div className="space-y-1.5 relative" ref={dropdownRef}>
+            <label className="block text-[9px] font-extrabold text-slate-400 uppercase tracking-[0.25em]">
+              Select Metric Type
             </label>
-            <input
-              type="date"
-              {...(isBP
-                ? bpForm.register("date")
-                : standardForm.register("date"))}
-              className="w-full text-slate-900 text-xs font-semibold bg-slate-50 border border-slate-200 focus:border-slate-900 focus:bg-white rounded-xl px-4 py-3.5 outline-none transition-all"
-            />
+            <button
+              type="button"
+              onClick={() => setIsDropdownOpen(!isDropdownOpen)}
+              className="w-full flex items-center justify-between text-slate-900 text-xs font-bold bg-slate-50/80 border border-slate-200/80 hover:border-slate-300 focus:border-emerald-600 focus:bg-white rounded-xl px-4 py-3.5 outline-none transition-all cursor-pointer shadow-2xs"
+            >
+              <span className="flex items-center gap-2">
+                <span>{label}</span>
+                {unit && (
+                  <span className="text-[10px] font-extrabold text-emerald-600 px-2 py-0.5 bg-emerald-50 rounded-md">
+                    {unit}
+                  </span>
+                )}
+              </span>
+              <ChevronDown
+                size={14}
+                className={cn(
+                  "text-slate-400 transition-transform duration-200",
+                  isDropdownOpen && "rotate-180 text-emerald-600",
+                )}
+              />
+            </button>
+
+            <AnimatePresence>
+              {isDropdownOpen && (
+                <motion.div
+                  initial={{ opacity: 0, y: -8, scale: 0.98 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: -8, scale: 0.98 }}
+                  transition={{ duration: 0.15 }}
+                  className="absolute top-full left-0 right-0 mt-2 bg-white border border-slate-100 rounded-xl shadow-xl z-50 max-h-56 overflow-y-auto p-1.5 space-y-1"
+                >
+                  {Object.entries(metricConfig).map(([key, config]) => {
+                    const isSelected = selectedMetric === key;
+                    return (
+                      <button
+                        key={key}
+                        type="button"
+                        onClick={() => {
+                          setSelectedMetric(key as MetricType);
+                          setIsDropdownOpen(false);
+                        }}
+                        className={cn(
+                          "w-full flex items-center justify-between px-3.5 py-2.5 rounded-lg text-xs font-semibold transition-all cursor-pointer text-left",
+                          isSelected
+                            ? "bg-emerald-50 text-emerald-900 font-bold"
+                            : "text-slate-700 hover:bg-slate-50 hover:text-slate-900",
+                        )}
+                      >
+                        <span className="flex items-center gap-2">
+                          <span>{config.label}</span>
+                          <span className="text-[9px] font-extrabold text-slate-400 uppercase">
+                            ({config.unit})
+                          </span>
+                        </span>
+                        {isSelected && (
+                          <Check
+                            size={14}
+                            className="text-emerald-600"
+                            strokeWidth={3}
+                          />
+                        )}
+                      </button>
+                    );
+                  })}
+                </motion.div>
+              )}
+            </AnimatePresence>
           </div>
 
+          {/* Date Input Field */}
+          <div className="space-y-1.5">
+            <label className="block text-[9px] font-extrabold text-slate-400 uppercase tracking-[0.25em]">
+              Date of Reading
+            </label>
+            <div className="relative">
+              <input
+                type="date"
+                {...(isBP
+                  ? bpForm.register("date")
+                  : standardForm.register("date"))}
+                className="w-full text-slate-900 text-xs font-semibold bg-slate-50/80 border border-slate-200/80 focus:border-emerald-600 focus:bg-white rounded-xl px-4 py-3.5 outline-none transition-all shadow-2xs"
+              />
+              <Calendar
+                size={14}
+                className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"
+              />
+            </div>
+          </div>
+
+          {/* Metric Value Input(s) */}
           {isBP ? (
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-[9px] font-black text-slate-400 uppercase tracking-[0.4em] mb-2.5">
-                  Systolic (Top #)
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <label className="block text-[9px] font-extrabold text-slate-400 uppercase tracking-[0.25em]">
+                  Systolic (Top)
                 </label>
                 <input
                   type="number"
+                  placeholder="120"
                   {...bpForm.register("systolic")}
-                  className="w-full text-slate-900 bg-slate-50 border border-slate-200 focus:border-slate-900 focus:bg-white rounded-xl px-4 py-3 outline-none transition-all font-bebas tracking-wider text-2xl"
+                  className={cn(
+                    "w-full text-slate-900 bg-slate-50/80 border border-slate-200/80 focus:border-emerald-600 focus:bg-white rounded-xl px-4 py-3 outline-none transition-all text-2xl font-black shadow-2xs",
+                    bebasNeue.className,
+                  )}
                 />
                 {bpForm.formState.errors.systolic && (
-                  <p className="text-[10px] text-red-500 mt-1.5 font-bold tracking-tight">
+                  <p className="text-[10px] text-red-500 font-bold tracking-tight">
                     {bpForm.formState.errors.systolic.message}
                   </p>
                 )}
               </div>
-              <div>
-                <label className="block text-[9px] font-black text-slate-400 uppercase tracking-[0.4em] mb-2.5">
-                  Diastolic (Bottom #)
+              <div className="space-y-1.5">
+                <label className="block text-[9px] font-extrabold text-slate-400 uppercase tracking-[0.25em]">
+                  Diastolic (Bottom)
                 </label>
                 <input
                   type="number"
+                  placeholder="80"
                   {...bpForm.register("diastolic")}
-                  className="w-full text-slate-900 bg-slate-50 border border-slate-200 focus:border-slate-900 focus:bg-white rounded-xl px-4 py-3 outline-none transition-all font-bebas tracking-wider text-2xl"
+                  className={cn(
+                    "w-full text-slate-900 bg-slate-50/80 border border-slate-200/80 focus:border-emerald-600 focus:bg-white rounded-xl px-4 py-3 outline-none transition-all text-2xl font-black shadow-2xs",
+                    bebasNeue.className,
+                  )}
                 />
                 {bpForm.formState.errors.diastolic && (
-                  <p className="text-[10px] text-red-500 mt-1.5 font-bold tracking-tight">
+                  <p className="text-[10px] text-red-500 font-bold tracking-tight">
                     {bpForm.formState.errors.diastolic.message}
                   </p>
                 )}
               </div>
             </div>
           ) : (
-            <div>
-              <label className="block text-[9px] font-black text-slate-400 uppercase tracking-[0.4em] mb-2.5">
-                Enter Value ({metricConfig[currentMetric].unit})
-              </label>
+            <div className="space-y-1.5">
+              <div className="flex justify-between items-center mb-1">
+                <label className="block text-[9px] font-extrabold text-slate-400 uppercase tracking-[0.25em]">
+                  Value Input
+                </label>
+                <span className="text-[9px] font-extrabold text-emerald-600 uppercase tracking-widest">
+                  {unit}
+                </span>
+              </div>
               <input
                 type="number"
                 step="any"
+                placeholder="0.00"
                 {...standardForm.register("value")}
-                className="w-full text-slate-900 border border-slate-200 focus:border-slate-900 bg-slate-50 focus:bg-white rounded-xl px-4 py-3 outline-none transition-all font-bebas tracking-wider text-3xl"
+                className={cn(
+                  "w-full text-slate-900 bg-slate-50/80 border border-slate-200/80 focus:border-emerald-600 focus:bg-white rounded-xl px-4 py-3 outline-none transition-all text-3xl font-black shadow-2xs",
+                  bebasNeue.className,
+                )}
               />
               {standardForm.formState.errors.value && (
-                <p className="text-[10px] text-red-500 mt-1.5 font-bold tracking-tight">
+                <p className="text-[10px] text-red-500 font-bold tracking-tight">
                   {standardForm.formState.errors.value.message}
                 </p>
               )}
             </div>
           )}
 
+          {/* Submit Action */}
           <button
             type="submit"
             disabled={activeSubmittingState}
-            className="w-full mt-4 py-4 bg-slate-950 hover:bg-black disabled:bg-slate-100 disabled:text-slate-400 text-white text-[10px] font-black uppercase tracking-[0.4em] rounded-xl transition-all flex items-center justify-center gap-2 shadow-xl shadow-slate-950/5"
+            className="w-full mt-2 py-4 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-100 disabled:text-slate-400 text-white text-[10px] font-extrabold uppercase tracking-[0.3em] rounded-xl transition-all flex items-center justify-center gap-2 shadow-lg shadow-emerald-600/15 cursor-pointer"
           >
             {activeSubmittingState ? (
               <Loader2 size={14} className="animate-spin" />
             ) : (
               <>
-                <Check size={14} strokeWidth={3} className="text-[#22C55E]" />
-                <span>Save Entry</span>
+                <Plus size={15} strokeWidth={3} />
+                <span>Save Reading</span>
               </>
             )}
           </button>

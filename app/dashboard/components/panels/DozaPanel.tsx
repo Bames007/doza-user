@@ -7,11 +7,9 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   Activity,
   History,
-  Link,
+  Link2,
   Clock,
-  ChevronRight,
   ChevronDown,
-  ChevronUp,
   Building,
   Calendar,
   Pill,
@@ -20,16 +18,29 @@ import {
   CheckCircle,
   Loader2,
   HeartPulse,
-  Thermometer,
-  Weight,
   RefreshCw,
   Star,
-  Calendar as CalIcon,
-  History as HistoryIcon,
   X,
   BarChart3,
   LineChart,
   PieChart,
+  ClipboardCheck,
+  Bell,
+  Syringe,
+  Stethoscope,
+  FileCheck,
+  Users,
+  Edit3,
+  MessageSquare,
+  Send,
+  TestTube,
+  ShoppingBag,
+  Truck,
+  PlusCircle,
+  MapPin,
+  ArrowRight,
+  AlertTriangle,
+  ChevronRight,
 } from "lucide-react";
 import { useUserContext } from "../../UserContext";
 import { useActiveSession } from "../../hooks/useSession";
@@ -39,7 +50,10 @@ import { mutate } from "swr";
 import { cn } from "@/app/utils/utils";
 import { poppins, bebasNeue } from "@/app/constants";
 
-// Chart.js imports
+// Import dashboard context to switch panels
+import { useDashboard } from "../../DashboardContext";
+
+// Chart.js (unchanged)
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -54,7 +68,6 @@ import {
 } from "chart.js";
 import { Line, Bar, Pie } from "react-chartjs-2";
 
-// Register Chart.js components
 ChartJS.register(
   CategoryScale,
   LinearScale,
@@ -67,7 +80,7 @@ ChartJS.register(
   ArcElement,
 );
 
-// ─── Types ──────────────────────────────────────────────────────────
+// ─── Types (unchanged) ─────────────────────────────────────────────
 interface LinkedCenter {
   centerId: string;
   linkedAt: number;
@@ -84,11 +97,13 @@ interface SessionSummary {
   endTime?: number;
   status: string;
   rating?: number;
+  comment?: string;
 }
 
 interface PatientClinicalData {
   id: string;
   fullName: string;
+  centerName?: string;
   vitals?: Record<string, any>;
   vitalsHistory?: Array<Record<string, any>>;
   prescriptions?: Array<{
@@ -103,13 +118,9 @@ interface PatientClinicalData {
     dispensed: boolean;
     dispensedStatus?: string;
     followUpDate?: string;
+    source?: "hospital" | "external";
   }>;
   doctorNotes?: Array<{
-    authorName: string;
-    timestamp: string;
-    content: string;
-  }>;
-  nursingNotes?: Array<{
     authorName: string;
     timestamp: string;
     content: string;
@@ -120,28 +131,42 @@ interface PatientClinicalData {
     result?: { value: string; unit: string };
     collectionDate?: string;
   }>;
+  followUpAppointments?: Array<{
+    id: string;
+    date: string;
+    time: string;
+    reason?: string;
+    notes?: string;
+    status?: string;
+  }>;
+  takeHomeMedications?: Array<{
+    medication: string;
+    dosage: string;
+    frequency: string;
+    instructions?: string;
+    dispensedAt?: string;
+    source?: string;
+  }>;
+  dischargeSummary?: string;
+  dischargeDate?: string;
 }
 
-// ─── Helpers ──────────────────────────────────────────────────────
+// ─── Helpers (unchanged) ──────────────────────────────────────────
 const formatDuration = (start: number, end?: number): string => {
   const now = end || Date.now();
   let diff = Math.floor((now - start) / 1000);
-
   if (diff < 0) return "0s";
-
   const days = Math.floor(diff / 86400);
   diff -= days * 86400;
   const hours = Math.floor(diff / 3600);
   diff -= hours * 3600;
   const mins = Math.floor(diff / 60);
   const secs = diff % 60;
-
   const parts: string[] = [];
   if (days > 0) parts.push(`${days}d`);
   if (hours > 0) parts.push(`${hours}h`);
   if (mins > 0) parts.push(`${mins}m`);
   if (secs > 0 || parts.length === 0) parts.push(`${secs}s`);
-
   return parts.join(" ");
 };
 
@@ -165,7 +190,7 @@ const VitalsDisplay = ({ vitals }: { vitals?: Record<string, any> }) => {
     { key: "bmi", label: "BMI", unit: "" },
   ];
   return (
-    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
       {fields.map((field) => {
         const val = vitals[field.key];
         if (val === undefined || val === null) return null;
@@ -192,81 +217,120 @@ const VitalsDisplay = ({ vitals }: { vitals?: Record<string, any> }) => {
   );
 };
 
-// ─── Rating Stars ────────────────────────────────────────────────
-const RatingStars = ({
-  value,
-  onRate,
-  size = 20,
-  disabled = false,
-}: {
-  value: number;
-  onRate?: (rating: number) => void;
-  size?: number;
-  disabled?: boolean;
-}) => {
-  const [hover, setHover] = useState(0);
-  const stars = [1, 2, 3, 4, 5];
-  return (
-    <div className="flex gap-1">
-      {stars.map((star) => (
-        <button
-          key={star}
-          type="button"
-          disabled={disabled}
-          onClick={() => onRate?.(star)}
-          onMouseEnter={() => setHover(star)}
-          onMouseLeave={() => setHover(0)}
-          className={cn(
-            "transition-colors focus:outline-none",
-            disabled ? "cursor-default" : "cursor-pointer",
-          )}
-        >
-          <Star
-            size={size}
-            className={cn(
-              "fill-current transition-colors",
-              (hover || value) >= star ? "text-amber-400" : "text-slate-300",
-            )}
-          />
-        </button>
-      ))}
-    </div>
-  );
-};
-
-// ─── Tab Button ──────────────────────────────────────────────────
-const TabButton = ({ active, onClick, icon: Icon, label, count }: any) => (
-  <button
-    onClick={onClick}
-    className={cn(
-      "flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-all whitespace-nowrap",
-      active
-        ? "bg-emerald-600 text-white shadow-lg shadow-emerald-200/50"
-        : "bg-white text-slate-600 hover:bg-slate-50 border border-slate-200",
-    )}
-  >
-    <Icon className="w-4 h-4" />
-    {label}
-    {count !== undefined && (
-      <span
-        className={cn(
-          "ml-1 text-[10px] font-bold px-2 py-0.5 rounded-full",
-          active ? "bg-white/20 text-white" : "bg-slate-100 text-slate-600",
-        )}
-      >
-        {count}
-      </span>
-    )}
-  </button>
+// ─── Skeleton Components (unchanged) ──────────────────────────────
+const Skeleton = ({
+  className,
+  ...props
+}: React.HTMLAttributes<HTMLDivElement>) => (
+  <div
+    className={cn("animate-pulse bg-slate-200 rounded-lg", className)}
+    {...props}
+  />
 );
 
-// ─── BentoTile ──────────────────────────────────────────────────
+const SkeletonText = ({
+  className,
+  ...props
+}: React.HTMLAttributes<HTMLDivElement>) => (
+  <Skeleton className={cn("h-4 w-full", className)} {...props} />
+);
+
+const SkeletonCard = ({
+  className,
+  ...props
+}: React.HTMLAttributes<HTMLDivElement>) => (
+  <div
+    className={cn(
+      "bg-white rounded-3xl p-5 border border-slate-200 shadow-sm",
+      className,
+    )}
+    {...props}
+  >
+    <Skeleton className="h-6 w-3/4 mb-2" />
+    <Skeleton className="h-4 w-1/2 mb-4" />
+    <Skeleton className="h-10 w-full rounded-xl" />
+  </div>
+);
+
+const SkeletonSessionCard = () => (
+  <div className="bg-gradient-to-br from-emerald-50 to-teal-50 rounded-3xl p-5 border border-emerald-200 shadow-sm">
+    <div className="flex items-start justify-between">
+      <div className="space-y-2 flex-1">
+        <Skeleton className="h-5 w-24" />
+        <Skeleton className="h-6 w-3/4" />
+        <Skeleton className="h-4 w-1/2" />
+        <Skeleton className="h-4 w-1/3" />
+      </div>
+      <Skeleton className="h-6 w-12 rounded-full" />
+    </div>
+    <Skeleton className="h-10 w-full rounded-xl mt-5" />
+  </div>
+);
+
+const SkeletonHistoryItem = () => (
+  <div className="py-4 first:pt-0 last:pb-0">
+    <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+      <div className="flex-1 space-y-2">
+        <div className="flex items-center gap-2">
+          <Skeleton className="h-5 w-32" />
+          <Skeleton className="h-4 w-12 rounded-full" />
+        </div>
+        <div className="flex flex-wrap gap-3">
+          <Skeleton className="h-3 w-24" />
+          <Skeleton className="h-3 w-20" />
+        </div>
+      </div>
+      <Skeleton className="h-9 w-28 rounded-xl" />
+    </div>
+    <Skeleton className="h-0.5 w-full mt-4" />
+  </div>
+);
+
+const SkeletonCenterCard = () => (
+  <div className="bg-white rounded-3xl p-5 border border-slate-200 shadow-sm">
+    <div className="flex items-start justify-between mb-3">
+      <div className="flex items-center gap-2">
+        <Skeleton className="h-5 w-5 rounded-full" />
+        <Skeleton className="h-5 w-32" />
+      </div>
+      <Skeleton className="h-5 w-14 rounded-full" />
+    </div>
+    <Skeleton className="h-3 w-24 mb-1" />
+    <Skeleton className="h-3 w-20 mb-4" />
+    <Skeleton className="h-9 w-full rounded-xl" />
+  </div>
+);
+
+const SkeletonRequestItem = () => (
+  <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm">
+    <div className="flex items-start justify-between">
+      <div className="flex items-start gap-3 min-w-0 flex-1">
+        <Skeleton className="h-10 w-10 rounded-xl shrink-0" />
+        <div className="flex-1 space-y-2">
+          <div className="flex items-center gap-2">
+            <Skeleton className="h-5 w-32" />
+            <Skeleton className="h-4 w-16 rounded-full" />
+          </div>
+          <Skeleton className="h-3 w-20" />
+          <Skeleton className="h-3 w-40" />
+        </div>
+      </div>
+      <Skeleton className="h-4 w-4 rounded-full" />
+    </div>
+    <div className="flex justify-between items-center mt-3">
+      <Skeleton className="h-3 w-24" />
+      <Skeleton className="h-3 w-28" />
+    </div>
+  </div>
+);
+
+// ─── UI Components ────────────────────────────────────────────────
 const BentoTile = ({ children, className }: any) => (
   <motion.div
     whileHover={{ y: -2 }}
     transition={{ type: "spring", stiffness: 200, damping: 25 }}
     className={cn(
-      "rounded-[30px] bg-white border border-slate-100 shadow-sm transition-all p-4 md:p-6",
+      "rounded-[32px] bg-white/80 backdrop-blur-xl border border-white/50 shadow-sm transition-all p-4 md:p-6",
       className,
     )}
   >
@@ -274,13 +338,214 @@ const BentoTile = ({ children, className }: any) => (
   </motion.div>
 );
 
-// ─── Main Component ──────────────────────────────────────────────
+const TabButton = ({ active, onClick, icon: Icon, label, count }: any) => (
+  <motion.button
+    whileTap={{ scale: 0.96 }}
+    whileHover={{ y: -1 }}
+    onClick={onClick}
+    className={cn(
+      "relative group flex items-center gap-2.5 px-5 py-3 rounded-2xl text-xs font-bold transition-all duration-300 whitespace-nowrap border shadow-xs",
+      active
+        ? "bg-emerald-600 text-white border-emerald-600 shadow-lg shadow-emerald-600/25"
+        : "bg-white hover:bg-slate-50 text-slate-600 border-slate-200/80 hover:border-slate-300 hover:text-slate-900",
+    )}
+  >
+    <Icon
+      className={cn(
+        "w-4 h-4 transition-colors",
+        active ? "text-white" : "text-slate-400 group-hover:text-slate-600",
+      )}
+    />
+    <span>{label}</span>
+    {count !== undefined && (
+      <span
+        className={cn(
+          "ml-0.5 text-[10px] font-extrabold px-2 py-0.5 rounded-full transition-colors tracking-wide",
+          active
+            ? "bg-white/20 text-white border border-white/30"
+            : "bg-slate-100 text-slate-600 border border-slate-200/60",
+        )}
+      >
+        {count}
+      </span>
+    )}
+  </motion.button>
+);
+
+// ─── Rating Component ───────────────────────────────────
+const SessionRating = ({
+  sessionId,
+  centerId,
+  initialRating = 0,
+  initialComment = "",
+  onRated,
+}: {
+  sessionId: string;
+  centerId: string;
+  initialRating?: number;
+  initialComment?: string;
+  onRated: (rating: number, comment: string) => void;
+}) => {
+  const [rating, setRating] = useState(initialRating);
+  const [hover, setHover] = useState(0);
+  const [comment, setComment] = useState(initialComment);
+  const [submitting, setSubmitting] = useState(false);
+  const [showComment, setShowComment] = useState(false);
+
+  const userId = useUserContext()?.id;
+
+  const handleRate = async (value: number) => {
+    setRating(value);
+    setShowComment(true);
+  };
+
+  const handleSubmit = async () => {
+    if (!userId) return;
+    setSubmitting(true);
+    try {
+      const res = await fetch(`/api/user/${userId}/rate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          centerId,
+          sessionId,
+          rating,
+          comment: comment.trim(),
+        }),
+      });
+      if (res.ok) {
+        onRated(rating, comment);
+        setShowComment(false);
+      } else {
+        alert("Failed to submit rating. Please try again.");
+      }
+    } catch (err) {
+      console.error("Rating error", err);
+      alert("Network error. Please try again.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="rounded-2xl bg-gradient-to-br from-slate-50/70 to-slate-100/40 p-4 border border-slate-200/80 shadow-xs space-y-3">
+      <div className="flex items-center justify-between">
+        <span className="text-xs font-extrabold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
+          <Star className="w-3.5 h-3.5 text-amber-500 fill-current" />
+          Care Session Feedback
+        </span>
+        {rating > 0 && !showComment && (
+          <span className="inline-flex items-center gap-1 text-xs font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200/80 shadow-xs">
+            {rating}/5 Stars
+          </span>
+        )}
+      </div>
+
+      <div className="flex items-center gap-3">
+        <div className="flex items-center gap-1.5 bg-white p-2 rounded-2xl border border-slate-200/80 shadow-xs">
+          {[1, 2, 3, 4, 5].map((star) => (
+            <motion.button
+              key={star}
+              type="button"
+              whileHover={{ scale: 1.15 }}
+              whileTap={{ scale: 0.9 }}
+              onClick={() => handleRate(star)}
+              onMouseEnter={() => setHover(star)}
+              onMouseLeave={() => setHover(0)}
+              className="p-1 focus:outline-none transition-colors rounded-lg hover:bg-amber-50"
+            >
+              <Star
+                size={22}
+                className={cn(
+                  "transition-all duration-200",
+                  (hover || rating) >= star
+                    ? "text-amber-500 fill-amber-400 drop-shadow-xs"
+                    : "text-slate-300 fill-slate-100",
+                )}
+              />
+            </motion.button>
+          ))}
+        </div>
+      </div>
+
+      {showComment && (
+        <motion.div
+          initial={{ opacity: 0, height: 0 }}
+          animate={{ opacity: 1, height: "auto" }}
+          exit={{ opacity: 0, height: 0 }}
+          className="space-y-3 pt-2 overflow-hidden"
+        >
+          <textarea
+            value={comment}
+            onChange={(e) => setComment(e.target.value)}
+            placeholder="Tell us about your experience with this care center (optional)..."
+            className="w-full px-4 py-3 bg-white border border-slate-200 rounded-2xl text-xs font-medium text-slate-800 placeholder:text-slate-400 focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition shadow-xs resize-none min-h-[75px]"
+            rows={2}
+          />
+          <div className="flex items-center justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => setShowComment(false)}
+              className="px-3.5 py-2 rounded-xl text-xs font-bold text-slate-500 hover:bg-slate-200/60 transition"
+            >
+              Cancel
+            </button>
+            <motion.button
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
+              onClick={handleSubmit}
+              disabled={submitting}
+              className="flex items-center gap-2 px-4 py-2 bg-slate-900 text-white rounded-xl text-xs font-bold hover:bg-slate-800 transition shadow-md shadow-slate-950/10 disabled:opacity-50"
+            >
+              {submitting ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <Send className="w-3.5 h-3.5" />
+              )}
+              Submit Review
+            </motion.button>
+          </div>
+        </motion.div>
+      )}
+
+      {initialRating > 0 && !showComment && (
+        <div className="pt-2 border-t border-slate-200/60 flex items-center justify-between text-xs">
+          <div className="flex items-center gap-2 min-w-0 flex-1">
+            <span className="font-semibold text-slate-700 shrink-0">
+              Reviewed:
+            </span>
+            {initialComment ? (
+              <span className="text-slate-500 italic truncate">
+                “{initialComment}”
+              </span>
+            ) : (
+              <span className="text-slate-400">
+                No written comment provided.
+              </span>
+            )}
+          </div>
+          <button
+            onClick={() => setShowComment(true)}
+            className="text-emerald-700 hover:text-emerald-900 font-bold flex items-center gap-1 shrink-0 ml-2 bg-emerald-50 hover:bg-emerald-100/80 px-2.5 py-1 rounded-lg border border-emerald-200/60 transition"
+          >
+            <Edit3 className="w-3 h-3" /> Edit Review
+          </button>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ─── Main Component ────────────────────────────────────────────────
 export default function DozaPanel() {
-  const user = useUserContext(); // ✅ use session user instead of Firebase auth
+  const user = useUserContext();
   const userId = user?.id;
 
-  // ─── Data Hooks ────────────────────────────────────────────────
-  const { session: activeSession, loading: sessionLoading } =
+  // Use dashboard context to switch panels
+  const { setActivePanel } = useDashboard();
+
+  const { sessions: activeSessions, loading: sessionLoading } =
     useActiveSession(userId);
   const { sessions: initialHistory, loading: historyLoading } =
     useSessionHistory(userId);
@@ -288,9 +553,9 @@ export default function DozaPanel() {
     useLinkedCenters(userId);
 
   const [history, setHistory] = useState<SessionSummary[]>([]);
-  const [activeTab, setActiveTab] = useState<"ongoing" | "history" | "centers">(
-    "ongoing",
-  );
+  const [activeTab, setActiveTab] = useState<
+    "ongoing" | "history" | "centers" | "requests"
+  >("ongoing");
 
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [clinicalDataMap, setClinicalDataMap] = useState<
@@ -299,51 +564,26 @@ export default function DozaPanel() {
   const [loadingClinical, setLoadingClinical] = useState<
     Record<string, boolean>
   >({});
+  const [clinicalError, setClinicalError] = useState<Record<string, string>>(
+    {},
+  );
 
-  // Vitals history modal state
   const [showVitalsHistory, setShowVitalsHistory] = useState(false);
   const [vitalsHistoryData, setVitalsHistoryData] = useState<any[]>([]);
   const [chartType, setChartType] = useState<"line" | "bar" | "pie">("line");
-  const [selectedVitalKey, setSelectedVitalKey] = useState<string>("heartRate");
+  const [selectedVitalKeys, setSelectedVitalKeys] = useState<string[]>([
+    "heartRate",
+  ]);
 
   const [isRefreshing, setIsRefreshing] = useState(false);
 
-  const prevInitialHistoryRef = useRef<SessionSummary[]>([]);
-  useEffect(() => {
-    if (
-      JSON.stringify(initialHistory) !==
-      JSON.stringify(prevInitialHistoryRef.current)
-    ) {
-      prevInitialHistoryRef.current = initialHistory;
-      setHistory(initialHistory);
-    }
-  }, [initialHistory]);
+  const [userRequests, setUserRequests] = useState<any[]>([]);
+  const [requestsLoading, setRequestsLoading] = useState(false);
+  const [historyFilter, setHistoryFilter] = useState<"active" | "history">(
+    "active",
+  );
 
-  // ─── Refresh Handler ──────────────────────────────────────────
-  const handleRefresh = async () => {
-    setIsRefreshing(true);
-    try {
-      await mutate(`/api/user/${userId}/active-session`);
-      await mutate(`/api/user/${userId}/sessions`);
-      await mutate(`/api/user/${userId}/linked-centers`);
-      setClinicalDataMap({});
-      setExpandedId(null);
-    } catch (err) {
-      console.error("Refresh failed:", err);
-    } finally {
-      setIsRefreshing(false);
-    }
-  };
-
-  // ─── Chart Data ────────────────────────────────────────────────
-  const getVitalLabels = (data: any[]) => {
-    return data.map((r) => new Date(r.timestamp).toLocaleString());
-  };
-
-  const getVitalValues = (data: any[], key: string) => {
-    return data.map((r) => (r[key] !== undefined ? r[key] : null));
-  };
-
+  // ─── Available vital fields ──────────────────────────────────────
   const vitalFields =
     vitalsHistoryData.length > 0
       ? Object.keys(vitalsHistoryData[0]).filter(
@@ -351,20 +591,38 @@ export default function DozaPanel() {
         )
       : [];
 
+  const toggleVitalKey = (key: string) => {
+    setSelectedVitalKeys((prev) =>
+      prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key],
+    );
+  };
+
+  const chartColors = [
+    "#0d9488",
+    "#2563eb",
+    "#d97706",
+    "#7c3aed",
+    "#e11d48",
+    "#059669",
+  ];
+
   const chartData = {
-    labels: getVitalLabels(vitalsHistoryData),
-    datasets: [
-      {
-        label: selectedVitalKey.replace(/([A-Z])/g, " $1").trim(),
-        data: getVitalValues(vitalsHistoryData, selectedVitalKey),
-        borderColor: "rgb(16, 185, 129)",
-        backgroundColor: "rgba(16, 185, 129, 0.2)",
-        borderWidth: 2,
-        pointRadius: 4,
-        pointBackgroundColor: "rgb(16, 185, 129)",
-        tension: 0.3,
-      },
-    ],
+    labels: vitalsHistoryData.map((r) =>
+      new Date(r.timestamp).toLocaleString(),
+    ),
+    datasets: selectedVitalKeys.map((key, idx) => ({
+      label: key.replace(/([A-Z])/g, " $1").trim(),
+      data: vitalsHistoryData.map((r) =>
+        r[key] !== undefined ? r[key] : null,
+      ),
+      borderColor: chartColors[idx % chartColors.length],
+      backgroundColor: chartColors[idx % chartColors.length] + "22",
+      borderWidth: 2,
+      pointRadius: 3,
+      pointBackgroundColor: chartColors[idx % chartColors.length],
+      tension: 0.3,
+      spanGaps: true,
+    })),
   };
 
   const pieChartData = {
@@ -372,9 +630,9 @@ export default function DozaPanel() {
     datasets: [
       {
         data: vitalFields.map((field) => {
-          const values = getVitalValues(vitalsHistoryData, field).filter(
-            (v) => v !== null,
-          );
+          const values = vitalsHistoryData
+            .map((r) => r[field])
+            .filter((v) => v !== null && v !== undefined);
           return values.length > 0
             ? values.reduce((a: number, b: number) => a + b, 0) / values.length
             : 0;
@@ -395,7 +653,76 @@ export default function DozaPanel() {
     ],
   };
 
-  // ─── Fetch Clinical Data ───────────────────────────────────────
+  // ─── Lifecycle ──────────────────────────────────────────────────
+  const prevInitialHistoryRef = useRef<SessionSummary[]>([]);
+  useEffect(() => {
+    if (
+      JSON.stringify(initialHistory) !==
+      JSON.stringify(prevInitialHistoryRef.current)
+    ) {
+      const uniqueMap = new Map<string, SessionSummary>();
+      for (const session of initialHistory) {
+        uniqueMap.set(session.sessionId, session);
+      }
+      const uniqueHistory = Array.from(uniqueMap.values());
+      prevInitialHistoryRef.current = uniqueHistory;
+      setHistory(uniqueHistory);
+    }
+  }, [initialHistory]);
+
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    try {
+      await mutate(`/api/user/${userId}/sessions`);
+      await mutate(`/api/user/${userId}/linked-centers`);
+      setClinicalDataMap({});
+      setExpandedId(null);
+      setClinicalError({});
+      fetchUserRequests();
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
+
+  const fetchUserRequests = async () => {
+    if (!userId) return;
+    setRequestsLoading(true);
+    try {
+      const res = await fetch(`/api/user/doza-requests`, {
+        headers: { "x-user-id": userId },
+      });
+      if (res.ok) {
+        const json = await res.json();
+        setUserRequests(json.data || []);
+      }
+    } catch (err) {
+      console.error("Failed to fetch user requests", err);
+    } finally {
+      setRequestsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchUserRequests();
+  }, [userId]);
+
+  useEffect(() => {
+    if (activeTab === "requests") fetchUserRequests();
+  }, [activeTab, userId]);
+
+  useEffect(() => {
+    if (activeTab !== "requests") return;
+    const interval = setInterval(fetchUserRequests, 30000);
+    return () => clearInterval(interval);
+  }, [activeTab, userId]);
+
+  useEffect(() => {
+    const handler = () => fetchUserRequests();
+    window.addEventListener("doza-request-created", handler);
+    return () => window.removeEventListener("doza-request-created", handler);
+  }, [userId]);
+
+  // ─── Fetch clinical data ────────────────────────────────────────
   const fetchClinicalData = async (
     centerId: string,
     patientId: string,
@@ -403,25 +730,37 @@ export default function DozaPanel() {
   ) => {
     if (clinicalDataMap[key]) return;
     setLoadingClinical((prev) => ({ ...prev, [key]: true }));
+    setClinicalError((prev) => ({ ...prev, [key]: "" }));
     try {
-      // ✅ Use fetch with credentials: "include" – session cookie is sent automatically
       const res = await fetch(
         `/api/centers/${centerId}/patients/${patientId}`,
         {
           credentials: "include",
-          headers: {
-            "Content-Type": "application/json",
-            // x-user-id header is also sent by api.ts, but we're using direct fetch
-            // so we need to add it manually or use the session cookie
-          },
+          headers: { "Content-Type": "application/json" },
         },
       );
+      if (!res.ok) {
+        if (res.status === 404) {
+          setClinicalError((prev) => ({
+            ...prev,
+            [key]: "Clinical data not available for this session.",
+          }));
+          return;
+        }
+        const text = await res.text();
+        throw new Error(
+          `HTTP ${res.status}: ${text.substring(0, 100)}${text.length > 100 ? "…" : ""}`,
+        );
+      }
       const data = await res.json();
       if (data.success) {
         setClinicalDataMap((prev) => ({ ...prev, [key]: data.data }));
+      } else {
+        throw new Error(data.error || "Failed to fetch patient data");
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error("Failed to fetch clinical data", err);
+      setClinicalError((prev) => ({ ...prev, [key]: err.message }));
     } finally {
       setLoadingClinical((prev) => ({ ...prev, [key]: false }));
     }
@@ -436,48 +775,66 @@ export default function DozaPanel() {
     }
   };
 
+  // ─── Render clinical details ────────────────────────────────────
   const renderClinicalDetails = (key: string) => {
     const data = clinicalDataMap[key];
+    const error = clinicalError[key];
     if (loadingClinical[key]) {
       return (
-        <div className="flex items-center justify-center py-6">
-          <Loader2 className="w-6 h-6 text-emerald-600 animate-spin" />
+        <div className="flex items-center justify-center py-8">
+          <Loader2 className="w-6 h-6 text-emerald-500 animate-spin" />
           <span className="ml-2 text-sm text-slate-500">
             Loading clinical data...
           </span>
         </div>
       );
     }
+    if (error) {
+      return (
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="p-4 bg-rose-50 rounded-xl border border-rose-200 text-rose-700 text-sm"
+        >
+          <p className="font-semibold">Could not load clinical data</p>
+          <p className="text-xs text-rose-600 mt-1">{error}</p>
+          <button
+            onClick={() => {
+              const parts = key.split("-");
+              const centerId = parts.length > 1 ? parts[1] : "";
+              fetchClinicalData(centerId, userId!, key);
+            }}
+            className="mt-2 text-xs font-medium text-rose-800 underline hover:text-rose-900"
+          >
+            Retry
+          </button>
+        </motion.div>
+      );
+    }
     if (!data) return null;
     return (
-      <div className="space-y-6">
+      <motion.div
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="space-y-6 mt-4"
+      >
         {/* Vitals */}
         <div>
           <h4 className="text-sm font-bold text-slate-800 flex items-center gap-2 mb-3">
-            <HeartPulse className="w-4 h-4 text-emerald-500" />
-            Vitals
+            <HeartPulse className="w-4 h-4 text-emerald-500" /> Vitals
           </h4>
           <VitalsDisplay vitals={data.vitals} />
           {data.vitalsHistory && data.vitalsHistory.length > 0 && (
             <button
               onClick={() => {
                 setVitalsHistoryData(data.vitalsHistory || []);
-                const firstRecord = data.vitalsHistory?.[0];
-                const firstKey = firstRecord
-                  ? Object.keys(firstRecord).find(
-                      (k) =>
-                        !["timestamp", "recordedBy", "recordedById"].includes(
-                          k,
-                        ),
-                    )
-                  : null;
-                setSelectedVitalKey(firstKey || "heartRate");
+                setSelectedVitalKeys(["heartRate"]);
                 setShowVitalsHistory(true);
               }}
-              className="mt-2 text-xs text-emerald-600 hover:text-emerald-700 font-medium flex items-center gap-1 transition-colors"
+              className="mt-2 text-xs text-emerald-600 hover:text-emerald-700 font-medium flex items-center gap-1"
             >
-              <HistoryIcon className="w-3 h-3" />
-              View Vitals History ({data.vitalsHistory.length} records)
+              <LineChart className="w-3 h-3" /> View Vitals History (
+              {data.vitalsHistory.length} records)
             </button>
           )}
         </div>
@@ -485,8 +842,7 @@ export default function DozaPanel() {
         {/* Prescriptions */}
         <div>
           <h4 className="text-sm font-bold text-slate-800 flex items-center gap-2 mb-3">
-            <Pill className="w-4 h-4 text-emerald-500" />
-            Prescriptions
+            <Pill className="w-4 h-4 text-emerald-500" /> Prescriptions
           </h4>
           {data.prescriptions?.length ? (
             <div className="space-y-2">
@@ -517,8 +873,7 @@ export default function DozaPanel() {
                   </div>
                   {rx.followUpDate && (
                     <div className="flex items-center gap-1 text-xs text-slate-500 mt-1">
-                      <CalIcon className="w-3 h-3" />
-                      Follow-up:{" "}
+                      <Calendar className="w-3 h-3" /> Follow-up:{" "}
                       {new Date(rx.followUpDate).toLocaleDateString()}
                     </div>
                   )}
@@ -535,11 +890,10 @@ export default function DozaPanel() {
           )}
         </div>
 
-        {/* Tests */}
+        {/* Lab Tests */}
         <div>
           <h4 className="text-sm font-bold text-slate-800 flex items-center gap-2 mb-3">
-            <Microscope className="w-4 h-4 text-emerald-500" />
-            Lab Tests
+            <Microscope className="w-4 h-4 text-emerald-500" /> Lab Tests
           </h4>
           {data.tests?.length ? (
             <div className="space-y-2">
@@ -586,15 +940,133 @@ export default function DozaPanel() {
           )}
         </div>
 
-        {/* Notes */}
+        {/* Follow‑up Appointments */}
         <div>
           <h4 className="text-sm font-bold text-slate-800 flex items-center gap-2 mb-3">
-            <FileText className="w-4 h-4 text-emerald-500" />
-            Notes
+            <Bell className="w-4 h-4 text-emerald-500" /> Follow‑up Appointments
           </h4>
-          {data.doctorNotes?.length ? (
+          {data.followUpAppointments?.length ? (
             <div className="space-y-2">
-              <p className="text-xs font-bold text-slate-500">Doctor's Notes</p>
+              {data.followUpAppointments.map((fu) => {
+                const isPast = new Date(fu.date) < new Date();
+                return (
+                  <div
+                    key={fu.id}
+                    className={cn(
+                      "bg-slate-50 rounded-xl p-3 border",
+                      isPast ? "border-slate-200" : "border-emerald-200",
+                    )}
+                  >
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <p className="font-semibold text-slate-800">
+                          {new Date(fu.date).toLocaleDateString(undefined, {
+                            weekday: "short",
+                            month: "short",
+                            day: "numeric",
+                            year: "numeric",
+                          })}
+                        </p>
+                        <p className="text-xs text-slate-600">
+                          {fu.time} {fu.reason && `– ${fu.reason}`}
+                        </p>
+                      </div>
+                      <span
+                        className={cn(
+                          "text-[10px] font-bold px-2 py-0.5 rounded-full",
+                          isPast
+                            ? "bg-slate-100 text-slate-600"
+                            : "bg-emerald-100 text-emerald-700",
+                        )}
+                      >
+                        {isPast ? "Past" : "Upcoming"}
+                      </span>
+                    </div>
+                    {fu.notes && (
+                      <p className="text-xs text-slate-500 mt-1 italic">
+                        "{fu.notes}"
+                      </p>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <p className="text-sm text-slate-500">No follow‑ups scheduled.</p>
+          )}
+        </div>
+
+        {/* Take‑home Medications */}
+        <div>
+          <h4 className="text-sm font-bold text-slate-800 flex items-center gap-2 mb-3">
+            <Syringe className="w-4 h-4 text-emerald-500" /> Take‑home
+            Medications
+          </h4>
+          {data.takeHomeMedications?.length ? (
+            <div className="space-y-2">
+              {data.takeHomeMedications.map((med, idx) => (
+                <div
+                  key={idx}
+                  className="bg-slate-50 rounded-xl p-3 border border-slate-200"
+                >
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <p className="font-semibold text-slate-800">
+                        {med.medication}
+                      </p>
+                      <p className="text-xs text-slate-600">
+                        {med.dosage} – {med.frequency}
+                      </p>
+                    </div>
+                    <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full">
+                      {med.source === "external" ? "External" : "Hospital"}
+                    </span>
+                  </div>
+                  {med.instructions && (
+                    <p className="text-xs text-slate-500 mt-1 italic">
+                      "{med.instructions}"
+                    </p>
+                  )}
+                  {med.dispensedAt && (
+                    <p className="text-[10px] text-slate-400 mt-1">
+                      Dispensed: {formatDateShort(med.dispensedAt)}
+                    </p>
+                  )}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-sm text-slate-500">No take‑home medications.</p>
+          )}
+        </div>
+
+        {/* Discharge Summary */}
+        {data.dischargeSummary && (
+          <div>
+            <h4 className="text-sm font-bold text-slate-800 flex items-center gap-2 mb-3">
+              <FileCheck className="w-4 h-4 text-emerald-500" /> Discharge
+              Summary
+            </h4>
+            <div className="bg-slate-50 rounded-xl p-4 border border-slate-200">
+              <p className="text-sm text-slate-700 whitespace-pre-wrap">
+                {data.dischargeSummary}
+              </p>
+              {data.dischargeDate && (
+                <p className="text-xs text-slate-400 mt-2">
+                  Discharged on {formatDateShort(data.dischargeDate)}
+                </p>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Doctor's Notes */}
+        {data.doctorNotes && data.doctorNotes.length > 0 && (
+          <div>
+            <h4 className="text-sm font-bold text-slate-800 flex items-center gap-2 mb-3">
+              <FileText className="w-4 h-4 text-emerald-500" /> Doctor's Notes
+            </h4>
+            <div className="space-y-2">
               {data.doctorNotes.map((note, idx) => (
                 <div
                   key={idx}
@@ -613,100 +1085,77 @@ export default function DozaPanel() {
                 </div>
               ))}
             </div>
-          ) : null}
-          {data.nursingNotes?.length ? (
-            <div className="space-y-2 mt-3">
-              <p className="text-xs font-bold text-slate-500">Nursing Notes</p>
-              {data.nursingNotes.map((note, idx) => (
-                <div
-                  key={idx}
-                  className="bg-slate-50 rounded-xl p-3 border border-slate-200"
-                >
-                  <div className="flex justify-between items-start">
-                    <p className="font-medium text-slate-800">
-                      {note.authorName}
-                    </p>
-                    <span className="text-xs text-slate-500">
-                      {formatDateShort(note.timestamp)} at{" "}
-                      {new Date(note.timestamp).toLocaleTimeString()}
-                    </span>
-                  </div>
-                  <p className="text-sm text-slate-700 mt-1">{note.content}</p>
-                </div>
-              ))}
-            </div>
-          ) : null}
-          {!data.doctorNotes?.length && !data.nursingNotes?.length && (
-            <p className="text-sm text-slate-500">No notes available.</p>
-          )}
-        </div>
-      </div>
+          </div>
+        )}
+      </motion.div>
     );
   };
 
-  // ─── Loading State ──────────────────────────────────────────────
-  if (!user) {
-    return <LoadingState />;
+  // ─── Loading state (skeleton) ──────────────────────────────────
+  if (!user || sessionLoading || historyLoading || centersLoading) {
+    return <SkeletonDozaPanel />;
   }
 
-  if (sessionLoading || historyLoading || centersLoading) {
-    return (
-      <div className="flex items-center justify-center py-12">
-        <Loader2 className="w-8 h-8 text-emerald-600 animate-spin" />
-      </div>
-    );
-  }
-
-  // ─── Render ──────────────────────────────────────────────────────
+  // ─── Render ──────────────────────────────────────────────────
   return (
-    <div className={cn("space-y-6 p-2 md:p-6", poppins.className)}>
-      {/* ─── Header ────────────────────────────────────────────────── */}
-      <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-4">
-        <div>
+    <div
+      className={cn(
+        "space-y-8 p-3 md:p-6 max-w-7xl mx-auto",
+        poppins.className,
+      )}
+    >
+      {/* Header */}
+      <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-6 pb-6 border-b border-slate-100">
+        <div className="space-y-1.5">
           <div className="flex items-center gap-3 mb-2">
             <div className="h-8 w-1 rounded-full bg-gradient-to-b from-emerald-500 to-teal-600" />
             <span className="text-[11px] font-bold text-emerald-600 uppercase tracking-[0.25em]">
-              Doza Health Network
+              Doza Network
             </span>
           </div>
+
           <h1
             className={cn(
-              "text-3xl md:text-5xl lg:text-6xl text-slate-900 leading-[1.1] tracking-tight",
+              "text-4xl md:text-5xl text-slate-900 leading-[1.05] tracking-tight pt-1",
               bebasNeue.className,
             )}
           >
-            Sessions & Centers
+            Your Care Hub
           </h1>
-          <p className="text-sm text-slate-700 mt-2 max-w-md">
-            Manage your linked centers, active sessions, and care history.
+
+          <p className="text-xs md:text-sm text-slate-500 max-w-lg font-medium leading-relaxed">
+            Manage linked medical centers, active care sessions, pending
+            requests, and your complete medical history seamlessly in one place.
           </p>
         </div>
 
-        <button
+        <motion.button
+          whileHover={{ y: -1, scale: 1.01 }}
+          whileTap={{ scale: 0.97 }}
           onClick={handleRefresh}
           disabled={isRefreshing}
           className={cn(
-            "px-4 py-2.5 rounded-xl bg-white border border-slate-200 hover:bg-slate-50 transition-all flex items-center gap-2 shadow-sm text-sm font-medium text-slate-700",
-            isRefreshing && "opacity-50 cursor-not-allowed",
+            "group px-5 py-3 rounded-2xl bg-white hover:bg-slate-50 transition-all duration-300 flex items-center justify-center gap-2.5 border border-slate-200/80 hover:border-slate-300 shadow-sm text-xs font-bold text-slate-700 shrink-0",
+            isRefreshing && "opacity-50 cursor-not-allowed hover:bg-white",
           )}
         >
           {isRefreshing ? (
-            <Loader2 className="w-4 h-4 animate-spin" />
+            <Loader2 className="w-4 h-4 animate-spin text-emerald-600" />
           ) : (
-            <RefreshCw className="w-4 h-4" />
+            <RefreshCw className="w-4 h-4 text-slate-400 group-hover:text-emerald-600 transition-colors duration-300" />
           )}
-          {isRefreshing ? "Refreshing..." : "Refresh"}
-        </button>
+          <span>{isRefreshing ? "Syncing Data..." : "Refresh Hub"}</span>
+        </motion.button>
       </div>
 
-      {/* ─── Tabs ──────────────────────────────────────────────────── */}
-      <div className="flex flex-wrap gap-2">
+      {/* Tabs */}
+      <div className="flex items-center gap-2.5 overflow-x-auto pb-3 pt-1 px-1 scrollbar-none [-ms-overflow-style:none] [&-webkit-scrollbar]:hidden">
         <TabButton
           active={activeTab === "ongoing"}
           onClick={() => setActiveTab("ongoing")}
           icon={Activity}
           label="Ongoing"
-          count={activeSession ? 1 : 0}
+          count={activeSessions.length}
         />
         <TabButton
           active={activeTab === "history"}
@@ -718,368 +1167,724 @@ export default function DozaPanel() {
         <TabButton
           active={activeTab === "centers"}
           onClick={() => setActiveTab("centers")}
-          icon={Link}
-          label="Linked Centers"
+          icon={Link2}
+          label="Centers"
           count={linkedCenters.length}
+        />
+        <TabButton
+          active={activeTab === "requests"}
+          onClick={() => setActiveTab("requests")}
+          icon={ClipboardCheck}
+          label="Requests"
+          count={userRequests.length}
         />
       </div>
 
-      {/* ─── Content ────────────────────────────────────────────────── */}
+      {/* Main Content Area */}
       <BentoTile>
         <AnimatePresence mode="wait">
-          {/* ─── ONGOING ───────────────────────────────────────────── */}
+          {/* ONGOING TAB */}
           {activeTab === "ongoing" && (
             <motion.div
               key="ongoing"
-              initial={{ opacity: 0, y: 10 }}
+              initial={{ opacity: 0, y: 12 }}
               animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -10 }}
-              transition={{ duration: 0.2 }}
-              className="space-y-4"
+              exit={{ opacity: 0, y: -12 }}
+              transition={{ duration: 0.3, ease: "easeOut" }}
+              className="space-y-6"
             >
-              {activeSession ? (
-                <div className="space-y-5">
-                  <div className="flex items-center gap-3 text-emerald-600">
-                    <div className="h-3 w-3 rounded-full bg-emerald-500 animate-pulse" />
-                    <span className="text-sm font-bold uppercase tracking-widest">
-                      Session Active
-                    </span>
-                  </div>
-                  <div className="bg-gradient-to-br from-emerald-50 to-teal-50 rounded-2xl p-4 md:p-6 border border-emerald-100">
-                    <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3">
-                      <div>
-                        <p className="text-xs font-bold text-emerald-600 uppercase tracking-wider">
-                          {activeSession.centerType || "Healthcare Center"}
-                        </p>
-                        <h3 className="text-xl md:text-2xl font-bold text-slate-900 mt-1">
-                          {activeSession.centerName || "Healthcare Center"}
-                        </h3>
-                        <p className="text-sm text-slate-600 mt-1">
-                          Session ID:{" "}
-                          <span className="font-mono text-xs">
-                            {activeSession.sessionId?.slice(0, 8)}
-                          </span>
-                        </p>
-                      </div>
-                      <span className="inline-flex items-center gap-1 bg-emerald-100 text-emerald-700 px-3 py-1 rounded-full text-xs font-bold self-start">
-                        <CheckCircle className="w-3 h-3" /> Active
-                      </span>
-                    </div>
-
-                    <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mt-4">
-                      <div>
-                        <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
-                          Started
-                        </p>
-                        <p className="text-sm font-medium text-slate-700">
-                          {formatDate(activeSession.startTime)}
-                        </p>
-                      </div>
-                      <div>
-                        <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
-                          Duration
-                        </p>
-                        <p className="text-sm font-medium text-slate-700 flex items-center gap-1">
-                          <Clock className="w-4 h-4 text-emerald-500" />
-                          {formatDuration(activeSession.startTime)}
-                        </p>
-                      </div>
-                      <div className="col-span-2 md:col-span-1">
-                        <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
-                          Status
-                        </p>
-                        <p className="text-sm font-medium text-emerald-600">
-                          In Progress
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-
-                  <button
-                    onClick={() => {
-                      const key = `ongoing-${activeSession.centerId}`;
-                      toggleExpand(key, activeSession.centerId, userId!);
-                    }}
-                    className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-medium transition flex items-center justify-center gap-2"
-                  >
-                    {expandedId === `ongoing-${activeSession.centerId}`
-                      ? "Hide Details"
-                      : "View Details"}
-                    <ChevronDown
-                      className={cn(
-                        "w-4 h-4 transition-transform",
-                        expandedId === `ongoing-${activeSession.centerId}` &&
-                          "rotate-180",
-                      )}
-                    />
-                  </button>
-
-                  {expandedId === `ongoing-${activeSession.centerId}` && (
-                    <motion.div
-                      initial={{ opacity: 0, height: 0 }}
-                      animate={{ opacity: 1, height: "auto" }}
-                      exit={{ opacity: 0, height: 0 }}
-                      className="overflow-hidden"
-                    >
-                      {renderClinicalDetails(
-                        `ongoing-${activeSession.centerId}`,
-                      )}
-                    </motion.div>
-                  )}
-                </div>
-              ) : (
-                <div className="text-center py-12 text-slate-500">
-                  <Activity className="w-12 h-12 mx-auto text-slate-300 mb-3" />
-                  <p className="font-medium text-slate-700">
-                    No active session
-                  </p>
-                  <p className="text-sm">
-                    You are not currently in an active care session.
-                  </p>
-                </div>
-              )}
-            </motion.div>
-          )}
-
-          {/* ─── HISTORY ───────────────────────────────────────────── */}
-          {activeTab === "history" && (
-            <motion.div
-              key="history"
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -10 }}
-              transition={{ duration: 0.2 }}
-              className="space-y-4"
-            >
-              {history.length > 0 ? (
-                <div className="divide-y divide-slate-100">
-                  {history.map((session: SessionSummary) => {
-                    const key = `history-${session.sessionId}`;
+              {activeSessions.length > 0 ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                  {activeSessions.map((session) => {
+                    const key = `active-${session.centerId}`;
                     const isExpanded = expandedId === key;
                     return (
-                      <div
+                      <motion.div
                         key={session.sessionId}
-                        className="py-4 first:pt-0 last:pb-0"
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        whileHover={{ y: -3, transition: { duration: 0.2 } }}
+                        className="group relative overflow-hidden rounded-[2rem] p-6 bg-gradient-to-br from-emerald-50/90 via-teal-50/40 to-white border border-emerald-300/80 shadow-lg shadow-emerald-950/[0.04] transition-all duration-300"
                       >
-                        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2">
-                          <div className="flex-1">
-                            <div className="flex flex-wrap items-center gap-2">
-                              <span className="font-semibold text-slate-900">
-                                {session.centerName}
-                              </span>
-                              <span
-                                className={cn(
-                                  "text-[10px] font-bold px-2 py-0.5 rounded-full",
-                                  session.status === "ended"
-                                    ? "bg-slate-100 text-slate-600"
-                                    : "bg-emerald-100 text-emerald-700",
-                                )}
-                              >
-                                {session.status || "ended"}
-                              </span>
+                        {/* Top Pulse Glow Accent */}
+                        <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-emerald-500 via-teal-400 to-emerald-500 animate-pulse" />
+
+                        <div className="flex items-start justify-between gap-4">
+                          <div className="flex items-start gap-4 min-w-0 flex-1">
+                            {/* Icon Badge */}
+                            <div className="w-12 h-12 rounded-2xl bg-emerald-100/80 border border-emerald-200/80 flex items-center justify-center shrink-0 shadow-xs text-emerald-700 transition-transform duration-300 group-hover:scale-105">
+                              <Activity className="w-6 h-6 animate-pulse" />
                             </div>
-                            <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500 mt-1">
-                              <span className="flex items-center gap-1">
-                                <Calendar className="w-3 h-3" />
-                                {formatDate(session.startTime)}
-                              </span>
-                              <span className="flex items-center gap-1">
-                                <Clock className="w-3 h-3" />
-                                {formatDuration(
-                                  session.startTime,
-                                  session.endTime,
-                                )}
-                              </span>
+
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <h3 className="font-extrabold text-slate-900 text-base tracking-tight truncate">
+                                  {session.centerName}
+                                </h3>
+                              </div>
+
+                              <div className="space-y-1 mt-2">
+                                <p className="text-xs font-semibold text-slate-500 flex items-center gap-1.5">
+                                  <Calendar className="w-3.5 h-3.5 text-emerald-600" />
+                                  Started {formatDate(session.startTime)}
+                                </p>
+                                <p className="text-xs font-semibold text-slate-500 flex items-center gap-1.5">
+                                  <Clock className="w-3.5 h-3.5 text-emerald-600" />
+                                  Duration: {formatDuration(session.startTime)}
+                                </p>
+                              </div>
                             </div>
                           </div>
-                          <button
+
+                          {/* Live Indicator Pill */}
+                          <span className="inline-flex items-center gap-1.5 text-[10px] font-extrabold px-3 py-1 rounded-full border tracking-wide uppercase bg-emerald-100 text-emerald-800 border-emerald-200 shadow-xs shrink-0">
+                            <span className="relative flex h-1.5 w-1.5">
+                              <span className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 bg-current" />
+                              <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-current" />
+                            </span>
+                            Live Session
+                          </span>
+                        </div>
+
+                        {/* Toggle Button */}
+                        <div className="mt-6 pt-4 border-t border-emerald-200/60">
+                          <motion.button
+                            whileTap={{ scale: 0.98 }}
                             onClick={() =>
                               toggleExpand(key, session.centerId, userId!)
                             }
-                            className="px-4 py-2 bg-white hover:bg-slate-50 text-slate-700 rounded-xl text-sm font-medium border border-slate-200 transition flex items-center gap-2 self-start"
+                            className={cn(
+                              "w-full py-3 px-4 rounded-2xl text-xs font-bold transition-all duration-300 flex items-center justify-center gap-2 border shadow-xs",
+                              isExpanded
+                                ? "bg-slate-900 text-white border-slate-900 shadow-md shadow-slate-950/10"
+                                : "bg-white/90 hover:bg-white text-emerald-900 border-emerald-200 hover:border-emerald-300 shadow-xs",
+                            )}
                           >
-                            {isExpanded ? "Hide" : "View Details"}
+                            <span>
+                              {isExpanded
+                                ? "Hide Clinical Details"
+                                : "View Live Clinical Details"}
+                            </span>
                             <ChevronDown
                               className={cn(
-                                "w-4 h-4 transition-transform",
+                                "w-4 h-4 transition-transform duration-300",
                                 isExpanded && "rotate-180",
                               )}
                             />
-                          </button>
+                          </motion.button>
                         </div>
 
+                        {/* Expandable Clinical Details Container */}
                         {isExpanded && (
                           <motion.div
                             initial={{ opacity: 0, height: 0 }}
                             animate={{ opacity: 1, height: "auto" }}
                             exit={{ opacity: 0, height: 0 }}
-                            className="mt-3 pl-4 border-l-2 border-emerald-200 space-y-3 overflow-hidden"
+                            transition={{ duration: 0.3, ease: "easeInOut" }}
+                            className="mt-4 pt-4 border-t border-emerald-200/60 space-y-4 overflow-hidden"
                           >
-                            {renderClinicalDetails(key)}
-
-                            {/* Rating Section */}
-                            <div className="pt-3 border-t border-slate-200">
-                              <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">
-                                Rate your experience
-                              </p>
-                              <div className="flex flex-wrap items-center gap-4">
-                                <RatingStars
-                                  value={session.rating || 0}
-                                  onRate={async (rating) => {
-                                    try {
-                                      const res = await fetch(
-                                        `/api/user/${userId}/rate`,
-                                        {
-                                          method: "POST",
-                                          headers: {
-                                            "Content-Type": "application/json",
-                                          },
-                                          credentials: "include",
-                                          body: JSON.stringify({
-                                            centerId: session.centerId,
-                                            sessionId: session.sessionId,
-                                            rating,
-                                          }),
-                                        },
-                                      );
-                                      if (res.ok) {
-                                        setHistory((prev) =>
-                                          prev.map((s) =>
-                                            s.sessionId === session.sessionId
-                                              ? { ...s, rating }
-                                              : s,
-                                          ),
-                                        );
-                                      }
-                                    } catch (err) {
-                                      console.error(
-                                        "Failed to rate session",
-                                        err,
-                                      );
-                                    }
-                                  }}
-                                />
-                                <span className="text-xs text-slate-500">
-                                  {session.rating
-                                    ? `Rated: ${session.rating}/5`
-                                    : "Tap a star to rate"}
-                                </span>
-                              </div>
+                            <div className="bg-white/90 backdrop-blur-md rounded-2xl p-4 border border-emerald-200/60 shadow-xs">
+                              {renderClinicalDetails(key)}
                             </div>
                           </motion.div>
                         )}
-                      </div>
+                      </motion.div>
                     );
                   })}
                 </div>
               ) : (
-                <div className="text-center py-12 text-slate-500">
-                  <History className="w-12 h-12 mx-auto text-slate-300 mb-3" />
-                  <p className="font-medium text-slate-700">
-                    No session history
+                <motion.div
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="text-center py-20 px-6 bg-gradient-to-b from-slate-50/80 to-white rounded-[2.5rem] border border-dashed border-slate-200 shadow-sm"
+                >
+                  <div className="w-16 h-16 mx-auto bg-emerald-50 text-emerald-600 rounded-2xl flex items-center justify-center mb-4 border border-emerald-100 shadow-sm">
+                    <Activity className="w-7 h-7" />
+                  </div>
+                  <p className="font-bold text-slate-800 text-base">
+                    No active care sessions
                   </p>
-                  <p className="text-sm">
-                    Your past care sessions will appear here.
+                  <p className="text-xs text-slate-500 max-w-sm mx-auto mt-1.5 leading-relaxed">
+                    You are not currently in an active care session. Connect
+                    with a medical center or provider to launch a live
+                    consultation.
                   </p>
+                  <motion.button
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                    className="mt-6 px-6 py-3 bg-slate-900 text-white rounded-2xl text-xs font-bold hover:bg-slate-800 transition shadow-lg shadow-slate-950/10"
+                    onClick={() => setActivePanel("doza-map")}
+                  >
+                    Find a Center Near You
+                  </motion.button>
+                </motion.div>
+              )}
+            </motion.div>
+          )}
+          {/* HISTORY TAB */}
+          {activeTab === "history" && (
+            <motion.div
+              key="history"
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -12 }}
+              transition={{ duration: 0.3, ease: "easeOut" }}
+              className="space-y-6"
+            >
+              {history.length > 0 ? (
+                <div className="space-y-4">
+                  {history.map((session: SessionSummary) => {
+                    const key = `history-${session.sessionId}`;
+                    const isExpanded = expandedId === key;
+                    const isEnded =
+                      session.status === "ended" || !session.status;
+
+                    return (
+                      <motion.div
+                        key={session.sessionId}
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        whileHover={{ y: -2, transition: { duration: 0.2 } }}
+                        className="group bg-white rounded-[1.75rem] p-5 border border-slate-200/80 shadow-sm hover:shadow-xl hover:shadow-slate-950/[0.03] transition-all duration-300 relative overflow-hidden"
+                      >
+                        <div className="flex items-start justify-between gap-4">
+                          <div className="flex items-start gap-4 min-w-0 flex-1">
+                            {/* Icon Indicator Badge */}
+                            <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-slate-50 to-slate-100 border border-slate-200/70 flex items-center justify-center shrink-0 shadow-xs group-hover:border-emerald-200 group-hover:bg-emerald-50/50 transition-colors">
+                              <History className="w-5 h-5 text-emerald-600" />
+                            </div>
+
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center gap-2.5 flex-wrap">
+                                <h4 className="font-extrabold text-slate-900 text-sm tracking-tight truncate">
+                                  {session.centerName}
+                                </h4>
+                                <span
+                                  className={cn(
+                                    "inline-flex items-center gap-1.5 text-[10px] font-extrabold px-2.5 py-1 rounded-full border tracking-wide uppercase",
+                                    isEnded
+                                      ? "bg-slate-100 text-slate-700 border-slate-200"
+                                      : "bg-emerald-50 text-emerald-700 border-emerald-200/80 shadow-xs",
+                                  )}
+                                >
+                                  {!isEnded && (
+                                    <span className="relative flex h-1.5 w-1.5">
+                                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 bg-current" />
+                                      <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-current" />
+                                    </span>
+                                  )}
+                                  {session.status || "ended"}
+                                </span>
+
+                                {session.rating && (
+                                  <span className="inline-flex items-center gap-1 text-xs font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200/80 shadow-xs">
+                                    <Star className="w-3.5 h-3.5 fill-current text-amber-500" />
+                                    {session.rating}/5
+                                  </span>
+                                )}
+                              </div>
+
+                              {/* Metadata Row */}
+                              <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs text-slate-500 mt-2 font-medium">
+                                <span className="flex items-center gap-1.5 bg-slate-50 px-2.5 py-1 rounded-lg border border-slate-100">
+                                  <Calendar className="w-3.5 h-3.5 text-slate-400" />
+                                  {formatDate(session.startTime)}
+                                </span>
+                                <span className="flex items-center gap-1.5 bg-slate-50 px-2.5 py-1 rounded-lg border border-slate-100">
+                                  <Clock className="w-3.5 h-3.5 text-slate-400" />
+                                  {formatDuration(
+                                    session.startTime,
+                                    session.endTime,
+                                  )}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Toggle Details Button */}
+                          <motion.button
+                            whileTap={{ scale: 0.96 }}
+                            onClick={() =>
+                              toggleExpand(key, session.centerId, userId!)
+                            }
+                            className={cn(
+                              "px-4 py-2.5 rounded-xl text-xs font-bold transition-all duration-300 flex items-center gap-2 border shrink-0 shadow-xs",
+                              isExpanded
+                                ? "bg-slate-900 text-white border-slate-900 shadow-md shadow-slate-950/10"
+                                : "bg-slate-50 hover:bg-slate-100 text-slate-700 border-slate-200/80",
+                            )}
+                          >
+                            <span>
+                              {isExpanded ? "Hide Details" : "View Details"}
+                            </span>
+                            <ChevronDown
+                              className={cn(
+                                "w-4 h-4 transition-transform duration-300",
+                                isExpanded && "rotate-180",
+                              )}
+                            />
+                          </motion.button>
+                        </div>
+
+                        {/* Expandable Clinical Details & Rating Container */}
+                        {isExpanded && (
+                          <motion.div
+                            initial={{ opacity: 0, height: 0 }}
+                            animate={{ opacity: 1, height: "auto" }}
+                            exit={{ opacity: 0, height: 0 }}
+                            transition={{ duration: 0.3, ease: "easeInOut" }}
+                            className="mt-4 pt-4 border-t border-slate-100 space-y-4 overflow-hidden"
+                          >
+                            <div className="bg-slate-50/80 rounded-2xl p-4 border border-slate-200/60">
+                              {renderClinicalDetails(key)}
+                            </div>
+
+                            <div className="bg-white rounded-2xl p-4 border border-slate-200/80 shadow-xs">
+                              <SessionRating
+                                sessionId={session.sessionId}
+                                centerId={session.centerId}
+                                initialRating={session.rating}
+                                initialComment={session.comment}
+                                onRated={(rating, comment) => {
+                                  setHistory((prev) =>
+                                    prev.map((s) =>
+                                      s.sessionId === session.sessionId
+                                        ? { ...s, rating, comment }
+                                        : s,
+                                    ),
+                                  );
+                                }}
+                              />
+                            </div>
+                          </motion.div>
+                        )}
+                      </motion.div>
+                    );
+                  })}
                 </div>
+              ) : (
+                <motion.div
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="text-center py-20 px-6 bg-gradient-to-b from-slate-50/80 to-white rounded-[2.5rem] border border-dashed border-slate-200 shadow-sm"
+                >
+                  <div className="w-16 h-16 mx-auto bg-emerald-50 text-emerald-600 rounded-2xl flex items-center justify-center mb-4 border border-emerald-100 shadow-sm">
+                    <History className="w-7 h-7" />
+                  </div>
+                  <p className="font-bold text-slate-800 text-base">
+                    No session history found
+                  </p>
+                  <p className="text-xs text-slate-500 max-w-sm mx-auto mt-1.5 leading-relaxed">
+                    Your past care sessions, consultations, and provider
+                    summaries will safely archive here once completed.
+                  </p>
+                  <motion.button
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                    className="mt-6 px-6 py-3 bg-slate-900 text-white rounded-2xl text-xs font-bold hover:bg-slate-800 transition shadow-lg shadow-slate-950/10"
+                    onClick={() => setActivePanel("doza-map")}
+                  >
+                    Find a Center Near You
+                  </motion.button>
+                </motion.div>
               )}
             </motion.div>
           )}
 
-          {/* ─── CENTERS ───────────────────────────────────────────── */}
+          {/* CENTERS TAB */}
           {activeTab === "centers" && (
             <motion.div
               key="centers"
-              initial={{ opacity: 0, y: 10 }}
+              initial={{ opacity: 0, y: 12 }}
               animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -10 }}
-              transition={{ duration: 0.2 }}
-              className="space-y-4"
+              exit={{ opacity: 0, y: -12 }}
+              transition={{ duration: 0.3, ease: "easeOut" }}
+              className="space-y-6"
             >
               {linkedCenters.length > 0 ? (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                   {linkedCenters.map((center: LinkedCenter) => {
                     const key = `center-${center.centerId}`;
                     const isExpanded = expandedId === key;
+                    const hasActive = activeSessions.some(
+                      (s) => s.centerId === center.centerId,
+                    );
                     return (
-                      <div
+                      <motion.div
                         key={center.centerId}
-                        className="bg-slate-50 rounded-xl p-4 border border-slate-200 hover:shadow-md transition-shadow"
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        whileHover={{ y: -3, transition: { duration: 0.2 } }}
+                        className={cn(
+                          "group relative overflow-hidden rounded-[2rem] p-6 border transition-all duration-300",
+                          hasActive
+                            ? "bg-gradient-to-br from-emerald-50/90 via-teal-50/30 to-white border-emerald-300/80 shadow-lg shadow-emerald-950/[0.04]"
+                            : "bg-white border-slate-200/80 shadow-sm hover:shadow-xl hover:shadow-slate-950/[0.04]",
+                        )}
                       >
-                        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2">
-                          <div>
-                            <div className="flex items-center gap-2">
-                              <Building className="w-4 h-4 text-emerald-500" />
-                              <h4 className="font-bold text-slate-900">
-                                {center.centerName}
-                              </h4>
-                            </div>
-                            <p className="text-xs text-slate-500 mt-1">
-                              {center.centerType}
-                            </p>
-                            <p className="text-xs text-slate-400 mt-2">
-                              Linked {formatDate(center.linkedAt)}
-                            </p>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <span
+                        {/* Top Accent Glow for Active State */}
+                        {hasActive && (
+                          <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-emerald-500 to-teal-400" />
+                        )}
+
+                        {/* Header Section */}
+                        <div className="flex items-start justify-between gap-4">
+                          <div className="flex items-start gap-4 min-w-0">
+                            <div
                               className={cn(
-                                "text-[10px] font-bold px-2 py-0.5 rounded-full",
-                                center.status === "active"
-                                  ? "bg-emerald-100 text-emerald-700"
-                                  : "bg-slate-200 text-slate-600",
+                                "w-12 h-12 rounded-2xl border flex items-center justify-center shrink-0 shadow-xs transition-transform duration-300 group-hover:scale-105",
+                                hasActive
+                                  ? "bg-emerald-100/80 border-emerald-200 text-emerald-700 shadow-emerald-200/50"
+                                  : "bg-gradient-to-br from-slate-50 to-slate-100 border-slate-200/70 text-slate-600 group-hover:border-emerald-200 group-hover:bg-emerald-50/50 group-hover:text-emerald-600",
                               )}
                             >
-                              {center.status}
-                            </span>
-                            <button
-                              onClick={() =>
-                                toggleExpand(key, center.centerId, userId!)
-                              }
-                              className="px-3 py-1.5 bg-white hover:bg-slate-50 text-slate-700 rounded-lg text-sm font-medium border border-slate-200 transition flex items-center gap-1"
-                            >
-                              {isExpanded ? "Hide" : "View Details"}
-                              <ChevronDown
-                                className={cn(
-                                  "w-4 h-4 transition-transform",
-                                  isExpanded && "rotate-180",
-                                )}
-                              />
-                            </button>
+                              <Building className="w-6 h-6" />
+                            </div>
+
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center gap-2.5 flex-wrap">
+                                <h3 className="font-extrabold text-slate-900 text-base tracking-tight truncate">
+                                  {center.centerName}
+                                </h3>
+                              </div>
+
+                              <div className="flex items-center gap-2 mt-1">
+                                <span className="text-xs font-bold text-slate-500 capitalize px-2 py-0.5 bg-slate-100/80 rounded-md border border-slate-200/60">
+                                  {center.centerType?.replace("_", " ")}
+                                </span>
+                                <span className="text-xs font-medium text-slate-400">
+                                  • Linked {formatDate(center.linkedAt)}
+                                </span>
+                              </div>
+                            </div>
                           </div>
+
+                          {hasActive && (
+                            <span className="inline-flex items-center gap-1.5 text-[10px] font-extrabold px-3 py-1 rounded-full border tracking-wide uppercase bg-emerald-50 text-emerald-700 border-emerald-200/80 shadow-xs shrink-0">
+                              <span className="relative flex h-1.5 w-1.5">
+                                <span className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 bg-current" />
+                                <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-current" />
+                              </span>
+                              Active Session
+                            </span>
+                          )}
                         </div>
 
+                        {/* Action Button & Expand Toggle */}
+                        <div className="mt-6 pt-4 border-t border-slate-100 flex items-center gap-3">
+                          <motion.button
+                            whileTap={{ scale: 0.98 }}
+                            onClick={() =>
+                              toggleExpand(key, center.centerId, userId!)
+                            }
+                            className={cn(
+                              "w-full py-3 px-4 rounded-2xl text-xs font-bold transition-all duration-300 flex items-center justify-center gap-2 border shadow-xs",
+                              isExpanded
+                                ? "bg-slate-900 text-white border-slate-900 shadow-md shadow-slate-950/10"
+                                : "bg-slate-50 hover:bg-slate-100 text-slate-700 border-slate-200/80 hover:border-slate-300",
+                            )}
+                          >
+                            <span>
+                              {isExpanded
+                                ? "Hide Details"
+                                : "View Clinical Details & Records"}
+                            </span>
+                            <ChevronDown
+                              className={cn(
+                                "w-4 h-4 transition-transform duration-300",
+                                isExpanded && "rotate-180",
+                              )}
+                            />
+                          </motion.button>
+                        </div>
+
+                        {/* Expandable Clinical Details Container */}
                         {isExpanded && (
                           <motion.div
                             initial={{ opacity: 0, height: 0 }}
                             animate={{ opacity: 1, height: "auto" }}
                             exit={{ opacity: 0, height: 0 }}
-                            className="mt-4 pt-4 border-t border-slate-200 space-y-3 overflow-hidden"
+                            transition={{ duration: 0.3, ease: "easeInOut" }}
+                            className="mt-4 pt-4 border-t border-slate-100 space-y-4 overflow-hidden"
                           >
-                            {renderClinicalDetails(key)}
+                            <div className="bg-slate-50/80 rounded-2xl p-4 border border-slate-200/60">
+                              {renderClinicalDetails(key)}
+                            </div>
                           </motion.div>
                         )}
-                      </div>
+                      </motion.div>
                     );
                   })}
                 </div>
               ) : (
-                <div className="text-center py-12 text-slate-500">
-                  <Link className="w-12 h-12 mx-auto text-slate-300 mb-3" />
-                  <p className="font-medium text-slate-700">
-                    No linked centers
+                <motion.div
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="text-center py-20 px-6 bg-gradient-to-b from-slate-50/80 to-white rounded-[2.5rem] border border-dashed border-slate-200 shadow-sm"
+                >
+                  <div className="w-16 h-16 mx-auto bg-emerald-50 text-emerald-600 rounded-2xl flex items-center justify-center mb-4 border border-emerald-100 shadow-sm">
+                    <Link2 className="w-7 h-7" />
+                  </div>
+                  <p className="font-bold text-slate-800 text-base">
+                    No linked centers found
                   </p>
-                  <p className="text-sm">
-                    You haven't linked any healthcare centers yet.
+                  <p className="text-xs text-slate-500 max-w-sm mx-auto mt-1.5 leading-relaxed">
+                    You haven't linked any healthcare centers yet. Connect with
+                    a facility to securely access shared records, prescriptions,
+                    and diagnostics.
                   </p>
+                  <motion.button
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                    className="mt-6 px-6 py-3 bg-slate-900 text-white rounded-2xl text-xs font-bold hover:bg-slate-800 transition shadow-lg shadow-slate-950/10"
+                    onClick={() => setActivePanel("doza-map")}
+                  >
+                    Find a Center Near You
+                  </motion.button>
+                </motion.div>
+              )}
+            </motion.div>
+          )}
+
+          {/* REQUESTS TAB */}
+          {activeTab === "requests" && (
+            <motion.div
+              key="requests"
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -12 }}
+              transition={{ duration: 0.3, ease: "easeOut" }}
+              className="space-y-6"
+            >
+              {/* Segmented Filter Control Bar */}
+              <div className="flex items-center gap-2 p-1.5 bg-slate-100/80 backdrop-blur-md rounded-2xl w-fit border border-slate-200/60 shadow-inner">
+                <motion.button
+                  whileTap={{ scale: 0.96 }}
+                  onClick={() => setHistoryFilter("active")}
+                  className={cn(
+                    "px-5 py-2.5 rounded-xl text-xs font-bold transition-all duration-300 relative",
+                    historyFilter === "active"
+                      ? "bg-white text-slate-900 shadow-md shadow-slate-950/5 border border-slate-200/80"
+                      : "text-slate-500 hover:text-slate-900 bg-transparent border border-transparent",
+                  )}
+                >
+                  Active Requests
+                </motion.button>
+                <motion.button
+                  whileTap={{ scale: 0.96 }}
+                  onClick={() => setHistoryFilter("history")}
+                  className={cn(
+                    "px-5 py-2.5 rounded-xl text-xs font-bold transition-all duration-300 relative",
+                    historyFilter === "history"
+                      ? "bg-white text-slate-900 shadow-md shadow-slate-950/5 border border-slate-200/80"
+                      : "text-slate-500 hover:text-slate-900 bg-transparent border border-transparent",
+                  )}
+                >
+                  History Archive
+                </motion.button>
+              </div>
+
+              {requestsLoading ? (
+                <div className="space-y-3.5">
+                  <SkeletonRequestItem />
+                  <SkeletonRequestItem />
+                  <SkeletonRequestItem />
                 </div>
+              ) : (
+                <>
+                  {userRequests.filter((req) =>
+                    historyFilter === "active"
+                      ? req.status === "pending"
+                      : req.status !== "pending",
+                  ).length === 0 ? (
+                    <motion.div
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className="text-center py-20 px-6 bg-gradient-to-b from-slate-50/80 to-white rounded-[2.5rem] border border-dashed border-slate-200 shadow-sm"
+                    >
+                      <div className="w-16 h-16 mx-auto bg-emerald-50 text-emerald-600 rounded-2xl flex items-center justify-center mb-4 border border-emerald-100 shadow-sm">
+                        <ClipboardCheck className="w-7 h-7" />
+                      </div>
+                      <p className="font-bold text-slate-800 text-base">
+                        {historyFilter === "active"
+                          ? "No active requests right now"
+                          : "No past request history"}
+                      </p>
+                      <p className="text-xs text-slate-500 max-w-sm mx-auto mt-1.5 leading-relaxed">
+                        {historyFilter === "active"
+                          ? "Your pending consultation, medication, or test requests will show up here as they process."
+                          : "Your completed, scheduled, or cancelled medical records will be safely archived here."}
+                      </p>
+                      {historyFilter === "active" && (
+                        <motion.button
+                          whileHover={{ scale: 1.02 }}
+                          whileTap={{ scale: 0.98 }}
+                          className="mt-6 px-6 py-3 bg-slate-900 text-white rounded-2xl text-xs font-bold hover:bg-slate-800 transition shadow-lg shadow-slate-950/10"
+                          onClick={() => setActivePanel("doza-map")}
+                        >
+                          Make a New Request
+                        </motion.button>
+                      )}
+                    </motion.div>
+                  ) : (
+                    <div className="space-y-4">
+                      {userRequests
+                        .filter((req) =>
+                          historyFilter === "active"
+                            ? req.status === "pending"
+                            : req.status !== "pending",
+                        )
+                        .map((req) => (
+                          <motion.div
+                            key={req.id}
+                            initial={{ opacity: 0, y: 10 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            whileHover={{
+                              y: -2,
+                              transition: { duration: 0.2 },
+                            }}
+                            className="group bg-white rounded-[1.75rem] p-5 border border-slate-200/80 shadow-sm hover:shadow-xl hover:shadow-slate-950/[0.03] transition-all duration-300 relative overflow-hidden"
+                          >
+                            <div className="flex items-start justify-between gap-4">
+                              <div className="flex items-start gap-4 min-w-0">
+                                {/* Icon Indicator Badge */}
+                                <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-slate-50 to-slate-100 border border-slate-200/70 flex items-center justify-center shrink-0 shadow-xs group-hover:border-emerald-200 group-hover:bg-emerald-50/50 transition-colors">
+                                  {req.type === "consultation" ? (
+                                    <Calendar className="w-5 h-5 text-blue-500" />
+                                  ) : req.type === "prescription" ? (
+                                    <Pill className="w-5 h-5 text-emerald-600" />
+                                  ) : (
+                                    <TestTube className="w-5 h-5 text-purple-500" />
+                                  )}
+                                </div>
+
+                                <div className="min-w-0 flex-1">
+                                  <div className="flex items-center gap-2.5 flex-wrap">
+                                    <h4 className="font-extrabold text-slate-900 text-sm tracking-tight truncate">
+                                      {req.centerName || "Medical Center"}
+                                    </h4>
+                                    <span
+                                      className={cn(
+                                        "inline-flex items-center gap-1.5 text-[10px] font-extrabold px-2.5 py-1 rounded-full border tracking-wide uppercase",
+                                        req.status === "pending"
+                                          ? "bg-amber-50 text-amber-700 border-amber-200/80 shadow-xs"
+                                          : req.status === "scheduled" ||
+                                              req.status === "confirmed"
+                                            ? "bg-emerald-50 text-emerald-700 border-emerald-200/80 shadow-xs"
+                                            : req.status === "cancelled"
+                                              ? "bg-rose-50 text-rose-700 border-rose-200/80 shadow-xs"
+                                              : "bg-slate-100 text-slate-700 border-slate-200",
+                                      )}
+                                    >
+                                      <span className="relative flex h-1.5 w-1.5">
+                                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 bg-current" />
+                                        <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-current" />
+                                      </span>
+                                      {req.status}
+                                    </span>
+                                  </div>
+
+                                  <p className="text-xs font-semibold text-slate-400 capitalize mt-0.5 tracking-wide">
+                                    {req.type}
+                                  </p>
+
+                                  {/* Details Stack */}
+                                  <div className="space-y-1 mt-2.5">
+                                    {req.medication && (
+                                      <div className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-700 bg-slate-50 px-2.5 py-1 rounded-lg border border-slate-100">
+                                        <span className="text-slate-400 font-semibold">
+                                          Medication:
+                                        </span>{" "}
+                                        {req.medication}
+                                      </div>
+                                    )}
+                                    {req.testName && (
+                                      <div className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-700 bg-slate-50 px-2.5 py-1 rounded-lg border border-slate-100">
+                                        <span className="text-slate-400 font-semibold">
+                                          Test:
+                                        </span>{" "}
+                                        {req.testName}
+                                      </div>
+                                    )}
+                                    {req.fulfillmentMethod && (
+                                      <div className="flex items-center gap-2 mt-1.5 text-xs font-medium text-slate-600">
+                                        <span className="p-1 rounded-md bg-slate-100 text-slate-500">
+                                          {req.fulfillmentMethod ===
+                                          "pickup" ? (
+                                            <ShoppingBag className="w-3 h-3" />
+                                          ) : (
+                                            <Truck className="w-3 h-3" />
+                                          )}
+                                        </span>
+                                        <span className="capitalize font-semibold text-slate-700">
+                                          {req.fulfillmentMethod}
+                                        </span>
+                                        {req.deliveryAddress && (
+                                          <span className="text-slate-400 truncate">
+                                            – {req.deliveryAddress}
+                                          </span>
+                                        )}
+                                      </div>
+                                    )}
+                                    {req.startTime && (
+                                      <div className="flex items-center gap-2 mt-1 text-xs text-slate-500 font-medium">
+                                        <Clock className="w-3.5 h-3.5 text-slate-400" />
+                                        {new Date(req.startTime).toLocaleString(
+                                          undefined,
+                                          {
+                                            dateStyle: "medium",
+                                            timeStyle: "short",
+                                          },
+                                        )}
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+
+                              <div className="w-8 h-8 rounded-full bg-slate-50 border border-slate-100 flex items-center justify-center text-slate-400 group-hover:bg-slate-900 group-hover:text-white group-hover:border-slate-900 transition-all duration-300 shrink-0 shadow-xs">
+                                <ChevronDown className="w-4 h-4 -rotate-90 group-hover:rotate-0 transition-transform duration-300" />
+                              </div>
+                            </div>
+
+                            {/* Full Response Notes Container */}
+                            {req.responseNotes && (
+                              <div className="mt-4 p-3.5 bg-emerald-50/70 border border-emerald-100/80 rounded-2xl text-xs text-emerald-900">
+                                <div className="flex items-center gap-1.5 font-bold text-emerald-800 mb-1 uppercase tracking-wider text-[10px]">
+                                  <span>Response Note</span>
+                                </div>
+                                <p className="leading-relaxed whitespace-pre-wrap font-medium">
+                                  {req.responseNotes}
+                                </p>
+                              </div>
+                            )}
+
+                            {/* Footer Timestamp */}
+                            <div className="flex items-center justify-between mt-4 pt-3.5 border-t border-slate-100 text-[11px]">
+                              <span className="text-slate-400 font-medium">
+                                Requested on{" "}
+                                {new Date(req.createdAt).toLocaleDateString(
+                                  undefined,
+                                  {
+                                    day: "numeric",
+                                    month: "short",
+                                    year: "numeric",
+                                  },
+                                )}
+                              </span>
+                            </div>
+                          </motion.div>
+                        ))}
+                    </div>
+                  )}
+                </>
               )}
             </motion.div>
           )}
         </AnimatePresence>
       </BentoTile>
 
-      {/* ─── Vitals History Modal ───────────────────────────────────── */}
+      {/* Vitals History Modal */}
       <AnimatePresence>
         {showVitalsHistory && (
           <div
@@ -1092,14 +1897,14 @@ export default function DozaPanel() {
               initial={{ opacity: 0, scale: 0.95, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 20 }}
-              className="bg-white rounded-2xl max-w-4xl w-full max-h-[90vh] flex flex-col shadow-2xl border border-slate-200/80 overflow-hidden"
+              className="bg-white rounded-3xl max-w-4xl w-full max-h-[90vh] flex flex-col shadow-2xl border border-slate-200/80 overflow-hidden"
             >
               {/* Header */}
-              <div className="flex items-center justify-between px-4 md:px-6 py-4 border-b border-slate-200/80 bg-gradient-to-r from-emerald-50 to-teal-50">
+              <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200/80 bg-gradient-to-r from-emerald-50 to-teal-50">
                 <h3
                   id="vitals-history-title"
                   className={cn(
-                    "text-lg font-bold text-slate-900",
+                    "text-xl font-bold text-slate-900",
                     poppins.className,
                   )}
                 >
@@ -1107,20 +1912,21 @@ export default function DozaPanel() {
                 </h3>
                 <button
                   onClick={() => setShowVitalsHistory(false)}
-                  className="p-1.5 hover:bg-slate-100 rounded-lg transition-colors"
+                  className="p-1.5 hover:bg-slate-100 rounded-xl transition-colors"
                 >
                   <X className="w-5 h-5 text-slate-500" />
                 </button>
               </div>
 
-              {/* Chart Controls */}
-              <div className="px-4 md:px-6 py-3 bg-slate-50/50 border-b border-slate-200 flex flex-wrap items-center gap-4">
+              {/* Controls */}
+              <div className="px-6 py-3 bg-slate-50/50 border-b border-slate-200 flex flex-wrap items-center gap-4">
                 <div className="flex items-center gap-2">
                   <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">
                     Chart Type:
                   </span>
                   <div className="flex gap-1">
-                    <button
+                    <motion.button
+                      whileTap={{ scale: 0.95 }}
                       onClick={() => setChartType("line")}
                       className={cn(
                         "p-1.5 rounded-lg transition-colors",
@@ -1128,11 +1934,11 @@ export default function DozaPanel() {
                           ? "bg-emerald-100 text-emerald-700"
                           : "text-slate-400 hover:bg-slate-100",
                       )}
-                      title="Line Chart"
                     >
                       <LineChart className="w-4 h-4" />
-                    </button>
-                    <button
+                    </motion.button>
+                    <motion.button
+                      whileTap={{ scale: 0.95 }}
                       onClick={() => setChartType("bar")}
                       className={cn(
                         "p-1.5 rounded-lg transition-colors",
@@ -1140,11 +1946,11 @@ export default function DozaPanel() {
                           ? "bg-emerald-100 text-emerald-700"
                           : "text-slate-400 hover:bg-slate-100",
                       )}
-                      title="Bar Chart"
                     >
                       <BarChart3 className="w-4 h-4" />
-                    </button>
-                    <button
+                    </motion.button>
+                    <motion.button
+                      whileTap={{ scale: 0.95 }}
                       onClick={() => setChartType("pie")}
                       className={cn(
                         "p-1.5 rounded-lg transition-colors",
@@ -1152,35 +1958,40 @@ export default function DozaPanel() {
                           ? "bg-emerald-100 text-emerald-700"
                           : "text-slate-400 hover:bg-slate-100",
                       )}
-                      title="Pie Chart"
                     >
                       <PieChart className="w-4 h-4" />
-                    </button>
+                    </motion.button>
                   </div>
                 </div>
 
                 {chartType !== "pie" && (
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">
-                      Field:
+                      Fields:
                     </span>
-                    <select
-                      value={selectedVitalKey}
-                      onChange={(e) => setSelectedVitalKey(e.target.value)}
-                      className="px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-sm text-slate-700 focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition"
-                    >
+                    <div className="flex flex-wrap gap-1">
                       {vitalFields.map((field) => (
-                        <option key={field} value={field}>
+                        <motion.button
+                          key={field}
+                          whileTap={{ scale: 0.95 }}
+                          onClick={() => toggleVitalKey(field)}
+                          className={cn(
+                            "px-3 py-1 rounded-full text-[10px] font-medium border transition-all",
+                            selectedVitalKeys.includes(field)
+                              ? "bg-emerald-600 text-white border-emerald-600"
+                              : "bg-white text-slate-700 border-slate-300 hover:bg-slate-50",
+                          )}
+                        >
                           {field.replace(/([A-Z])/g, " $1").trim()}
-                        </option>
+                        </motion.button>
                       ))}
-                    </select>
+                    </div>
                   </div>
                 )}
               </div>
 
-              {/* Chart Container */}
-              <div className="flex-1 overflow-y-auto p-4 md:p-6">
+              {/* Chart */}
+              <div className="flex-1 overflow-y-auto p-6">
                 {vitalsHistoryData.length > 0 ? (
                   <div className="space-y-6">
                     <div className="bg-white rounded-xl p-4 border border-slate-200">
@@ -1193,10 +2004,7 @@ export default function DozaPanel() {
                               plugins: {
                                 legend: {
                                   position: "bottom",
-                                  labels: {
-                                    font: { size: 10 },
-                                    boxWidth: 12,
-                                  },
+                                  labels: { font: { size: 10 }, boxWidth: 12 },
                                 },
                                 title: {
                                   display: true,
@@ -1205,85 +2013,51 @@ export default function DozaPanel() {
                                 },
                               },
                             }}
-                            className="max-h-[300px] w-full"
                           />
                         </div>
-                      ) : chartType === "line" ? (
-                        <Line
-                          data={chartData}
-                          options={{
-                            responsive: true,
-                            plugins: {
-                              legend: {
-                                display: true,
-                                position: "top",
-                                labels: {
-                                  font: { size: 10 },
+                      ) : chartType === "line" || chartType === "bar" ? (
+                        <div className="h-[300px]">
+                          {chartType === "line" ? (
+                            <Line
+                              data={chartData}
+                              options={{
+                                responsive: true,
+                                maintainAspectRatio: false,
+                                plugins: {
+                                  legend: {
+                                    position: "top",
+                                    labels: { font: { size: 10 } },
+                                  },
                                 },
-                              },
-                              title: {
-                                display: true,
-                                text: `${selectedVitalKey.replace(/([A-Z])/g, " $1").trim()} over time`,
-                                font: { size: 14, weight: "bold" },
-                              },
-                            },
-                            scales: {
-                              y: {
-                                beginAtZero: true,
-                                grid: { color: "rgba(0,0,0,0.05)" },
-                              },
-                              x: {
-                                grid: { display: false },
-                                ticks: {
-                                  maxTicksLimit: 10,
-                                  font: { size: 8 },
+                                scales: {
+                                  y: { beginAtZero: true },
+                                  x: { ticks: { maxTicksLimit: 10 } },
                                 },
-                              },
-                            },
-                            maintainAspectRatio: false,
-                          }}
-                          className="h-[250px] md:h-[300px] w-full"
-                        />
-                      ) : (
-                        <Bar
-                          data={chartData}
-                          options={{
-                            responsive: true,
-                            plugins: {
-                              legend: {
-                                display: true,
-                                position: "top",
-                                labels: {
-                                  font: { size: 10 },
+                              }}
+                            />
+                          ) : (
+                            <Bar
+                              data={chartData}
+                              options={{
+                                responsive: true,
+                                maintainAspectRatio: false,
+                                plugins: {
+                                  legend: {
+                                    position: "top",
+                                    labels: { font: { size: 10 } },
+                                  },
                                 },
-                              },
-                              title: {
-                                display: true,
-                                text: `${selectedVitalKey.replace(/([A-Z])/g, " $1").trim()} over time`,
-                                font: { size: 14, weight: "bold" },
-                              },
-                            },
-                            scales: {
-                              y: {
-                                beginAtZero: true,
-                                grid: { color: "rgba(0,0,0,0.05)" },
-                              },
-                              x: {
-                                grid: { display: false },
-                                ticks: {
-                                  maxTicksLimit: 10,
-                                  font: { size: 8 },
+                                scales: {
+                                  y: { beginAtZero: true },
+                                  x: { ticks: { maxTicksLimit: 10 } },
                                 },
-                              },
-                            },
-                            maintainAspectRatio: false,
-                          }}
-                          className="h-[250px] md:h-[300px] w-full"
-                        />
-                      )}
+                              }}
+                            />
+                          )}
+                        </div>
+                      ) : null}
                     </div>
 
-                    {/* Data Table */}
                     <div className="overflow-x-auto">
                       <table className="w-full text-sm">
                         <thead className="bg-slate-50 border-b border-slate-200">
@@ -1294,12 +2068,12 @@ export default function DozaPanel() {
                             <th className="text-left px-4 py-2 text-[10px] font-bold text-slate-500 uppercase tracking-wider">
                               Recorded By
                             </th>
-                            {vitalFields.map((field) => (
+                            {selectedVitalKeys.map((key) => (
                               <th
-                                key={field}
+                                key={key}
                                 className="text-left px-4 py-2 text-[10px] font-bold text-slate-500 uppercase tracking-wider"
                               >
-                                {field.replace(/([A-Z])/g, " $1").trim()}
+                                {key.replace(/([A-Z])/g, " $1").trim()}
                               </th>
                             ))}
                           </tr>
@@ -1316,14 +2090,14 @@ export default function DozaPanel() {
                               <td className="px-4 py-3 text-xs text-slate-700">
                                 {record.recordedBy || "Unknown"}
                               </td>
-                              {vitalFields.map((field) => (
+                              {selectedVitalKeys.map((key) => (
                                 <td
-                                  key={field}
+                                  key={key}
                                   className="px-4 py-3 text-xs text-slate-700"
                                 >
-                                  {record[field] !== undefined &&
-                                  record[field] !== null
-                                    ? `${record[field]}`
+                                  {record[key] !== undefined &&
+                                  record[key] !== null
+                                    ? `${record[key]}`
                                     : "—"}
                                 </td>
                               ))}
@@ -1348,11 +2122,41 @@ export default function DozaPanel() {
   );
 }
 
-// ─── Loading State ──────────────────────────────────────────────────
-function LoadingState() {
+// ─── Skeleton Panel ──────────────────────────────────────────────
+function SkeletonDozaPanel() {
   return (
-    <div className="flex items-center justify-center py-12">
-      <Loader2 className="w-8 h-8 text-emerald-600 animate-spin" />
+    <div className="space-y-8 p-3 md:p-6 max-w-7xl mx-auto">
+      {/* Header */}
+      <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-6">
+        <div>
+          <div className="flex items-center gap-3 mb-2">
+            <Skeleton className="h-8 w-1 rounded-full" />
+            <Skeleton className="h-4 w-24" />
+          </div>
+          <Skeleton className="h-12 w-64 md:w-80" />
+          <Skeleton className="h-4 w-48 mt-2" />
+        </div>
+        <Skeleton className="h-12 w-32 rounded-2xl" />
+      </div>
+
+      {/* Tabs */}
+      <div className="flex overflow-x-auto gap-2 pb-2">
+        <Skeleton className="h-12 w-28 rounded-2xl shrink-0" />
+        <Skeleton className="h-12 w-28 rounded-2xl shrink-0" />
+        <Skeleton className="h-12 w-28 rounded-2xl shrink-0" />
+        <Skeleton className="h-12 w-28 rounded-2xl shrink-0" />
+      </div>
+
+      {/* Main Tile */}
+      <BentoTile>
+        <div className="space-y-6">
+          {/* Skeleton cards for active sessions */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <SkeletonSessionCard />
+            <SkeletonSessionCard />
+          </div>
+        </div>
+      </BentoTile>
     </div>
   );
 }

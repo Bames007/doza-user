@@ -1,5 +1,4 @@
-// app/api/centers/[centerId]/patients/[patientId]/route.ts
-// For patients to fetch their own clinical data from a center, including tests
+// app/api/centers/[centerId]/patients/[patientId]/route.ts (extended)
 
 import { NextRequest, NextResponse } from "next/server";
 import { ref, get } from "firebase/database";
@@ -21,13 +20,8 @@ export async function GET(
 ) {
   const { centerId, patientId } = await params;
   try {
-    // 1. Authenticate: try session cookie, then x-user-id, then Bearer
     let requesterId: string | null = await verifySessionCookie(request);
-
-    if (!requesterId) {
-      requesterId = request.headers.get("x-user-id") || null;
-    }
-
+    if (!requesterId) requesterId = request.headers.get("x-user-id") || null;
     if (!requesterId) {
       const authHeader = request.headers.get("Authorization");
       if (authHeader?.startsWith("Bearer ")) {
@@ -35,39 +29,25 @@ export async function GET(
         try {
           const decoded = await adminAuth.verifyIdToken(token);
           requesterId = decoded.uid;
-        } catch {
-          // invalid token – ignore
-        }
+        } catch {}
       }
     }
-
-    if (!requesterId) {
-      return unauthorized();
-    }
-
-    // 2. Ensure patient can only access their own data
+    if (!requesterId) return unauthorized();
     if (requesterId !== patientId) {
       return NextResponse.json(
-        {
-          success: false,
-          error: "Forbidden: You can only access your own data",
-        },
+        { success: false, error: "Forbidden" },
         { status: 403 },
       );
     }
 
-    // 3. Rate limit
     const rateKey = `${requesterId}:patient:${centerId}:${patientId}`;
     if (!rateLimiter.check(rateKey, 30, 60)) return tooManyRequests();
 
-    // 4. Cache check
     const cacheKey = `patient:${centerId}:${patientId}`;
     const cached = cache.get<any>(cacheKey);
-    if (cached) {
-      return NextResponse.json({ success: true, data: cached });
-    }
+    if (cached) return NextResponse.json({ success: true, data: cached });
 
-    // 5. Fetch patient data
+    // Patient data
     const patientRef = ref(
       db,
       `doza_centers/${centerId}/patients/${patientId}`,
@@ -81,7 +61,7 @@ export async function GET(
     }
     const patientData = patientSnap.val();
 
-    // 6. Fetch tests for this patient
+    // Tests
     const testsRef = ref(db, `doza_centers/${centerId}/tests`);
     const testsSnap = await get(testsRef);
     let tests: any[] = [];
@@ -92,10 +72,53 @@ export async function GET(
         .map((t: any) => ({ ...t }));
     }
 
+    // Follow‑up appointments
+    const followUpRef = ref(
+      db,
+      `doza_centers/${centerId}/patients/${patientId}/followUpAppointments`,
+    );
+    const followUpSnap = await get(followUpRef);
+    let followUps: any[] = [];
+    if (followUpSnap.exists()) {
+      const data = followUpSnap.val();
+      followUps = Object.entries(data).map(([id, val]) => ({
+        id,
+        ...(val as any),
+      }));
+      followUps.sort(
+        (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime(),
+      );
+    }
+
+    // Take‑home medications – we'll treat prescriptions with source === "external" or dispensed === true and a flag
+    // For now, we'll filter prescriptions where dispensedStatus !== "none" and source === "external"
+    const prescriptions = patientData.prescriptions || [];
+    const takeHomeMeds = prescriptions
+      .filter(
+        (rx: any) =>
+          rx.dispensedStatus &&
+          rx.dispensedStatus !== "none" &&
+          (rx.source === "external" || rx.source === "hospital"),
+      )
+      .map((rx: any) => ({
+        ...rx,
+        id: `takehome-${Date.now()}-${Math.random()}`,
+      })); // pseudo id
+
+    // Center name
+    const centerRef = ref(db, `doza_centers/${centerId}`);
+    const centerSnap = await get(centerRef);
+    const centerName = centerSnap.exists()
+      ? centerSnap.val().centerName || "Unknown Center"
+      : "Unknown Center";
+
     const fullData = {
       id: patientId,
+      centerName,
       ...patientData,
       tests,
+      followUpAppointments: followUps,
+      takeHomeMedications: takeHomeMeds,
     };
 
     cache.set(cacheKey, fullData, 30);

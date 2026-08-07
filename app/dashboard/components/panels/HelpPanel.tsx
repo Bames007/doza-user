@@ -3,23 +3,16 @@
 import { useState, useMemo, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Canvas, useFrame } from "@react-three/fiber";
-import {
-  Float,
-  MeshDistortMaterial,
-  PerspectiveCamera,
-} from "@react-three/drei";
+import { Float, PerspectiveCamera } from "@react-three/drei";
 import * as THREE from "three";
 import {
   ChevronDown,
-  ChevronUp,
   Mail,
   Send,
   Loader2,
-  X,
   MessageCircle,
   Phone,
   Search,
-  LifeBuoy,
   BookOpen,
   ArrowRight,
 } from "lucide-react";
@@ -120,7 +113,6 @@ export default function HelpPanel() {
   const [searchQuery, setSearchQuery] = useState("");
   const [openFaq, setOpenFaq] = useState<string | null>(null);
   const [submitted, setSubmitted] = useState(false);
-  const [showHelp, setShowHelp] = useState(false);
 
   const filteredFaqs = useMemo(() => {
     if (!searchQuery) return faqs;
@@ -196,7 +188,7 @@ export default function HelpPanel() {
               </div>
             </div>
 
-            {/* 3D Visual - Hidden on small mobile for performance */}
+            {/* 3D Visual */}
             <div className="hidden lg:block w-full lg:w-[400px] h-[300px]">
               <MedicalScene />
             </div>

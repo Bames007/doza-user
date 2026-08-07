@@ -5,7 +5,9 @@ import { useLinkedCenters } from "./useLinkedCenters";
 import { useUserContext } from "../UserContext";
 
 export interface PrescribedMedication {
-  id: string; // `${centerId}-${index}`
+  durationDays: any;
+  quantityPerDose: number;
+  id: string;
   centerId: string;
   centerName: string;
   medication: string;
@@ -19,7 +21,9 @@ export interface PrescribedMedication {
   dispensed: boolean;
   dispensedStatus?: string;
   status: "active" | "completed" | "paused";
-  // We'll generate doses on the client based on frequency and start date
+  source: "hospital" | "external";
+  totalQuantity: number;
+  dispensedTotal: number;
 }
 
 export function usePrescribedMedications() {
@@ -57,17 +61,20 @@ export function usePrescribedMedications() {
               id: `${center.centerId}-${idx}`,
               centerId: center.centerId,
               centerName: center.centerName,
-              medication: rx.medication,
-              dosage: rx.dosage,
-              frequency: rx.frequency,
-              route: rx.route,
-              duration: rx.duration,
+              medication: rx.medication || "Unknown",
+              dosage: rx.dosage || "",
+              frequency: rx.frequency || "",
+              route: rx.route || "",
+              duration: rx.duration || "",
               instructions: rx.instructions || "",
               prescribedBy: rx.prescribedBy || "Doctor",
               prescribedAt: rx.prescribedAt || new Date().toISOString(),
               dispensed: rx.dispensed || false,
               dispensedStatus: rx.dispensedStatus || "none",
               status: rx.dispensed ? "completed" : "active",
+              source: rx.source || "hospital",
+              totalQuantity: rx.totalQuantity || 1,
+              dispensedTotal: rx.dispensedTotal || 0,
             }),
           );
           allRx.push(...rxList);

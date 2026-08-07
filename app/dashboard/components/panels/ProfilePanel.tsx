@@ -18,11 +18,13 @@ import {
   Fingerprint,
   HeartPulse,
   ChevronRight,
+  Sparkles,
+  ShieldAlert,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { cn } from "@/app/utils/utils";
 import { authPut } from "@/app/utils/client-auth";
-import { poppins, bebasNeue } from "@/app/constants";
+import { poppins } from "@/app/constants";
 
 // Avatar Assets
 const AVATARS = [
@@ -106,7 +108,7 @@ export default function ProfilePanel() {
         reset(data);
       }
     } catch {
-      alert("System Sync Failed");
+      alert("Failed to save profile");
     } finally {
       setIsSaving(false);
     }
@@ -114,64 +116,63 @@ export default function ProfilePanel() {
 
   if (isLoading)
     return (
-      <div className="h-screen bg-[#F8FAFC] flex flex-col items-center justify-center gap-4">
-        <Loader2 className="animate-spin text-emerald-500" size={40} />
-        <span
-          className={cn(
-            "text-2xl font-black text-slate-400 tracking-tighter uppercase",
-            bebasNeue.className,
-          )}
-        >
-          Decrypting Identity...
-        </span>
+      <div
+        className={cn(
+          "min-h-screen bg-[#F8FAFC] pb-44 pt-8",
+          poppins.className,
+        )}
+      >
+        <div className="max-w-6xl mx-auto px-4 md:px-6 space-y-10 animate-pulse">
+          {/* Hero Skeleton */}
+          <div className="h-64 rounded-[36px] bg-slate-200 w-full" />
+
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-10">
+            <div className="lg:col-span-8 space-y-10">
+              <div className="h-48 rounded-[36px] bg-white border border-slate-200" />
+              <div className="h-80 rounded-[36px] bg-white border border-slate-200" />
+            </div>
+            <div className="lg:col-span-4">
+              <div className="h-96 rounded-[36px] bg-white border border-slate-200" />
+            </div>
+          </div>
+        </div>
       </div>
     );
 
   return (
     <div
-      className={cn("min-h-screen bg-[#F8FAFC] pb-40 pt-6", poppins.className)}
+      className={cn(
+        "min-h-screen bg-[#F8FAFC] pb-44 pt-8 selection:bg-emerald-500 selection:text-white",
+        poppins.className,
+      )}
     >
       <div className="max-w-6xl mx-auto px-4 md:px-6">
-        {/* --- HERO SECTION (Dashboard Style) --- */}
-        <section className="relative rounded-[32px] md:rounded-[40px] bg-slate-900 overflow-hidden mb-12 shadow-2xl border border-white/5">
-          <div className="absolute top-0 right-0 w-1/3 h-full bg-gradient-to-l from-emerald-500/10 to-transparent" />
-          <div className="absolute -left-20 -bottom-20 w-80 h-80 bg-emerald-600/5 rounded-full blur-[100px]" />
+        {/* --- HERO SECTION --- */}
+        <section className="relative rounded-[36px] md:rounded-[48px] bg-slate-900 overflow-hidden mb-12 shadow-sm border border-slate-800">
+          <div className="absolute top-0 right-0 w-1/2 h-full bg-gradient-to-l from-emerald-500/10 to-transparent pointer-events-none" />
 
-          <div className="relative z-10 p-8 md:p-14 flex flex-col md:flex-row items-center gap-10">
-            <div className="relative group">
-              <div className="w-28 h-28 md:w-40 md:h-40 rounded-[35px] overflow-hidden border-4 border-emerald-500 shadow-2xl rotate-3 bg-white transition-transform group-hover:rotate-0 duration-500">
-                <img
-                  src={
-                    AVATARS.find((a) => a.id === watchedAvatar)?.src ||
-                    AVATARS[0].src
-                  }
-                  className="w-full h-full object-cover"
-                  alt="Profile"
-                />
-              </div>
-              <div className="absolute -bottom-3 -right-3 p-4 bg-emerald-500 rounded-2xl shadow-xl border-4 border-slate-900">
-                <Fingerprint className="text-white w-6 h-6" />
-              </div>
+          <div className="relative z-10 p-8 md:p-14 flex flex-col md:flex-row items-center gap-8">
+            <div className="w-32 h-32 md:w-36 md:h-36 rounded-[32px] overflow-hidden border-4 border-slate-800 shadow-lg bg-slate-800 shrink-0">
+              <img
+                src={
+                  AVATARS.find((a) => a.id === watchedAvatar)?.src ||
+                  AVATARS[0].src
+                }
+                className="w-full h-full object-cover"
+                alt="Profile"
+              />
             </div>
 
-            <div className="flex-1 text-center md:text-left">
-              <div className="flex items-center gap-2 mb-3 justify-center md:justify-start">
-                <span className="h-[2px] w-8 bg-emerald-500" />
-                <span className="text-[10px] font-black text-emerald-400 uppercase tracking-[0.4em]">
-                  Biometric Record
-                </span>
-              </div>
-              <h1
-                className={cn(
-                  "text-5xl md:text-8xl text-white leading-[0.85] mb-4",
-                  bebasNeue.className,
-                )}
-              >
-                IDENTITY <span className="text-emerald-500">MATRIX</span>
+            <div className="flex-1 text-center md:text-left space-y-2">
+              <span className="text-xs font-bold text-emerald-400 uppercase tracking-wider">
+                Account Settings
+              </span>
+              <h1 className="text-4xl md:text-5xl font-bold text-white tracking-tight">
+                Profile & Information
               </h1>
-              <p className="text-slate-400 text-sm max-w-md font-medium">
-                Manage your clinical biometrics, authenticated identity, and
-                emergency medical protocols.
+              <p className="text-slate-400 text-sm max-w-lg font-medium leading-relaxed">
+                Update your personal details, physical metrics, and emergency
+                contacts.
               </p>
             </div>
           </div>
@@ -181,35 +182,37 @@ export default function ProfilePanel() {
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-10">
             {/* LEFT: PRIMARY DATA */}
             <div className="lg:col-span-8 space-y-10">
-              {/* Avatar Matrix */}
-              <section className="bg-white rounded-[32px] p-8 border border-slate-200 shadow-sm">
-                <div className="flex items-center gap-3 mb-8">
-                  <div className="w-10 h-10 bg-emerald-50 rounded-xl flex items-center justify-center">
-                    <User className="text-emerald-600" size={20} />
+              {/* Avatar Selection */}
+              <section className="bg-white rounded-[36px] p-8 md:p-10 border border-slate-200/80 shadow-sm">
+                <div className="flex items-center gap-4 mb-6">
+                  <div className="w-12 h-12 bg-emerald-50 rounded-2xl flex items-center justify-center border border-emerald-100/60">
+                    <User className="text-emerald-600" size={22} />
                   </div>
-                  <h3
-                    className={cn(
-                      "text-3xl text-slate-900",
-                      bebasNeue.className,
-                    )}
-                  >
-                    Visual Identifier
-                  </h3>
+                  <div>
+                    <h3 className="text-2xl font-bold text-slate-900 leading-none mb-1">
+                      Profile Picture
+                    </h3>
+                    <p className="text-xs text-slate-400 font-medium">
+                      Choose an avatar for your account
+                    </p>
+                  </div>
                 </div>
 
-                <div className="grid grid-cols-4 sm:grid-cols-8 gap-4">
+                <div className="grid grid-cols-4 sm:grid-cols-8 gap-3 sm:gap-4">
                   {AVATARS.map((avatar) => (
-                    <button
+                    <motion.button
                       key={avatar.id}
                       type="button"
+                      whileHover={{ scale: 1.05 }}
+                      whileTap={{ scale: 0.95 }}
                       onClick={() =>
                         reset({ ...watch(), avatarId: avatar.id } as any)
                       }
                       className={cn(
-                        "aspect-square rounded-2xl overflow-hidden border-2 transition-all active:scale-90",
+                        "aspect-square rounded-2xl overflow-hidden border-2 transition-all relative",
                         watchedAvatar === avatar.id
-                          ? "border-emerald-500 ring-4 ring-emerald-50 scale-105 shadow-lg shadow-emerald-500/10"
-                          : "border-slate-100 opacity-50 grayscale hover:opacity-100 hover:grayscale-0",
+                          ? "border-emerald-500 ring-4 ring-emerald-500/10 shadow-md"
+                          : "border-slate-100 opacity-60 hover:opacity-100",
                       )}
                     >
                       <img
@@ -217,90 +220,103 @@ export default function ProfilePanel() {
                         className="w-full h-full object-cover"
                         alt="avatar"
                       />
-                    </button>
+                    </motion.button>
                   ))}
                 </div>
               </section>
 
-              {/* Registry Information */}
-              <section className="bg-white rounded-[32px] p-8 border border-slate-200 shadow-sm space-y-8">
-                <h3
-                  className={cn(
-                    "text-3xl text-slate-900 mb-2",
-                    bebasNeue.className,
-                  )}
-                >
-                  Registry Data
-                </h3>
-                <div className="grid md:grid-cols-2 gap-8">
+              {/* Personal Information */}
+              <section className="bg-white rounded-[36px] p-8 md:p-10 border border-slate-200/80 shadow-sm space-y-8">
+                <div className="flex items-center gap-4 mb-2">
+                  <div className="w-12 h-12 bg-emerald-50 rounded-2xl flex items-center justify-center border border-emerald-100/60">
+                    <ShieldCheck className="text-emerald-600" size={22} />
+                  </div>
+                  <div>
+                    <h3 className="text-2xl font-bold text-slate-900 leading-none mb-1">
+                      Personal Details
+                    </h3>
+                    <p className="text-xs text-slate-400 font-medium">
+                      Your primary identification information
+                    </p>
+                  </div>
+                </div>
+
+                <div className="grid md:grid-cols-2 gap-6">
                   <InputGroup
-                    label="Full Display Name"
+                    label="Full Name"
                     error={errors.displayName?.message}
                   >
-                    <User size={20} className="text-emerald-600" />
+                    <User size={20} className="text-emerald-600 shrink-0" />
                     <input
                       {...register("displayName")}
-                      className="bg-transparent outline-none w-full text-base font-bold text-slate-800"
+                      placeholder="Enter your name"
+                      className="bg-transparent outline-none w-full text-base font-medium text-slate-800 placeholder:text-slate-300"
                     />
                   </InputGroup>
-                  <InputGroup label="Emergency Mobile">
-                    <Phone size={20} className="text-emerald-600" />
+                  <InputGroup label="Phone Number">
+                    <Phone size={20} className="text-emerald-600 shrink-0" />
                     <input
                       {...register("phone")}
-                      placeholder="+234..."
-                      className="bg-transparent outline-none w-full text-base font-bold text-slate-800"
+                      placeholder="Enter phone number"
+                      className="bg-transparent outline-none w-full text-base font-medium text-slate-800 placeholder:text-slate-300"
                     />
                   </InputGroup>
                 </div>
 
-                <div className="bg-slate-900 rounded-[24px] p-6 flex items-center justify-between group overflow-hidden relative">
-                  <div className="absolute right-0 top-0 h-full w-32 bg-emerald-500/5 -skew-x-12 translate-x-10" />
-                  <div className="relative z-10">
-                    <label className="text-[10px] font-black text-emerald-400 uppercase tracking-widest block mb-1">
-                      System Locked Email
+                <div className="bg-slate-900 rounded-[28px] p-7 flex items-center justify-between shadow-sm border border-slate-800">
+                  <div className="space-y-1">
+                    <label className="text-[11px] font-bold text-emerald-400 uppercase tracking-wider block">
+                      Email Address
                     </label>
-                    <span className="text-lg font-bold text-white tracking-tight">
+                    <span className="text-lg md:text-xl font-medium text-white tracking-tight">
                       {profile?.email}
                     </span>
                   </div>
-                  <ShieldCheck className="text-emerald-500 w-8 h-8 relative z-10" />
+                  <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center shrink-0">
+                    <ShieldCheck className="text-emerald-400 w-6 h-6" />
+                  </div>
                 </div>
               </section>
             </div>
 
-            {/* RIGHT: BIOMETRICS */}
+            {/* RIGHT: HEALTH METRICS */}
             <div className="lg:col-span-4">
-              <section className="bg-white rounded-[32px] p-8 border border-slate-200 shadow-sm space-y-8 sticky top-8">
+              <section className="bg-white rounded-[36px] p-8 border border-slate-200/80 shadow-sm space-y-8 sticky top-8">
                 <div className="flex items-center justify-between">
-                  <h3
-                    className={cn(
-                      "text-3xl text-slate-900",
-                      bebasNeue.className,
-                    )}
-                  >
-                    Biometrics
-                  </h3>
-                  <Dna size={24} className="text-emerald-600" />
+                  <div>
+                    <h3 className="text-2xl font-bold text-slate-900 leading-none mb-1">
+                      Health Metrics
+                    </h3>
+                    <p className="text-xs text-slate-400 font-medium">
+                      Physical attributes
+                    </p>
+                  </div>
+                  <div className="w-11 h-11 bg-emerald-50 rounded-2xl flex items-center justify-center border border-emerald-100/60">
+                    <Dna size={22} className="text-emerald-600" />
+                  </div>
                 </div>
 
-                <div className="space-y-6">
+                <div className="space-y-5">
                   <MetricInput label="Blood Group">
-                    <HeartPulse className="w-4 h-4 text-rose-500" />
+                    <HeartPulse className="w-4 h-4 text-rose-500 shrink-0" />
                     <input
                       {...register("bloodGroup")}
-                      placeholder="O+"
-                      className="bg-transparent outline-none w-full text-slate-900 font-black text-center"
+                      placeholder="e.g. O+"
+                      className="bg-transparent outline-none w-full text-slate-900 font-bold text-center placeholder:text-slate-300"
                     />
                   </MetricInput>
 
-                  <MetricInput label="Gender Identity">
+                  <MetricInput label="Gender">
                     <select
                       {...register("gender")}
-                      className="bg-transparent outline-none w-full text-xs font-black text-slate-700 cursor-pointer appearance-none text-center"
+                      className="bg-transparent outline-none w-full text-xs font-bold text-slate-700 cursor-pointer appearance-none text-center"
                     >
-                      <option value="male">MALE</option>
-                      <option value="female">FEMALE</option>
-                      <option value="prefer-not-to-say">NOT SET</option>
+                      <option value="male">Male</option>
+                      <option value="female">Female</option>
+                      <option value="other">Other</option>
+                      <option value="prefer-not-to-say">
+                        Prefer not to say
+                      </option>
                     </select>
                   </MetricInput>
 
@@ -309,47 +325,45 @@ export default function ProfilePanel() {
                       <input
                         type="number"
                         {...register("height", { valueAsNumber: true })}
-                        className="bg-transparent outline-none w-full font-black text-sm text-center"
+                        placeholder="175"
+                        className="bg-transparent outline-none w-full font-bold text-sm text-center placeholder:text-slate-300"
                       />
                     </MetricInput>
                     <MetricInput label="Weight (kg)">
                       <input
                         type="number"
                         {...register("weight", { valueAsNumber: true })}
-                        className="bg-transparent outline-none w-full font-black text-sm text-center"
+                        placeholder="70"
+                        className="bg-transparent outline-none w-full font-bold text-sm text-center placeholder:text-slate-300"
                       />
                     </MetricInput>
                   </div>
                 </div>
 
-                <div className="pt-6 border-t border-slate-100">
-                  <p className="text-[10px] text-slate-400 font-bold leading-relaxed">
-                    Clinical data is encrypted using AES-256 standards. Only
-                    authorized personnel can access these metrics.
+                <div className="pt-6 border-t border-slate-100 bg-slate-50/50 -mx-8 -mb-8 p-8 rounded-b-[36px]">
+                  <p className="text-xs text-slate-400 font-medium leading-relaxed">
+                    Your health information is kept private and secure.
                   </p>
                 </div>
               </section>
             </div>
           </div>
 
-          {/* EMERGENCY PROTOCOLS (Full Width) */}
-          <section className="bg-rose-50/30 rounded-[40px] p-8 md:p-12 border border-rose-100">
+          {/* EMERGENCY CONTACTS (Full Width) */}
+          <section className="bg-rose-50/30 rounded-[40px] md:rounded-[48px] p-8 md:p-12 border border-rose-100 shadow-sm">
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 mb-10">
-              <div>
-                <h3
-                  className={cn(
-                    "text-4xl text-rose-900 leading-none",
-                    bebasNeue.className,
-                  )}
-                >
-                  Emergency Protocols
+              <div className="space-y-1">
+                <h3 className="text-3xl md:text-4xl font-bold text-rose-950 leading-none">
+                  Emergency Contacts
                 </h3>
-                <p className="text-[10px] text-rose-600 font-black uppercase tracking-[0.2em] mt-2">
-                  Active Notification Nodes
+                <p className="text-xs text-rose-600 font-medium mt-1">
+                  People to reach out to in case of an emergency
                 </p>
               </div>
-              <button
+              <motion.button
                 type="button"
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
                 onClick={() =>
                   append({
                     id: Date.now().toString(),
@@ -358,103 +372,108 @@ export default function ProfilePanel() {
                     relationship: "",
                   })
                 }
-                className="flex items-center gap-3 bg-rose-600 text-white px-6 py-4 rounded-[20px] font-black text-[10px] uppercase tracking-widest shadow-xl shadow-rose-600/20 hover:bg-rose-700 transition-all active:scale-95"
+                className="flex items-center justify-center gap-2 bg-rose-600 text-white px-6 py-3.5 rounded-2xl font-bold text-xs shadow-md transition-all"
               >
                 <Plus size={18} /> Add Contact
-              </button>
+              </motion.button>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-              {fields.map((field, index) => (
-                <motion.div
-                  key={field.id}
-                  initial={{ opacity: 0, scale: 0.95 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  className="bg-white p-6 rounded-[28px] border border-rose-100 shadow-sm relative group transition-all hover:shadow-md"
-                >
-                  <button
-                    type="button"
-                    onClick={() => remove(index)}
-                    className="absolute top-4 right-4 w-9 h-9 bg-rose-50 text-rose-500 rounded-xl flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all"
+              <AnimatePresence>
+                {fields.map((field, index) => (
+                  <motion.div
+                    key={field.id}
+                    initial={{ opacity: 0, y: 15, scale: 0.95 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, scale: 0.95 }}
+                    className="bg-white p-6 rounded-[28px] border border-rose-100 shadow-sm relative group transition-all hover:shadow-md"
                   >
-                    <Trash2 size={16} />
-                  </button>
+                    <motion.button
+                      type="button"
+                      whileHover={{ scale: 1.1 }}
+                      whileTap={{ scale: 0.9 }}
+                      onClick={() => remove(index)}
+                      className="absolute top-4 right-4 w-9 h-9 bg-rose-50 text-rose-500 rounded-xl flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all hover:bg-rose-500 hover:text-white"
+                    >
+                      <Trash2 size={16} />
+                    </motion.button>
 
-                  <div className="space-y-4">
-                    <div className="space-y-1">
-                      <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">
-                        Contact Name
-                      </label>
-                      <input
-                        {...register(`emergencyContacts.${index}.name`)}
-                        placeholder="Full Name"
-                        className="w-full bg-slate-50 border border-slate-100 p-4 rounded-xl text-sm font-bold outline-none focus:bg-white focus:ring-2 focus:ring-rose-200"
-                      />
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="space-y-1">
-                        <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">
-                          Phone
+                    <div className="space-y-4 pt-1">
+                      <div className="space-y-1.5">
+                        <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider ml-1">
+                          Contact Name
                         </label>
                         <input
-                          {...register(`emergencyContacts.${index}.phone`)}
-                          placeholder="Mobile"
-                          className="w-full bg-slate-50 border border-slate-100 p-4 rounded-xl text-sm font-bold outline-none focus:bg-white focus:ring-2 focus:ring-rose-200"
+                          {...register(`emergencyContacts.${index}.name`)}
+                          placeholder="Full Name"
+                          className="w-full bg-slate-50 border border-slate-200 px-4 py-3 rounded-2xl text-sm font-medium text-slate-800 outline-none focus:bg-white focus:border-rose-400 transition-all placeholder:text-slate-300"
                         />
                       </div>
-                      <div className="space-y-1">
-                        <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">
-                          Relation
-                        </label>
-                        <input
-                          {...register(
-                            `emergencyContacts.${index}.relationship`,
-                          )}
-                          placeholder="Spouse"
-                          className="w-full bg-slate-50 border border-slate-100 p-4 rounded-xl text-sm font-bold outline-none focus:bg-white focus:ring-2 focus:ring-rose-200"
-                        />
+
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="space-y-1.5">
+                          <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider ml-1">
+                            Phone
+                          </label>
+                          <input
+                            {...register(`emergencyContacts.${index}.phone`)}
+                            placeholder="Mobile"
+                            className="w-full bg-slate-50 border border-slate-200 px-4 py-3 rounded-2xl text-sm font-medium text-slate-800 outline-none focus:bg-white focus:border-rose-400 transition-all placeholder:text-slate-300"
+                          />
+                        </div>
+                        <div className="space-y-1.5">
+                          <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider ml-1">
+                            Relation
+                          </label>
+                          <input
+                            {...register(
+                              `emergencyContacts.${index}.relationship`,
+                            )}
+                            placeholder="e.g. Spouse"
+                            className="w-full bg-slate-50 border border-slate-200 px-4 py-3 rounded-2xl text-sm font-medium text-slate-800 outline-none focus:bg-white focus:border-rose-400 transition-all placeholder:text-slate-300"
+                          />
+                        </div>
                       </div>
                     </div>
-                  </div>
-                </motion.div>
-              ))}
+                  </motion.div>
+                ))}
+              </AnimatePresence>
             </div>
 
             {fields.length === 0 && (
-              <div className="text-center py-16 border-2 border-dashed border-rose-200 rounded-[30px] bg-white/50">
-                <p className="text-rose-400 font-bold text-sm italic">
-                  No emergency protocols active. Please add a contact.
+              <div className="text-center py-12 border-2 border-dashed border-rose-200 rounded-[28px] bg-white/50">
+                <p className="text-rose-400 font-medium text-sm">
+                  No emergency contacts added yet. Click &quot;Add Contact&quot;
+                  to include one.
                 </p>
               </div>
             )}
           </section>
 
           {/* FLOATING ACTION BAR */}
-          <div className="fixed bottom-12 left-0 right-0 px-4 flex justify-center z-50 pointer-events-none">
-            <motion.button
-              type="submit"
-              disabled={!isDirty || isSaving}
-              className="pointer-events-auto w-full max-w-sm h-16 bg-slate-900 text-white rounded-[24px] shadow-2xl flex items-center justify-center gap-4 disabled:opacity-50 disabled:grayscale transition-all hover:bg-emerald-600 group"
+          <div className="fixed bottom-10 left-0 right-0 px-4 flex justify-center z-50 pointer-events-none">
+            <motion.div
+              initial={{ y: 20, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              className="pointer-events-auto w-full max-w-sm p-2 bg-slate-900/95 backdrop-blur-xl rounded-[28px] shadow-xl border border-slate-800"
             >
-              {isSaving ? (
-                <Loader2 className="animate-spin" size={24} />
-              ) : (
-                <Save
-                  className="text-emerald-400 group-hover:text-white transition-colors"
-                  size={20}
-                />
-              )}
-              <span className="text-[11px] font-black uppercase tracking-[0.3em]">
-                {isSaving ? "Synchronizing..." : "Update Profile"}
-              </span>
-              {!isSaving && (
-                <ChevronRight
-                  size={16}
-                  className="text-slate-500 group-hover:text-white translate-x-0 group-hover:translate-x-1 transition-all"
-                />
-              )}
-            </motion.button>
+              <motion.button
+                type="submit"
+                disabled={!isDirty || isSaving}
+                whileHover={{ scale: 1.01 }}
+                whileTap={{ scale: 0.98 }}
+                className="w-full h-14 bg-emerald-500 text-slate-950 rounded-[20px] shadow-md flex items-center justify-center gap-3 disabled:opacity-40 disabled:grayscale transition-all font-bold cursor-pointer hover:bg-emerald-400"
+              >
+                {isSaving ? (
+                  <Loader2 className="animate-spin text-slate-950" size={20} />
+                ) : (
+                  <Save className="text-slate-950" size={18} />
+                )}
+                <span className="text-xs uppercase tracking-wider font-extrabold">
+                  {isSaving ? "Saving..." : "Save Changes"}
+                </span>
+              </motion.button>
+            </motion.div>
           </div>
         </form>
       </div>
@@ -475,21 +494,21 @@ function InputGroup({
 }) {
   return (
     <div className="space-y-2">
-      <label className="text-[11px] font-black text-emerald-600 uppercase tracking-[0.2em] ml-1">
+      <label className="text-xs font-bold text-slate-700 uppercase tracking-wider ml-1">
         {label}
       </label>
       <div
         className={cn(
-          "h-16 px-5 rounded-[20px] border flex items-center gap-4 transition-all",
+          "h-16 px-5 rounded-[22px] border flex items-center gap-4 transition-all duration-200",
           error
-            ? "border-rose-500 bg-rose-50"
-            : "border-slate-200 bg-slate-50 focus-within:border-emerald-500 focus-within:bg-white focus-within:shadow-xl focus-within:shadow-emerald-500/5",
+            ? "border-rose-500 bg-rose-50/50"
+            : "border-slate-200 bg-slate-50/60 focus-within:border-emerald-500 focus-within:bg-white focus-within:shadow-sm",
         )}
       >
         {children}
       </div>
       {error && (
-        <p className="text-[10px] text-rose-600 font-bold ml-2 uppercase tracking-tighter">
+        <p className="text-[10px] text-rose-600 font-bold ml-2 uppercase tracking-tight">
           {error}
         </p>
       )}
@@ -506,10 +525,10 @@ function MetricInput({
 }) {
   return (
     <div className="space-y-2">
-      <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">
+      <label className="text-xs font-bold text-slate-600 uppercase tracking-wider ml-1">
         {label}
       </label>
-      <div className="h-14 px-4 rounded-2xl bg-slate-50 border border-slate-200 flex items-center gap-3 focus-within:border-emerald-500 focus-within:bg-white transition-all">
+      <div className="h-14 px-4 rounded-2xl bg-slate-50/80 border border-slate-200 flex items-center gap-3 focus-within:border-emerald-500 focus-within:bg-white transition-all">
         {children}
       </div>
     </div>

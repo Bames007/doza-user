@@ -729,7 +729,7 @@ interface ModalProps {
   size?: "sm" | "md" | "lg";
 }
 
-// ---------- Main Component ----------
+// ---------- Main Component (Enhanced Sport Shop Panel) ----------
 export default function DozaSportShopPanel() {
   const { user } = useUser();
   const {
@@ -789,7 +789,7 @@ export default function DozaSportShopPanel() {
     return Array.from(sizeSet).sort();
   }, []);
 
-  // First‑visit help
+  // First-visit help
   useEffect(() => {
     const hasSeen = localStorage.getItem("doza_shop_help");
     if (!hasSeen) {
@@ -803,74 +803,87 @@ export default function DozaSportShopPanel() {
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       className={cn(
-        "max-w-7xl mx-auto px-3 sm:px-4 py-3 sm:py-6 bg-gradient-to-br from-gray-50 to-white min-h-screen",
+        "max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-5 sm:py-8 bg-gradient-to-br from-gray-50/80 via-white to-emerald-50/20 min-h-screen",
         poppins.className,
       )}
     >
-      {/* Top Banner */}
-      <div className="relative mb-6 overflow-hidden rounded-2xl bg-gradient-to-r from-emerald-600 to-teal-500 text-white shadow-xl">
-        <div className="absolute inset-0 bg-black/20" />
-        <div className="relative z-10 flex flex-col sm:flex-row items-center justify-between p-5 sm:p-8">
-          <div className="flex items-center gap-4 sm:gap-6 mb-4 sm:mb-0">
-            <Trophy className="w-10 h-10 sm:w-14 sm:h-14 text-white/90" />
-            <div>
-              <h2
-                className={cn(
-                  "text-2xl sm:text-3xl font-bold tracking-wide",
-                  bebasNeue.className,
-                )}
-              >
-                GEAR UP, GAME ON
-              </h2>
-              <p className="text-white/90 text-sm sm:text-base max-w-md">
-                Your one‑stop shop for premium sport equipment, apparel, and
-                tech.
-              </p>
-            </div>
+      {/* Top Banner – Refined layout with modern badging */}
+      <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-5 mb-8 bg-white/60 backdrop-blur-md p-6 rounded-3xl border border-gray-100 shadow-[0_4px_20px_-4px_rgba(0,0,0,0.03)]">
+        <div>
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-50 border border-emerald-100 mb-3 shadow-2xs">
+            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+            <span className="text-[10px] font-bold text-emerald-700 uppercase tracking-widest">
+              Active Lifestyle
+            </span>
           </div>
-          <button
-            onClick={() => setShowHelp(true)}
-            className="flex items-center gap-2 px-4 py-2.5 sm:px-5 sm:py-3 bg-white/20 backdrop-blur-sm rounded-xl hover:bg-white/30 transition text-white text-sm sm:text-base font-medium min-h-[44px]"
+          <h1
+            className={cn(
+              "text-3xl sm:text-5xl text-slate-900 leading-none tracking-tight",
+              bebasNeue.className,
+            )}
           >
-            <HelpCircle className="w-4 h-4 sm:w-5 sm:h-5" />
-            <span>How to shop</span>
-          </button>
+            Sport <span className="text-emerald-600">Shop</span>
+          </h1>
+          <p className="text-xs sm:text-sm text-slate-500 mt-2 max-w-lg leading-relaxed">
+            Gear up for your fitness journey with high-performance equipment and
+            professional accessories.
+          </p>
         </div>
+        <button
+          onClick={() => setShowHelp(true)}
+          className="group inline-flex items-center justify-center gap-2 px-5 py-3 bg-slate-900 text-white rounded-2xl font-semibold hover:bg-emerald-600 active:scale-98 transition-all duration-300 shadow-md hover:shadow-lg hover:shadow-emerald-600/20 text-xs sm:text-sm cursor-pointer"
+        >
+          <HelpCircle className="w-4 h-4 text-emerald-400 group-hover:text-white transition-colors" />
+          <span>How to Shop</span>
+        </button>
       </div>
 
-      {/* Tabs */}
-      <div className="flex border-b border-gray-200 mb-5 overflow-x-auto pb-1 gap-2 scrollbar-hide">
+      {/* Tabs – Modern pill layout with animated states */}
+      <div className="flex border-b border-gray-200/80 mb-8 overflow-x-auto gap-2 scrollbar-hide pb-2">
         {[
-          { id: "shop", label: "Shop", icon: ShoppingCart },
+          { id: "shop", label: "Shop Catalog", icon: ShoppingCart },
           {
             id: "saved",
-            label: "Saved",
+            label: "Saved Items",
             icon: Heart,
             count: savedItems?.length,
           },
           {
             id: "orders",
-            label: "Orders",
+            label: "My Orders",
             icon: Package,
             count: Object.keys(orders || {}).length,
           },
         ].map((tab) => {
           const Icon = tab.icon;
+          const isActive = activeTab === tab.id;
           return (
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id as any)}
               className={cn(
-                "flex items-center gap-2 px-4 py-2.5 text-sm sm:text-base font-medium border-b-2 transition relative whitespace-nowrap",
-                activeTab === tab.id
-                  ? "border-emerald-600 text-emerald-700"
-                  : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300",
+                "group flex items-center gap-2.5 px-5 py-3 text-xs sm:text-sm font-semibold rounded-2xl transition-all duration-300 whitespace-nowrap cursor-pointer",
+                isActive
+                  ? "bg-emerald-600 text-white shadow-md shadow-emerald-600/25 scale-[1.02]"
+                  : "bg-white/80 text-gray-600 hover:bg-gray-100/80 border border-gray-200/60 shadow-xs",
               )}
             >
-              <Icon className="w-4 h-4 sm:w-5 sm:h-5" />
-              {tab.label}
+              <Icon
+                className={cn(
+                  "w-4 h-4 transition-transform group-hover:scale-110",
+                  isActive ? "text-white" : "text-gray-400",
+                )}
+              />
+              <span>{tab.label}</span>
               {tab.count ? (
-                <span className="ml-1 text-xs bg-emerald-100 text-emerald-700 px-1.5 rounded-full">
+                <span
+                  className={cn(
+                    "ml-1 text-[10px] font-bold px-2 py-0.5 rounded-full transition-colors",
+                    isActive
+                      ? "bg-white/20 text-white"
+                      : "bg-emerald-50 text-emerald-600 border border-emerald-100",
+                  )}
+                >
                   {tab.count}
                 </span>
               ) : null}
@@ -882,31 +895,42 @@ export default function DozaSportShopPanel() {
       {/* Conditional Content */}
       {activeTab === "shop" && (
         <>
-          {/* Search & Filter Bar */}
-          <div className="bg-white border border-gray-200 rounded-xl p-3 shadow-md mb-6">
+          {/* Search & Filter Bar – Modern floating aesthetic */}
+          <div className="sticky top-4 z-20 bg-white/90 backdrop-blur-md border border-gray-200/80 rounded-2xl p-4 shadow-[0_8px_30px_rgb(0,0,0,0.04)] mb-8 transition-all">
             <div className="flex flex-col lg:flex-row gap-3">
               <div className="flex-1 relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-5 h-5" />
+                <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
                 <input
                   type="text"
-                  placeholder="Search products..."
+                  placeholder="Search products, gear, apparel..."
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
-                  className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-emerald-500 text-gray-900 text-sm min-h-[44px] placeholder:text-gray-400"
+                  className="w-full pl-11 pr-10 py-3 bg-gray-50/50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600 text-gray-800 text-xs sm:text-sm transition-all placeholder:text-gray-400"
                 />
+                {search && (
+                  <button
+                    onClick={() => setSearch("")}
+                    className="absolute right-3.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 p-1 rounded-full hover:bg-gray-200/50 transition-colors cursor-pointer"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
               </div>
               <button
                 onClick={() => setShowFilters(!showFilters)}
-                className="flex items-center justify-center gap-2 px-4 py-3 bg-gray-100 text-gray-700 rounded-xl hover:bg-gray-200 transition min-h-[44px] lg:hidden"
+                className="flex items-center justify-center gap-2 px-5 py-3 bg-gray-100/80 hover:bg-gray-200/80 active:scale-98 border border-gray-200/80 text-gray-700 rounded-xl font-medium text-xs sm:text-sm transition-all lg:hidden cursor-pointer"
               >
-                <Filter className="w-4 h-4" />
-                Filters
+                <Filter className="w-4 h-4 text-gray-500" />
+                <span>Filters</span>
+                <span className="w-5 h-5 rounded-full bg-white text-emerald-600 text-[10px] font-bold flex items-center justify-center shadow-2xs">
+                  {showFilters ? "▲" : "▼"}
+                </span>
               </button>
-              <div className="hidden lg:flex items-center gap-3">
+              <div className="hidden lg:flex items-center gap-3 flex-wrap">
                 <select
                   value={selectedCategory}
                   onChange={(e) => setSelectedCategory(e.target.value as any)}
-                  className="px-4 py-2 border border-gray-200 rounded-xl focus:ring-2 focus:ring-emerald-500 text-gray-900 text-sm min-h-[44px]"
+                  className="px-4 py-2.5 bg-gray-50/50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600 text-gray-700 text-xs font-medium cursor-pointer transition-all"
                 >
                   {categories.map((c) => (
                     <option key={c} value={c}>
@@ -917,7 +941,7 @@ export default function DozaSportShopPanel() {
                 <select
                   value={selectedSize}
                   onChange={(e) => setSelectedSize(e.target.value)}
-                  className="px-4 py-2 border border-gray-200 rounded-xl focus:ring-2 focus:ring-emerald-500 text-gray-900 text-sm min-h-[44px]"
+                  className="px-4 py-2.5 bg-gray-50/50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600 text-gray-700 text-xs font-medium cursor-pointer transition-all"
                 >
                   <option value="">All Sizes</option>
                   {allSizes.map((s) => (
@@ -926,8 +950,8 @@ export default function DozaSportShopPanel() {
                     </option>
                   ))}
                 </select>
-                <div className="flex items-center gap-2">
-                  <span className="text-sm text-gray-600 font-medium">₦</span>
+                <div className="flex items-center gap-2 bg-gray-50/50 border border-gray-200 rounded-xl px-3 py-1.5">
+                  <span className="text-xs text-gray-400 font-semibold">₦</span>
                   <input
                     type="number"
                     placeholder="Min"
@@ -935,9 +959,9 @@ export default function DozaSportShopPanel() {
                     onChange={(e) =>
                       setPriceRange([+e.target.value, priceRange[1]])
                     }
-                    className="w-20 px-2 py-2 border border-gray-200 rounded-lg text-sm text-gray-900 placeholder:text-gray-400"
+                    className="w-16 bg-transparent text-xs text-gray-800 focus:outline-none placeholder:text-gray-400 font-medium"
                   />
-                  <span className="text-gray-400">-</span>
+                  <span className="text-gray-300">-</span>
                   <input
                     type="number"
                     placeholder="Max"
@@ -945,24 +969,24 @@ export default function DozaSportShopPanel() {
                     onChange={(e) =>
                       setPriceRange([priceRange[0], +e.target.value])
                     }
-                    className="w-20 px-2 py-2 border border-gray-200 rounded-lg text-sm text-gray-900 placeholder:text-gray-400"
+                    className="w-16 bg-transparent text-xs text-gray-800 focus:outline-none placeholder:text-gray-400 font-medium"
                   />
                 </div>
               </div>
             </div>
 
-            {/* Mobile filters */}
+            {/* Mobile filters – smooth expansion */}
             <AnimatePresence>
               {showFilters && (
                 <motion.div
                   initial={{ height: 0, opacity: 0 }}
                   animate={{ height: "auto", opacity: 1 }}
                   exit={{ height: 0, opacity: 0 }}
-                  className="lg:hidden mt-3 pt-3 border-t border-gray-200"
+                  className="lg:hidden mt-4 pt-4 border-t border-gray-100"
                 >
                   <div className="space-y-4">
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                      <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wider mb-1.5">
                         Category
                       </label>
                       <select
@@ -970,7 +994,7 @@ export default function DozaSportShopPanel() {
                         onChange={(e) =>
                           setSelectedCategory(e.target.value as any)
                         }
-                        className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm text-gray-900"
+                        className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-xs text-gray-800 font-medium"
                       >
                         {categories.map((c) => (
                           <option key={c} value={c}>
@@ -980,13 +1004,13 @@ export default function DozaSportShopPanel() {
                       </select>
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                      <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wider mb-1.5">
                         Size
                       </label>
                       <select
                         value={selectedSize}
                         onChange={(e) => setSelectedSize(e.target.value)}
-                        className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm text-gray-900"
+                        className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-xs text-gray-800 font-medium"
                       >
                         <option value="">All Sizes</option>
                         {allSizes.map((s) => (
@@ -997,7 +1021,7 @@ export default function DozaSportShopPanel() {
                       </select>
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                      <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wider mb-1.5">
                         Price Range (₦)
                       </label>
                       <div className="flex items-center gap-2">
@@ -1008,9 +1032,9 @@ export default function DozaSportShopPanel() {
                           onChange={(e) =>
                             setPriceRange([+e.target.value, priceRange[1]])
                           }
-                          className="w-1/2 px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-900 placeholder:text-gray-400"
+                          className="w-1/2 px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-xs text-gray-800 placeholder:text-gray-400 font-medium"
                         />
-                        <span className="text-gray-400">-</span>
+                        <span className="text-gray-400 font-bold">-</span>
                         <input
                           type="number"
                           placeholder="Max"
@@ -1018,7 +1042,7 @@ export default function DozaSportShopPanel() {
                           onChange={(e) =>
                             setPriceRange([priceRange[0], +e.target.value])
                           }
-                          className="w-1/2 px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-900 placeholder:text-gray-400"
+                          className="w-1/2 px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-xs text-gray-800 placeholder:text-gray-400 font-medium"
                         />
                       </div>
                     </div>
@@ -1028,44 +1052,65 @@ export default function DozaSportShopPanel() {
             </AnimatePresence>
           </div>
 
-          {/* Horizontally scrollable product rows by category */}
+          {/* Product rows with improved layout */}
           {Object.entries(groupedByCategory).map(([category, products]) => (
-            <div key={category} className="mb-8">
-              <h3
-                className={cn(
-                  "text-xl sm:text-2xl font-bold text-gray-800 mb-3 px-1",
-                  bebasNeue.className,
-                )}
-              >
-                {category}
-              </h3>
-              <div className="overflow-x-auto pb-4 scrollbar-hide">
-                <div className="flex gap-4">
-                  {products.map((product) => (
-                    <div
-                      key={product.id}
-                      className="w-64 sm:w-72 flex-shrink-0"
-                    >
-                      <ProductCard
-                        product={product}
-                        isSaved={isSaved(product.id)}
-                        onToggleSave={() => toggleSave(product)}
-                        onAddToCart={(size, color) =>
-                          addToCart(product, 1, size, color)
-                        }
-                        onQuickView={() => setShowQuickView(product)}
-                      />
-                    </div>
-                  ))}
+            <div key={category} className="mb-12">
+              {/* Category header */}
+              <div className="flex items-center gap-3 mb-5 px-1">
+                <div className="w-1.5 h-6 rounded-full bg-emerald-500 shadow-xs" />
+                <h3
+                  className={cn(
+                    "text-xl sm:text-2xl font-semibold text-slate-800 tracking-tight",
+                    bebasNeue.className,
+                  )}
+                >
+                  {category}
+                  <span className="ml-2 text-xs font-normal text-gray-400 bg-gray-100/80 px-2.5 py-0.5 rounded-full">
+                    {products.length} available
+                  </span>
+                </h3>
+              </div>
+
+              {/* Scrollable product row */}
+              <div className="relative group/slider">
+                <div className="absolute left-0 top-0 bottom-4 w-12 bg-gradient-to-r from-gray-50/80 via-white/40 to-transparent pointer-events-none z-10" />
+                <div className="absolute right-0 top-0 bottom-4 w-12 bg-gradient-to-l from-gray-50/80 via-white/40 to-transparent pointer-events-none z-10" />
+
+                <div className="overflow-x-auto pb-4 pt-1 px-1 scroll-smooth [&::-webkit-scrollbar]:h-2 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-emerald-500/20 [&::-webkit-scrollbar-thumb]:rounded-full hover:[&::-webkit-scrollbar-thumb]:bg-emerald-500/40 transition-all">
+                  <div className="flex gap-5 px-1">
+                    {products.map((product) => (
+                      <div
+                        key={product.id}
+                        className="w-60 sm:w-68 flex-shrink-0"
+                      >
+                        <ProductCard
+                          product={product}
+                          isSaved={isSaved(product.id)}
+                          onToggleSave={() => toggleSave(product)}
+                          onAddToCart={(size, color) =>
+                            addToCart(product, 1, size, color)
+                          }
+                          onQuickView={() => setShowQuickView(product)}
+                        />
+                      </div>
+                    ))}
+                  </div>
                 </div>
               </div>
             </div>
           ))}
 
           {Object.keys(groupedByCategory).length === 0 && (
-            <div className="text-center py-16">
-              <p className="text-gray-500 text-lg">
-                No products match your filters.
+            <div className="text-center py-20 bg-white rounded-3xl border border-dashed border-gray-200">
+              <div className="w-16 h-16 bg-gray-50 rounded-2xl flex items-center justify-center mx-auto mb-4 text-gray-400">
+                <Search className="w-8 h-8" />
+              </div>
+              <h4 className="text-lg font-bold text-gray-800 mb-1">
+                No products found
+              </h4>
+              <p className="text-gray-400 text-xs sm:text-sm max-w-xs mx-auto">
+                Try adjusting your search criteria or price filters to explore
+                more items.
               </p>
             </div>
           )}
@@ -1077,14 +1122,14 @@ export default function DozaSportShopPanel() {
       )}
       {activeTab === "orders" && <OrdersTab orders={orders} />}
 
-      {/* Floating Cart Button */}
+      {/* Floating Cart Button – modern pulsating badge */}
       <button
         onClick={() => setShowCart(true)}
-        className="fixed bottom-6 right-6 z-40 flex items-center justify-center w-14 h-14 bg-emerald-600 text-white rounded-full shadow-xl hover:bg-emerald-700 transition hover:scale-110"
+        className="fixed bottom-6 right-6 z-40 flex items-center justify-center w-14 h-14 bg-emerald-600 text-white rounded-2xl shadow-[0_10px_25px_-5px_rgba(16,185,129,0.5)] hover:bg-emerald-700 hover:scale-105 active:scale-95 transition-all duration-300 cursor-pointer group"
       >
-        <ShoppingCart className="w-6 h-6" />
+        <ShoppingCart className="w-6 h-6 transition-transform group-hover:rotate-12" />
         {cartItems.length > 0 && (
-          <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center">
+          <span className="absolute -top-1.5 -right-1.5 bg-red-500 text-white text-[10px] font-bold rounded-full w-6 h-6 flex items-center justify-center shadow-md animate-bounce">
             {cartItems.length}
           </span>
         )}
@@ -1141,55 +1186,61 @@ export default function DozaSportShopPanel() {
       {/* Help Carousel Modal */}
       <AnimatePresence>
         {showHelp && (
-          <Modal onClose={() => setShowHelp(false)}>
-            <div className="flex items-center justify-between mb-6">
-              <h2
-                className={cn(
-                  "text-2xl sm:text-3xl font-bold text-gray-800 flex items-center gap-2",
-                  bebasNeue.className,
-                )}
-              >
-                <HelpCircle className="w-6 h-6 sm:w-8 sm:h-8 text-emerald-600" />
-                How to Shop
-              </h2>
+          <Modal onClose={() => setShowHelp(false)} size="lg">
+            <div className="flex items-center justify-between mb-6 pb-4 border-b border-gray-100">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-emerald-50 border border-emerald-100 flex items-center justify-center text-emerald-600 shadow-2xs">
+                  <HelpCircle className="w-5 h-5" />
+                </div>
+                <h2
+                  className={cn(
+                    "text-2xl font-bold text-slate-900 tracking-wide",
+                    bebasNeue.className,
+                  )}
+                >
+                  How to Shop Sport
+                </h2>
+              </div>
               <button
                 onClick={() => setShowHelp(false)}
-                className="p-1 hover:bg-gray-100 rounded-full"
+                className="w-9 h-9 flex items-center justify-center hover:bg-gray-100 rounded-xl transition-colors cursor-pointer text-gray-400 hover:text-gray-700"
               >
-                <X className="w-5 h-5 text-gray-500" />
+                <X className="w-5 h-5" />
               </button>
             </div>
 
-            <div className="relative">
+            <div className="relative py-4">
               <AnimatePresence mode="wait">
                 <motion.div
                   key={helpSlide}
-                  initial={{ opacity: 0, x: 50 }}
+                  initial={{ opacity: 0, x: 30 }}
                   animate={{ opacity: 1, x: 0 }}
-                  exit={{ opacity: 0, x: -50 }}
-                  transition={{ duration: 0.3 }}
-                  className="flex flex-col items-center text-center p-6"
+                  exit={{ opacity: 0, x: -30 }}
+                  transition={{ duration: 0.25, ease: "easeInOut" }}
+                  className="flex flex-col items-center text-center px-4"
                 >
-                  <div className="w-20 h-20 sm:w-24 sm:h-24 bg-emerald-50 rounded-full flex items-center justify-center mb-4">
+                  <div className="w-20 h-20 sm:w-24 sm:h-24 bg-gradient-to-br from-emerald-50 to-teal-50 border border-emerald-100 rounded-3xl flex items-center justify-center mb-6 shadow-inner text-emerald-600">
                     {helpSlides[helpSlide].icon}
                   </div>
-                  <h3 className="text-xl sm:text-2xl font-semibold text-gray-800 mb-3">
+                  <h3 className="text-xl sm:text-2xl font-bold text-slate-900 mb-2">
                     {helpSlides[helpSlide].title}
                   </h3>
-                  <p className="text-base text-gray-600 max-w-sm">
+                  <p className="text-xs sm:text-sm text-gray-500 max-w-sm leading-relaxed">
                     {helpSlides[helpSlide].description}
                   </p>
                 </motion.div>
               </AnimatePresence>
 
-              <div className="flex justify-center gap-2 mt-6">
+              <div className="flex justify-center gap-2 mt-8">
                 {helpSlides.map((_, idx) => (
                   <button
                     key={idx}
                     onClick={() => setHelpSlide(idx)}
                     className={cn(
-                      "w-2.5 h-2.5 rounded-full transition",
-                      idx === helpSlide ? "bg-emerald-600 w-6" : "bg-gray-300",
+                      "h-2 rounded-full transition-all duration-300 cursor-pointer",
+                      idx === helpSlide
+                        ? "bg-emerald-600 w-6"
+                        : "bg-gray-200 w-2",
                     )}
                   />
                 ))}
@@ -1201,9 +1252,9 @@ export default function DozaSportShopPanel() {
                     prev === 0 ? helpSlides.length - 1 : prev - 1,
                   )
                 }
-                className="absolute left-0 top-1/2 -translate-y-1/2 p-2 bg-gray-100 rounded-full hover:bg-gray-200"
+                className="absolute left-0 top-1/2 -translate-y-1/2 w-10 h-10 bg-white border border-gray-200 shadow-md rounded-full flex items-center justify-center hover:bg-gray-50 transition-all cursor-pointer text-gray-600"
               >
-                <ChevronLeft className="w-5 h-5 text-gray-600" />
+                <ChevronLeft className="w-5 h-5" />
               </button>
               <button
                 onClick={() =>
@@ -1211,15 +1262,15 @@ export default function DozaSportShopPanel() {
                     prev === helpSlides.length - 1 ? 0 : prev + 1,
                   )
                 }
-                className="absolute right-0 top-1/2 -translate-y-1/2 p-2 bg-gray-100 rounded-full hover:bg-gray-200"
+                className="absolute right-0 top-1/2 -translate-y-1/2 w-10 h-10 bg-white border border-gray-200 shadow-md rounded-full flex items-center justify-center hover:bg-gray-50 transition-all cursor-pointer text-gray-600"
               >
-                <ChevronRight className="w-5 h-5 text-gray-600" />
+                <ChevronRight className="w-5 h-5" />
               </button>
             </div>
 
             <button
               onClick={() => setShowHelp(false)}
-              className="mt-8 w-full px-4 py-4 bg-emerald-600 text-white rounded-xl hover:bg-emerald-700 transition text-lg font-medium min-h-[44px]"
+              className="mt-8 w-full py-3.5 bg-emerald-600 hover:bg-emerald-700 active:scale-[0.98] text-white font-semibold rounded-2xl shadow-lg shadow-emerald-600/25 transition-all duration-200 text-xs sm:text-sm cursor-pointer"
             >
               Start Shopping
             </button>
@@ -1244,80 +1295,102 @@ const ProductCard: React.FC<ProductCardProps> = ({
   return (
     <motion.div
       layout
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      whileHover={{ y: -5 }}
-      className="bg-white rounded-2xl border border-gray-100 shadow-md hover:shadow-xl transition-all overflow-hidden cursor-pointer group h-full flex flex-col"
+      initial={{ opacity: 0, y: 15 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, scale: 0.95 }}
+      whileHover={{ y: -6 }}
+      transition={{ duration: 0.25, ease: "easeOut" }}
+      className="bg-white/90 backdrop-blur-md rounded-3xl border border-gray-100 shadow-[0_4px_20px_-4px_rgba(0,0,0,0.03)] hover:shadow-[0_20px_40px_-15px_rgba(0,0,0,0.08)] transition-all overflow-hidden cursor-pointer group h-full flex flex-col relative"
       onClick={onQuickView}
     >
-      <div className="relative h-40 sm:h-44 overflow-hidden bg-gray-100 flex-shrink-0">
+      <div className="relative h-44 sm:h-48 overflow-hidden bg-gradient-to-br from-gray-100 to-gray-50 flex-shrink-0">
         <img
           src={product.imageUrl}
           alt={product.name}
-          className="w-full h-full object-cover group-hover:scale-105 transition duration-300"
+          className="w-full h-full object-cover group-hover:scale-105 transition duration-500 ease-out"
         />
+        <div className="absolute inset-0 bg-gradient-to-t from-black/20 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+
         <button
           onClick={(e) => {
             e.stopPropagation();
             onToggleSave();
           }}
-          className="absolute top-2 right-2 p-1.5 bg-white/90 backdrop-blur-sm rounded-full shadow-md hover:bg-white transition"
+          className="absolute top-3 right-3 p-2 bg-white/90 backdrop-blur-md rounded-2xl shadow-md hover:bg-white active:scale-90 transition-all cursor-pointer group/heart"
         >
           <Heart
             className={cn(
-              "w-4 h-4",
-              isSaved ? "fill-red-500 text-red-500" : "text-gray-600",
+              "w-4 h-4 transition-transform group-hover/heart:scale-110",
+              isSaved ? "fill-red-500 text-red-500" : "text-gray-500",
             )}
           />
         </button>
+
         {!product.inStock && (
-          <span className="absolute bottom-2 left-2 px-2 py-0.5 bg-red-500 text-white text-xs font-semibold rounded-full">
+          <span className="absolute bottom-3 left-3 px-3 py-1 bg-red-500/90 backdrop-blur-sm text-white text-[10px] font-bold tracking-wider uppercase rounded-xl shadow-xs">
             Out of Stock
           </span>
         )}
       </div>
-      <div className="p-4 flex-1 flex flex-col">
-        <h3 className="font-bold text-gray-800 text-base sm:text-lg line-clamp-1">
-          {product.name}
-        </h3>
-        <p className="text-xs text-gray-500 mb-2">{product.brand}</p>
-        <div className="flex items-center justify-between mb-3">
-          <span className="text-emerald-700 font-bold text-lg">
-            ₦{product.price.toLocaleString()}
-          </span>
-          <div className="flex items-center gap-1">
-            <Star className="w-3 h-3 fill-yellow-400 text-yellow-400" />
-            <span className="text-xs text-gray-600">{product.rating}</span>
-          </div>
-        </div>
 
-        {product.sizes && (
-          <div className="mb-3" onClick={(e) => e.stopPropagation()}>
-            <p className="text-xs text-gray-500 mb-1">Select Size</p>
-            <div className="flex flex-wrap gap-1">
-              {product.sizes.slice(0, 3).map((s) => (
-                <button
-                  key={s}
-                  onClick={() => setSelectedSize(s)}
-                  className={cn(
-                    "px-2 py-1 text-xs rounded-lg border",
-                    selectedSize === s
-                      ? "bg-emerald-600 text-white border-emerald-600"
-                      : "bg-gray-100 text-gray-700 border-gray-200 hover:bg-gray-200",
-                  )}
-                >
-                  {s}
-                </button>
-              ))}
-              {product.sizes.length > 3 && (
-                <span className="text-xs text-gray-400">
-                  +{product.sizes.length - 3}
-                </span>
-              )}
+      <div className="p-4 sm:p-5 flex-1 flex flex-col justify-between">
+        <div>
+          <div className="flex items-center justify-between gap-2 mb-1">
+            <span className="text-[10px] font-bold text-emerald-600 uppercase tracking-widest bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-100/50">
+              {product.brand}
+            </span>
+            <div className="flex items-center gap-1 bg-amber-50 px-2 py-0.5 rounded-md border border-amber-100/50">
+              <Star className="w-3 h-3 fill-amber-400 text-amber-400" />
+              <span className="text-[11px] font-bold text-amber-700">
+                {product.rating}
+              </span>
             </div>
           </div>
-        )}
+
+          <h3 className="font-bold text-slate-900 text-sm sm:text-base line-clamp-1 group-hover:text-emerald-600 transition-colors">
+            {product.name}
+          </h3>
+
+          <div className="mt-2 mb-4">
+            <span className="text-emerald-700 font-extrabold text-base sm:text-lg tracking-tight">
+              ₦{product.price.toLocaleString()}
+            </span>
+          </div>
+
+          {product.sizes && (
+            <div className="mb-4" onClick={(e) => e.stopPropagation()}>
+              <div className="flex items-center justify-between mb-1.5">
+                <span className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">
+                  Size
+                </span>
+                <span className="text-[11px] font-medium text-emerald-600">
+                  {selectedSize}
+                </span>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {product.sizes.slice(0, 3).map((s) => (
+                  <button
+                    key={s}
+                    onClick={() => setSelectedSize(s)}
+                    className={cn(
+                      "px-2.5 py-1 text-xs font-semibold rounded-xl border transition-all cursor-pointer",
+                      selectedSize === s
+                        ? "bg-emerald-600 text-white border-emerald-600 shadow-sm shadow-emerald-600/20"
+                        : "bg-gray-50 text-gray-700 border-gray-200/80 hover:bg-gray-100",
+                    )}
+                  >
+                    {s}
+                  </button>
+                ))}
+                {product.sizes.length > 3 && (
+                  <span className="flex items-center text-[11px] font-bold text-gray-400 px-1">
+                    +{product.sizes.length - 3}
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
 
         <button
           onClick={(e) => {
@@ -1326,13 +1399,14 @@ const ProductCard: React.FC<ProductCardProps> = ({
           }}
           disabled={!product.inStock}
           className={cn(
-            "w-full mt-auto py-2.5 rounded-xl transition text-sm font-medium min-h-[40px]",
+            "w-full py-3 rounded-2xl transition-all text-xs sm:text-sm font-semibold flex items-center justify-center gap-2 cursor-pointer shadow-sm",
             product.inStock
-              ? "bg-emerald-600 text-white hover:bg-emerald-700"
-              : "bg-gray-300 text-gray-500 cursor-not-allowed",
+              ? "bg-slate-900 text-white hover:bg-emerald-600 active:scale-98 shadow-slate-900/10 hover:shadow-emerald-600/20"
+              : "bg-gray-100 text-gray-400 cursor-not-allowed border border-gray-200",
           )}
         >
-          {product.inStock ? "Add to Cart" : "Out of Stock"}
+          <ShoppingCart className="w-4 h-4" />
+          <span>{product.inStock ? "Add to Cart" : "Out of Stock"}</span>
         </button>
       </div>
     </motion.div>
@@ -1346,36 +1420,50 @@ const SavedItemsTab: React.FC<SavedItemsTabProps> = ({
 }) => {
   if (!savedItems?.length) {
     return (
-      <div className="text-center py-16">
-        <Heart className="w-20 h-20 mx-auto text-gray-300 mb-4" />
-        <p className="text-gray-600 text-lg">
-          Your saved items will appear here.
+      <div className="text-center py-24 bg-white/60 backdrop-blur-md rounded-3xl border border-gray-100 shadow-[0_4px_20px_-4px_rgba(0,0,0,0.03)]">
+        <div className="w-20 h-20 bg-red-50 border border-red-100 rounded-3xl flex items-center justify-center mx-auto mb-4 text-red-400 shadow-inner">
+          <Heart className="w-10 h-10" />
+        </div>
+        <h3 className="text-xl font-bold text-slate-900 mb-1">
+          No saved items yet
+        </h3>
+        <p className="text-gray-500 text-xs sm:text-sm max-w-sm mx-auto">
+          Tap the heart icon on any product card to save your favorite gear and
+          equipment for later.
         </p>
       </div>
     );
   }
 
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
       {savedItems.map((item) => (
         <div
           key={item.id}
-          className="bg-white rounded-2xl border border-gray-100 shadow-md p-4"
+          className="bg-white/90 backdrop-blur-md rounded-3xl border border-gray-100 shadow-[0_4px_20px_-4px_rgba(0,0,0,0.03)] p-4 flex flex-col justify-between group hover:shadow-lg transition-all"
         >
-          <img
-            src={item.imageUrl}
-            alt={item.name}
-            className="w-full h-40 object-cover rounded-xl mb-4"
-          />
-          <h3 className="font-bold text-gray-800 text-lg">{item.name}</h3>
-          <p className="text-emerald-700 font-bold text-xl mt-2">
-            ₦{item.price.toLocaleString()}
-          </p>
+          <div>
+            <div className="relative h-44 rounded-2xl overflow-hidden bg-gray-50 mb-4">
+              <img
+                src={item.imageUrl}
+                alt={item.name}
+                className="w-full h-full object-cover group-hover:scale-105 transition duration-500 ease-out"
+              />
+            </div>
+            <h3 className="font-bold text-slate-900 text-base line-clamp-1 mb-1">
+              {item.name}
+            </h3>
+            <p className="text-emerald-700 font-extrabold text-lg tracking-tight">
+              ₦{item.price.toLocaleString()}
+            </p>
+          </div>
+
           <button
             onClick={() => onToggleSave(item as any)}
-            className="mt-4 w-full py-3 bg-red-50 text-red-600 rounded-xl hover:bg-red-100 transition text-sm font-medium min-h-[44px]"
+            className="mt-5 w-full py-3 bg-red-50 hover:bg-red-100 active:scale-98 text-red-600 rounded-2xl transition-all text-xs sm:text-sm font-semibold flex items-center justify-center gap-2 cursor-pointer border border-red-100"
           >
-            Remove from Saved
+            <Heart className="w-4 h-4 fill-red-500 text-red-500" />
+            <span>Remove from Saved</span>
           </button>
         </div>
       ))}
@@ -1391,26 +1479,37 @@ const OrdersTab: React.FC<OrdersTabProps> = ({ orders }) => {
 
   if (!orderList.length) {
     return (
-      <div className="text-center py-16">
-        <Package className="w-20 h-20 mx-auto text-gray-300 mb-4" />
-        <p className="text-gray-600 text-lg">
-          You haven't placed any orders yet.
+      <div className="text-center py-24 bg-white/60 backdrop-blur-md rounded-3xl border border-gray-100 shadow-[0_4px_20px_-4px_rgba(0,0,0,0.03)]">
+        <div className="w-20 h-20 bg-emerald-50 border border-emerald-100 rounded-3xl flex items-center justify-center mx-auto mb-4 text-emerald-500 shadow-inner">
+          <Package className="w-10 h-10" />
+        </div>
+        <h3 className="text-xl font-bold text-slate-900 mb-1">
+          No orders placed yet
+        </h3>
+        <p className="text-gray-500 text-xs sm:text-sm max-w-sm mx-auto">
+          Your active and past fitness gear orders will appear right here once
+          you complete checkout.
         </p>
       </div>
     );
   }
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-4 max-w-4xl mx-auto">
       {orderList.map((order) => (
         <div
           key={order.orderId}
-          className="bg-white rounded-xl border border-gray-200 shadow-md p-5"
+          className="bg-white/90 backdrop-blur-md rounded-3xl border border-gray-100 shadow-[0_4px_20px_-4px_rgba(0,0,0,0.03)] p-6 transition-all hover:shadow-md"
         >
-          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4">
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center pb-4 mb-4 border-b border-gray-100 gap-3">
             <div>
-              <p className="text-sm text-gray-500">Order #{order.orderId}</p>
-              <p className="text-xs text-gray-400">
+              <div className="flex items-center gap-2 mb-1">
+                <span className="text-xs font-bold text-slate-900 tracking-wide uppercase">
+                  Order #{order.orderId}
+                </span>
+              </div>
+              <p className="text-xs text-gray-400 font-medium">
+                Placed on{" "}
                 {new Date(order.createdAt).toLocaleDateString(undefined, {
                   year: "numeric",
                   month: "long",
@@ -1420,35 +1519,44 @@ const OrdersTab: React.FC<OrdersTabProps> = ({ orders }) => {
             </div>
             <span
               className={cn(
-                "mt-2 sm:mt-0 px-3 py-1 rounded-full text-xs font-semibold",
+                "px-3.5 py-1.5 rounded-xl text-[11px] font-bold uppercase tracking-wider",
                 order.status === "delivered"
-                  ? "bg-green-100 text-green-700"
+                  ? "bg-emerald-50 text-emerald-700 border border-emerald-100"
                   : order.status === "confirmed"
-                    ? "bg-blue-100 text-blue-700"
-                    : "bg-yellow-100 text-yellow-700",
+                    ? "bg-blue-50 text-blue-700 border border-blue-100"
+                    : "bg-amber-50 text-amber-700 border border-amber-100",
               )}
             >
               {order.status.charAt(0).toUpperCase() + order.status.slice(1)}
             </span>
           </div>
-          <div className="space-y-2">
+
+          <div className="space-y-3">
             {order.items.map((item) => (
               <div
                 key={item.cartItemId}
-                className="flex justify-between text-sm"
+                className="flex items-center justify-between text-xs sm:text-sm bg-gray-50/50 p-3 rounded-2xl border border-gray-100"
               >
-                <span className="text-gray-700">
-                  {item.name} x{item.quantity}
-                </span>
-                <span className="font-medium text-gray-800">
+                <div className="flex items-center gap-3">
+                  <span className="w-6 h-6 rounded-lg bg-emerald-100 text-emerald-700 text-xs font-bold flex items-center justify-center">
+                    {item.quantity}x
+                  </span>
+                  <span className="text-slate-700 font-medium">
+                    {item.name}
+                  </span>
+                </div>
+                <span className="font-bold text-slate-900">
                   ₦{(item.price * item.quantity).toLocaleString()}
                 </span>
               </div>
             ))}
           </div>
-          <div className="border-t border-gray-200 mt-4 pt-4 flex justify-between font-bold text-lg">
-            <span className="text-gray-800">Total</span>
-            <span className="text-emerald-700">
+
+          <div className="border-t border-gray-100 mt-5 pt-4 flex items-center justify-between">
+            <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">
+              Total Amount
+            </span>
+            <span className="text-emerald-700 font-extrabold text-lg sm:text-xl tracking-tight">
               ₦{order.totalAmount.toLocaleString()}
             </span>
           </div>
@@ -1473,69 +1581,93 @@ const CartSidebar: React.FC<CartSidebarProps> = ({
     initial={{ x: "100%" }}
     animate={{ x: 0 }}
     exit={{ x: "100%" }}
-    transition={{ type: "tween" }}
-    className="fixed top-0 right-0 h-full w-full sm:w-96 bg-white shadow-2xl z-50 flex flex-col"
+    transition={{ type: "spring", damping: 25, stiffness: 200 }}
+    className="fixed top-0 right-0 h-full w-full sm:w-[420px] bg-white/95 backdrop-blur-xl shadow-2xl z-50 flex flex-col border-l border-gray-100"
   >
-    <div className="p-4 border-b border-gray-200 flex justify-between items-center">
-      <h2
-        className={cn("text-2xl font-bold text-gray-800", bebasNeue.className)}
+    <div className="p-6 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
+      <div>
+        <h2
+          className={cn(
+            "text-2xl sm:text-3xl font-bold text-slate-900 tracking-wide",
+            bebasNeue.className,
+          )}
+        >
+          Your Cart
+        </h2>
+        <p className="text-xs text-gray-400 font-medium">
+          {cartItems.length} items selected
+        </p>
+      </div>
+      <button
+        onClick={onClose}
+        className="p-2.5 hover:bg-gray-200/60 rounded-2xl transition-all cursor-pointer text-gray-500 hover:text-slate-900 active:scale-90"
       >
-        Your Cart
-      </h2>
-      <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-full">
-        <X className="w-5 h-5 text-gray-500" />
+        <X className="w-5 h-5" />
       </button>
     </div>
 
-    <div className="flex-1 overflow-y-auto p-4 space-y-4">
+    <div className="flex-1 overflow-y-auto p-6 space-y-4">
       {cartItems.length === 0 ? (
-        <p className="text-center text-gray-500 mt-10">Your cart is empty.</p>
+        <div className="text-center py-24 flex flex-col items-center justify-center h-full">
+          <div className="w-20 h-20 bg-emerald-50 border border-emerald-100 rounded-3xl flex items-center justify-center mx-auto mb-4 text-emerald-500 shadow-inner">
+            <ShoppingCart className="w-10 h-10" />
+          </div>
+          <h3 className="text-xl font-bold text-slate-900 mb-1">
+            Your cart is empty
+          </h3>
+          <p className="text-gray-500 text-xs sm:text-sm max-w-xs mx-auto">
+            Looks like you haven't added anything to your cart yet. Explore our
+            store to find great gear.
+          </p>
+        </div>
       ) : (
         cartItems.map((item) => (
           <div
             key={item.cartItemId}
-            className="flex gap-3 border-b border-gray-100 pb-4"
+            className="flex gap-4 p-4 bg-white rounded-2xl border border-gray-100 shadow-[0_2px_12px_-4px_rgba(0,0,0,0.03)] items-center group transition-all hover:border-gray-200"
           >
             <img
               src={item.imageUrl}
               alt={item.name}
-              className="w-16 h-16 object-cover rounded-lg"
+              className="w-18 h-18 object-cover rounded-xl bg-gray-50 flex-shrink-0"
             />
-            <div className="flex-1">
-              <h3 className="font-medium text-gray-800 text-sm">{item.name}</h3>
-              <p className="text-xs text-gray-500 mt-1">
-                {item.size} {item.size && item.color && "/"} {item.color}
+            <div className="flex-1 min-w-0">
+              <h3 className="font-bold text-slate-900 text-sm truncate">
+                {item.name}
+              </h3>
+              <p className="text-[11px] font-medium text-gray-400 mt-0.5">
+                {item.size} {item.size && item.color && "•"} {item.color}
               </p>
-              <div className="flex items-center justify-between mt-2">
-                <div className="flex items-center border border-gray-200 rounded-lg">
+              <div className="flex items-center justify-between mt-3">
+                <div className="flex items-center border border-gray-200/80 rounded-xl bg-gray-50 overflow-hidden shadow-2xs">
                   <button
                     onClick={() =>
                       onUpdateQuantity(item.cartItemId, item.quantity - 1)
                     }
-                    className="px-2 py-1 hover:bg-gray-100"
+                    className="p-1.5 hover:bg-gray-200/70 text-gray-600 transition-colors cursor-pointer"
                   >
                     <Minus className="w-3 h-3" />
                   </button>
-                  <span className="px-2 py-1 text-sm w-8 text-center text-gray-900">
+                  <span className="px-2.5 text-xs font-bold w-7 text-center text-slate-900">
                     {item.quantity}
                   </span>
                   <button
                     onClick={() =>
                       onUpdateQuantity(item.cartItemId, item.quantity + 1)
                     }
-                    className="px-2 py-1 hover:bg-gray-100"
+                    className="p-1.5 hover:bg-gray-200/70 text-gray-600 transition-colors cursor-pointer"
                   >
                     <Plus className="w-3 h-3" />
                   </button>
                 </div>
-                <span className="font-bold text-emerald-700 text-sm">
+                <span className="font-extrabold text-emerald-700 text-sm tracking-tight">
                   ₦{(item.price * item.quantity).toLocaleString()}
                 </span>
               </div>
             </div>
             <button
               onClick={() => onRemove(item.cartItemId)}
-              className="text-gray-400 hover:text-red-500 self-center"
+              className="p-2 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all cursor-pointer self-center"
             >
               <Trash2 className="w-4 h-4" />
             </button>
@@ -1545,28 +1677,30 @@ const CartSidebar: React.FC<CartSidebarProps> = ({
     </div>
 
     {cartItems.length > 0 && (
-      <div className="p-4 border-t border-gray-200 bg-gray-50">
-        <div className="space-y-2 text-sm mb-4">
+      <div className="p-6 border-t border-gray-100 bg-gray-50/80 backdrop-blur-md">
+        <div className="space-y-2.5 text-sm mb-5">
           <div className="flex justify-between">
-            <span className="text-gray-600">Subtotal</span>
-            <span className="font-medium text-gray-900">
+            <span className="text-gray-500 font-medium">Subtotal</span>
+            <span className="font-semibold text-slate-900">
               ₦{subtotal.toLocaleString()}
             </span>
           </div>
           <div className="flex justify-between">
-            <span className="text-gray-600">Delivery</span>
-            <span className="font-medium text-gray-900">
+            <span className="text-gray-500 font-medium">Delivery Fee</span>
+            <span className="font-semibold text-slate-900">
               ₦{deliveryFee.toLocaleString()}
             </span>
           </div>
-          <div className="flex justify-between font-bold text-base pt-2 border-t border-gray-200">
-            <span className="text-gray-800">Total</span>
-            <span className="text-emerald-700">₦{total.toLocaleString()}</span>
+          <div className="flex justify-between font-bold text-base pt-3 border-t border-gray-200/80">
+            <span className="text-slate-900">Total</span>
+            <span className="text-emerald-700 text-lg tracking-tight">
+              ₦{total.toLocaleString()}
+            </span>
           </div>
         </div>
         <button
           onClick={onCheckout}
-          className="w-full py-3 bg-emerald-600 text-white rounded-xl hover:bg-emerald-700 transition font-medium text-base"
+          className="w-full py-3.5 bg-slate-900 hover:bg-emerald-600 text-white rounded-2xl transition-all font-bold text-sm sm:text-base cursor-pointer shadow-lg shadow-slate-900/10 hover:shadow-emerald-600/20 active:scale-98"
         >
           Proceed to Checkout
         </button>
@@ -1589,109 +1723,123 @@ const ProductQuickView: React.FC<ProductQuickViewProps> = ({
 
   return (
     <Modal onClose={onClose} size="lg">
-      <div className="flex flex-col md:flex-row gap-6">
+      <div className="flex flex-col md:flex-row gap-8">
         <div className="md:w-1/2">
-          <div className="rounded-xl overflow-hidden bg-gray-100">
+          <div className="rounded-3xl overflow-hidden bg-gray-50 border border-gray-100 shadow-sm relative h-72 sm:h-96">
             <img
               src={product.imageUrl}
               alt={product.name}
-              className="w-full h-auto object-cover"
+              className="w-full h-full object-cover"
             />
           </div>
         </div>
-        <div className="md:w-1/2">
-          <div className="flex justify-between items-start">
-            <h2
-              className={cn(
-                "text-2xl sm:text-3xl font-bold text-gray-800",
-                bebasNeue.className,
-              )}
-            >
-              {product.name}
-            </h2>
-            <button
-              onClick={onToggleSave}
-              className="p-2 border border-gray-200 rounded-full hover:bg-gray-50"
-            >
-              <Heart
-                className={cn(
-                  "w-5 h-5",
-                  isSaved ? "fill-red-500 text-red-500" : "text-gray-600",
-                )}
-              />
-            </button>
-          </div>
-          <p className="text-emerald-700 font-bold text-2xl mt-2">
-            ₦{product.price.toLocaleString()}
-          </p>
-          <p className="text-sm text-gray-600 mt-4 leading-relaxed">
-            {product.description}
-          </p>
-          <div className="flex items-center gap-2 mt-4">
-            <Star className="w-5 h-5 fill-yellow-400 text-yellow-400" />
-            <span className="text-gray-700 font-medium">{product.rating}</span>
-            <span className="text-gray-400">|</span>
-            <span className="text-gray-600">{product.brand}</span>
-          </div>
-
-          {product.sizes && (
-            <div className="mt-6">
-              <p className="text-sm font-medium text-gray-700 mb-2">Size</p>
-              <div className="flex flex-wrap gap-2">
-                {product.sizes.map((s) => (
-                  <button
-                    key={s}
-                    onClick={() => setSelectedSize(s)}
-                    className={cn(
-                      "px-4 py-2 text-sm rounded-lg border transition",
-                      selectedSize === s
-                        ? "bg-emerald-600 text-white border-emerald-600"
-                        : "bg-gray-100 text-gray-700 border-gray-200 hover:bg-gray-200",
-                    )}
-                  >
-                    {s}
-                  </button>
-                ))}
+        <div className="md:w-1/2 flex flex-col justify-between">
+          <div>
+            <div className="flex justify-between items-start gap-4">
+              <div>
+                <span className="text-[10px] font-bold text-emerald-600 uppercase tracking-widest bg-emerald-50 px-2.5 py-1 rounded-md border border-emerald-100/50 mb-2 inline-block">
+                  {product.brand}
+                </span>
+                <h2
+                  className={cn(
+                    "text-2xl sm:text-3xl font-bold text-slate-900 leading-tight",
+                    bebasNeue.className,
+                  )}
+                >
+                  {product.name}
+                </h2>
               </div>
+              <button
+                onClick={onToggleSave}
+                className="p-3 border border-gray-100 bg-white shadow-sm rounded-2xl hover:bg-gray-50 transition-all cursor-pointer flex-shrink-0"
+              >
+                <Heart
+                  className={cn(
+                    "w-5 h-5",
+                    isSaved ? "fill-red-500 text-red-500" : "text-gray-500",
+                  )}
+                />
+              </button>
             </div>
-          )}
 
-          {product.colors && (
-            <div className="mt-4">
-              <p className="text-sm font-medium text-gray-700 mb-2">Color</p>
-              <div className="flex flex-wrap gap-2">
-                {product.colors.map((c) => (
-                  <button
-                    key={c}
-                    onClick={() => setSelectedColor(c)}
-                    className={cn(
-                      "px-4 py-2 text-sm rounded-lg border transition",
-                      selectedColor === c
-                        ? "bg-emerald-600 text-white border-emerald-600"
-                        : "bg-gray-100 text-gray-700 border-gray-200 hover:bg-gray-200",
-                    )}
-                  >
-                    {c}
-                  </button>
-                ))}
+            <p className="text-emerald-700 font-extrabold text-2xl mt-3 tracking-tight">
+              ₦{product.price.toLocaleString()}
+            </p>
+
+            <div className="flex items-center gap-2 mt-3 bg-amber-50/60 border border-amber-100/50 px-3 py-1.5 rounded-xl w-fit">
+              <Star className="w-4 h-4 fill-amber-400 text-amber-400" />
+              <span className="text-amber-800 font-bold text-xs">
+                {product.rating}
+              </span>
+            </div>
+
+            <p className="text-sm text-gray-500 mt-4 leading-relaxed">
+              {product.description}
+            </p>
+
+            {product.sizes && (
+              <div className="mt-6">
+                <span className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2 block">
+                  Size
+                </span>
+                <div className="flex flex-wrap gap-2">
+                  {product.sizes.map((s) => (
+                    <button
+                      key={s}
+                      onClick={() => setSelectedSize(s)}
+                      className={cn(
+                        "px-4 py-2 text-xs font-semibold rounded-xl border transition-all cursor-pointer",
+                        selectedSize === s
+                          ? "bg-emerald-600 text-white border-emerald-600 shadow-sm shadow-emerald-600/20"
+                          : "bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100",
+                      )}
+                    >
+                      {s}
+                    </button>
+                  ))}
+                </div>
               </div>
-            </div>
-          )}
+            )}
 
-          <div className="mt-8 flex items-center gap-4">
-            <div className="flex items-center border border-gray-200 rounded-lg">
+            {product.colors && (
+              <div className="mt-4">
+                <span className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2 block">
+                  Color
+                </span>
+                <div className="flex flex-wrap gap-2">
+                  {product.colors.map((c) => (
+                    <button
+                      key={c}
+                      onClick={() => setSelectedColor(c)}
+                      className={cn(
+                        "px-4 py-2 text-xs font-semibold rounded-xl border transition-all cursor-pointer",
+                        selectedColor === c
+                          ? "bg-emerald-600 text-white border-emerald-600 shadow-sm shadow-emerald-600/20"
+                          : "bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100",
+                      )}
+                    >
+                      {c}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="mt-8 pt-6 border-t border-gray-100 flex items-center gap-4">
+            <div className="flex items-center border border-gray-200 rounded-2xl bg-gray-50 overflow-hidden shadow-2xs h-12">
               <button
                 onClick={() => setQuantity(Math.max(1, quantity - 1))}
-                className="px-3 py-2 hover:bg-gray-100"
+                className="px-3.5 py-2 hover:bg-gray-200/70 text-gray-600 transition-colors cursor-pointer"
               >
                 <Minus className="w-4 h-4" />
               </button>
-              <span className="px-4 py-2 text-base w-12 text-center text-gray-900">
+              <span className="px-4 text-sm font-bold w-10 text-center text-slate-900">
                 {quantity}
               </span>
               <button
                 onClick={() => setQuantity(quantity + 1)}
-                className="px-3 py-2 hover:bg-gray-100"
+                className="px-3.5 py-2 hover:bg-gray-200/70 text-gray-600 transition-colors cursor-pointer"
               >
                 <Plus className="w-4 h-4" />
               </button>
@@ -1703,13 +1851,14 @@ const ProductQuickView: React.FC<ProductQuickViewProps> = ({
               }}
               disabled={!product.inStock}
               className={cn(
-                "flex-1 py-3 rounded-xl transition text-base font-medium",
+                "flex-1 py-3.5 rounded-2xl transition-all text-sm font-bold cursor-pointer shadow-sm flex items-center justify-center gap-2",
                 product.inStock
-                  ? "bg-emerald-600 text-white hover:bg-emerald-700"
-                  : "bg-gray-300 text-gray-500 cursor-not-allowed",
+                  ? "bg-slate-900 text-white hover:bg-emerald-600 active:scale-98 shadow-slate-900/10 hover:shadow-emerald-600/20"
+                  : "bg-gray-100 text-gray-400 cursor-not-allowed border border-gray-200",
               )}
             >
-              {product.inStock ? "Add to Cart" : "Out of Stock"}
+              <ShoppingCart className="w-4 h-4" />
+              <span>{product.inStock ? "Add to Cart" : "Out of Stock"}</span>
             </button>
           </div>
         </div>
@@ -1727,7 +1876,6 @@ const CheckoutModal: React.FC<CheckoutModalProps> = ({
   onClose,
   onPlaceOrder,
   user,
-
   clearCart,
 }) => {
   const [step, setStep] = useState(1);
@@ -1754,7 +1902,6 @@ const CheckoutModal: React.FC<CheckoutModalProps> = ({
     try {
       const createdOrder = await onPlaceOrder(orderData);
 
-      // Determine the order ID robustly
       let orderId: string;
       if (typeof createdOrder === "string") {
         orderId = createdOrder;
@@ -1786,7 +1933,7 @@ const CheckoutModal: React.FC<CheckoutModalProps> = ({
     <Modal onClose={onClose} size="lg">
       <h2
         className={cn(
-          "text-2xl sm:text-3xl font-bold text-gray-800 mb-6",
+          "text-2xl sm:text-3xl font-bold text-slate-900 mb-6 tracking-wide",
           bebasNeue.className,
         )}
       >
@@ -1794,15 +1941,15 @@ const CheckoutModal: React.FC<CheckoutModalProps> = ({
       </h2>
 
       {/* Steps */}
-      <div className="flex mb-6">
+      <div className="flex mb-8 items-center">
         {[1, 2, 3].map((s) => (
           <div key={s} className="flex-1 flex items-center">
             <div
               className={cn(
-                "w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold",
+                "w-9 h-9 rounded-2xl flex items-center justify-center text-xs font-bold transition-all shadow-sm",
                 step >= s
-                  ? "bg-emerald-600 text-white"
-                  : "bg-gray-200 text-gray-500",
+                  ? "bg-emerald-600 text-white shadow-emerald-600/20"
+                  : "bg-gray-100 text-gray-400 border border-gray-200",
               )}
             >
               {s}
@@ -1810,8 +1957,8 @@ const CheckoutModal: React.FC<CheckoutModalProps> = ({
             {s < 3 && (
               <div
                 className={cn(
-                  "flex-1 h-1 mx-2",
-                  step > s ? "bg-emerald-600" : "bg-gray-200",
+                  "flex-1 h-1 mx-3 rounded-full transition-all",
+                  step > s ? "bg-emerald-600" : "bg-gray-100",
                 )}
               />
             )}
@@ -1821,71 +1968,92 @@ const CheckoutModal: React.FC<CheckoutModalProps> = ({
 
       {step === 1 && (
         <div className="space-y-5">
-          <h3 className="text-lg font-semibold text-gray-800 flex items-center gap-2">
+          <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
             <MapPin className="w-5 h-5 text-emerald-600" />
-            Delivery Address
+            Delivery Address & Contact
           </h3>
-          <input
-            type="text"
-            placeholder="Street address"
-            value={address}
-            onChange={(e) => setAddress(e.target.value)}
-            className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-emerald-500 text-gray-900 placeholder:text-gray-400"
-          />
-          <div className="flex items-center gap-2">
-            <Phone className="w-5 h-5 text-emerald-600" />
-            <input
-              type="tel"
-              placeholder="Phone number"
-              value={phone}
-              onChange={(e) => setPhone(e.target.value)}
-              className="flex-1 px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-emerald-500 text-gray-900 placeholder:text-gray-400"
-            />
+          <div className="space-y-4">
+            <div>
+              <label className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1.5 block">
+                Street Address
+              </label>
+              <input
+                type="text"
+                placeholder="e.g., 15 Admiralty Way, Lekki Phase 1"
+                value={address}
+                onChange={(e) => setAddress(e.target.value)}
+                className="w-full px-4 py-3 bg-gray-50 border border-gray-200/80 rounded-2xl focus:ring-2 focus:ring-emerald-500 focus:bg-white text-slate-900 placeholder:text-gray-400 text-sm transition-all outline-none"
+              />
+            </div>
+            <div>
+              <label className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1.5 block">
+                Phone Number
+              </label>
+              <div className="flex items-center gap-2">
+                <Phone className="w-5 h-5 text-emerald-600" />
+                <input
+                  type="tel"
+                  placeholder="e.g., 08012345678"
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  className="flex-1 px-4 py-3 bg-gray-50 border border-gray-200/80 rounded-2xl focus:ring-2 focus:ring-emerald-500 focus:bg-white text-slate-900 placeholder:text-gray-400 text-sm transition-all outline-none"
+                />
+              </div>
+            </div>
           </div>
           <button
             onClick={() => setStep(2)}
             disabled={!address || !phone}
-            className="w-full py-3 bg-emerald-600 text-white rounded-xl hover:bg-emerald-700 disabled:opacity-50 text-lg font-medium"
+            className="w-full py-3.5 bg-slate-900 hover:bg-emerald-600 text-white rounded-2xl disabled:opacity-50 text-sm font-bold cursor-pointer shadow-lg shadow-slate-900/10 hover:shadow-emerald-600/20 transition-all mt-4"
           >
-            Continue
+            Continue to Payment
           </button>
         </div>
       )}
 
       {step === 2 && (
         <div className="space-y-5">
-          <h3 className="text-lg font-semibold text-gray-800 flex items-center gap-2">
+          <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
             <CreditCard className="w-5 h-5 text-emerald-600" />
             Payment Method
           </h3>
-          {["Pay on Delivery", "Card", "Bank Transfer"].map((method) => (
-            <label
-              key={method}
-              className="flex items-center gap-3 p-4 border border-gray-200 rounded-xl cursor-pointer hover:bg-gray-50"
-            >
-              <input
-                type="radio"
-                name="payment"
-                value={method}
-                checked={paymentMethod === method}
-                onChange={(e) => setPaymentMethod(e.target.value)}
-                className="w-4 h-4 text-emerald-600"
-              />
-              <span className="text-gray-700">{method}</span>
-            </label>
-          ))}
-          <div className="flex gap-4">
+          <div className="space-y-3">
+            {["Pay on Delivery", "Card", "Bank Transfer"].map((method) => (
+              <label
+                key={method}
+                className={cn(
+                  "flex items-center gap-3 p-4 border rounded-2xl cursor-pointer transition-all",
+                  paymentMethod === method
+                    ? "border-emerald-600 bg-emerald-50/30 shadow-xs"
+                    : "border-gray-200 hover:bg-gray-50/60 bg-gray-50/30",
+                )}
+              >
+                <input
+                  type="radio"
+                  name="payment"
+                  value={method}
+                  checked={paymentMethod === method}
+                  onChange={(e) => setPaymentMethod(e.target.value)}
+                  className="w-4 h-4 text-emerald-600 accent-emerald-600"
+                />
+                <span className="text-sm font-semibold text-slate-900">
+                  {method}
+                </span>
+              </label>
+            ))}
+          </div>
+          <div className="flex gap-3 pt-2">
             <button
               onClick={() => setStep(1)}
-              className="flex-1 py-3 bg-gray-200 text-gray-800 rounded-xl hover:bg-gray-300 text-lg font-medium"
+              className="flex-1 py-3.5 bg-gray-100 hover:bg-gray-200 text-slate-700 rounded-2xl text-sm font-bold cursor-pointer transition-all"
             >
               Back
             </button>
             <button
               onClick={() => setStep(3)}
-              className="flex-1 py-3 bg-emerald-600 text-white rounded-xl hover:bg-emerald-700 text-lg font-medium"
+              className="flex-1 py-3.5 bg-slate-900 hover:bg-emerald-600 text-white rounded-2xl text-sm font-bold cursor-pointer shadow-lg shadow-slate-900/10 hover:shadow-emerald-600/20 transition-all"
             >
-              Continue
+              Review Order
             </button>
           </div>
         </div>
@@ -1893,57 +2061,64 @@ const CheckoutModal: React.FC<CheckoutModalProps> = ({
 
       {step === 3 && (
         <div className="space-y-5">
-          <h3 className="text-lg font-semibold text-gray-800 flex items-center gap-2">
+          <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
             <CheckCircle className="w-5 h-5 text-emerald-600" />
             Order Summary
           </h3>
-          <div className="bg-gray-50 p-5 rounded-xl space-y-3">
-            {cartItems.map((item) => (
-              <div
-                key={item.cartItemId}
-                className="flex justify-between text-sm"
-              >
-                <span className="text-gray-700">
-                  {item.name} x{item.quantity}
-                </span>
-                <span className="font-medium text-gray-900">
-                  ₦{(item.price * item.quantity).toLocaleString()}
-                </span>
-              </div>
-            ))}
-            <div className="border-t border-gray-200 pt-3 mt-3">
-              <div className="flex justify-between text-sm">
-                <span className="text-gray-600">Subtotal</span>
-                <span className="text-gray-900">
+          <div className="bg-gray-50/80 p-5 rounded-2xl border border-gray-100 space-y-3">
+            <div className="max-h-40 overflow-y-auto space-y-2.5 pr-1">
+              {cartItems.map((item) => (
+                <div
+                  key={item.cartItemId}
+                  className="flex justify-between text-xs sm:text-sm items-center"
+                >
+                  <span className="text-gray-600 font-medium">
+                    {item.name}{" "}
+                    <span className="text-emerald-600 font-bold">
+                      x{item.quantity}
+                    </span>
+                  </span>
+                  <span className="font-bold text-slate-900">
+                    ₦{(item.price * item.quantity).toLocaleString()}
+                  </span>
+                </div>
+              ))}
+            </div>
+            <div className="border-t border-gray-200/80 pt-3 mt-3 space-y-2 text-xs sm:text-sm">
+              <div className="flex justify-between">
+                <span className="text-gray-500 font-medium">Subtotal</span>
+                <span className="text-slate-900 font-semibold">
                   ₦{subtotal.toLocaleString()}
                 </span>
               </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-gray-600">Delivery</span>
-                <span className="text-gray-900">
+              <div className="flex justify-between">
+                <span className="text-gray-500 font-medium">Delivery Fee</span>
+                <span className="text-slate-900 font-semibold">
                   ₦{deliveryFee.toLocaleString()}
                 </span>
               </div>
-              <div className="flex justify-between font-bold text-base pt-2">
-                <span className="text-gray-800">Total</span>
-                <span className="text-emerald-700">
+              <div className="flex justify-between font-extrabold text-base pt-2 border-t border-gray-200/80">
+                <span className="text-slate-900">Total</span>
+                <span className="text-emerald-700 text-lg tracking-tight">
                   ₦{total.toLocaleString()}
                 </span>
               </div>
             </div>
           </div>
-          <div className="flex gap-4">
+          <div className="flex gap-3 pt-2">
             <button
               onClick={() => setStep(2)}
-              className="flex-1 py-3 bg-gray-200 text-gray-800 rounded-xl hover:bg-gray-300 text-lg font-medium"
+              disabled={isPlacingOrder}
+              className="flex-1 py-3.5 bg-gray-100 hover:bg-gray-200 text-slate-700 rounded-2xl text-sm font-bold cursor-pointer transition-all"
             >
               Back
             </button>
             <button
               onClick={handlePlaceOrder}
-              className="flex-1 py-3 bg-emerald-600 text-white rounded-xl hover:bg-emerald-700 text-lg font-medium"
+              disabled={isPlacingOrder}
+              className="flex-1 py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl text-sm font-bold cursor-pointer shadow-lg shadow-emerald-600/20 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
             >
-              Place Order
+              {isPlacingOrder ? "Processing..." : "Place Order"}
             </button>
           </div>
         </div>
@@ -1951,7 +2126,6 @@ const CheckoutModal: React.FC<CheckoutModalProps> = ({
     </Modal>
   );
 };
-
 // ---------- Reusable Modal ----------
 const Modal: React.FC<ModalProps> = ({ children, onClose, size = "md" }) => {
   const sizeClasses = {
@@ -1959,25 +2133,29 @@ const Modal: React.FC<ModalProps> = ({ children, onClose, size = "md" }) => {
     md: "max-w-lg",
     lg: "max-w-2xl",
   };
+
   return (
     <motion.div
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-3 sm:p-4"
+      transition={{ duration: 0.2, ease: "easeInOut" }}
+      className="fixed inset-0 bg-slate-950/50 backdrop-blur-md flex items-center justify-center z-50 p-4 sm:p-6"
       onClick={onClose}
     >
       <motion.div
-        initial={{ scale: 0.95, y: 10 }}
-        animate={{ scale: 1, y: 0 }}
-        exit={{ scale: 0.95, y: 10 }}
+        initial={{ scale: 0.96, y: 12, opacity: 0 }}
+        animate={{ scale: 1, y: 0, opacity: 1 }}
+        exit={{ scale: 0.96, y: 12, opacity: 0 }}
+        transition={{ type: "spring", damping: 28, stiffness: 280 }}
         className={cn(
-          "bg-white rounded-2xl w-full max-h-[90vh] overflow-y-auto p-5 sm:p-6 shadow-2xl",
+          "bg-white/95 backdrop-blur-xl rounded-3xl w-full max-h-[88vh] overflow-y-auto p-6 sm:p-8 shadow-[0_24px_54px_-12px_rgba(0,0,0,0.18)] border border-gray-100/80 relative focus:outline-none scrollbar-thin scrollbar-thumb-gray-200 scrollbar-track-transparent",
           sizeClasses[size],
         )}
         onClick={(e) => e.stopPropagation()}
       >
-        {children}
+        <div className="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-emerald-500 via-teal-500 to-slate-900 rounded-t-3xl" />
+        <div className="relative">{children}</div>
       </motion.div>
     </motion.div>
   );

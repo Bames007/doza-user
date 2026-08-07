@@ -4,7 +4,6 @@ import { useUser } from "@/app/dashboard/hooks/useProfile";
 import { useDashboard } from "../../DashboardContext";
 import { useChallenges } from "../../hooks/useChallenge";
 import { useChallengeMutations } from "../../hooks/useChallengeMutations";
-import { ChallengeHeader } from "../subcomponents/socialchallenges/ChallengeHeader";
 import { ChallengeStats } from "../subcomponents/socialchallenges/ChallengeStats";
 import { ChallengeLeaderboard } from "../subcomponents/socialchallenges/ChallengeLeaderboard";
 import { ChallengeToolbar } from "../subcomponents/socialchallenges/ChallengeToolbar";
@@ -17,9 +16,9 @@ import { HelpCarousel } from "../subcomponents/socialchallenges/HelpCarousel";
 import { EmptyState } from "../subcomponents/socialchallenges/EmptyState";
 import { RequestCard } from "../subcomponents/socialchallenges/RequestCard";
 import { FloatingTrophy } from "../subcomponents/socialchallenges/FloatingTrophy";
-import { Globe, Users, UserPlus } from "lucide-react";
+import { Globe, Users, UserPlus, HelpCircle } from "lucide-react";
 import { cn } from "@/app/utils/utils";
-import { poppins } from "@/app/constants";
+import { poppins, bebasNeue } from "@/app/constants";
 
 export default function SocialChallengesPanel() {
   const { user, isLoading: userLoading } = useUser();
@@ -85,8 +84,37 @@ export default function SocialChallengesPanel() {
   return (
     <div className="min-h-screen bg-[#F8FAFC] pb-32 pt-6">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 space-y-6">
-        {/* HEADER */}
-        <ChallengeHeader onHelp={() => setShowHelp(true)} />
+        {/* ─── NEW DOZA-STYLE HEADER ─────────────────────────────── */}
+        <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-6">
+          <div>
+            <div className="flex items-center gap-3 mb-2">
+              <div className="h-8 w-1 rounded-full bg-gradient-to-b from-emerald-500 to-teal-600" />
+              <span className="text-[11px] font-bold text-emerald-600 uppercase tracking-[0.25em]">
+                Social Wellness
+              </span>
+            </div>
+            <h1
+              className={cn(
+                "text-4xl md:text-5xl text-slate-900 leading-[1.1] tracking-tight",
+                bebasNeue.className,
+              )}
+            >
+              Challenges <span className="text-emerald-600">Hub</span>
+            </h1>
+            <p className="text-sm text-slate-600 mt-2 max-w-md">
+              Join groups, compete with friends, and stay active together.
+            </p>
+          </div>
+
+          {/* Help Button */}
+          <button
+            onClick={() => setShowHelp(true)}
+            className="flex items-center gap-2 px-5 py-3 bg-slate-800 text-white rounded-xl font-medium hover:bg-slate-700 transition shadow-sm"
+          >
+            <HelpCircle size={16} />
+            <span className="hidden sm:inline">Help</span>
+          </button>
+        </div>
 
         {/* STATS + LEADERBOARD DISPLAY */}
         <div
@@ -238,7 +266,7 @@ export default function SocialChallengesPanel() {
   );
 }
 
-/* --- RESILIENT SHIMMER SKELETON LAYOUT MOCK --- */
+/* --- RESILIENT SHIMMER SKELETON LAYOUT MOCK (unchanged) --- */
 function ChallengesSkeletonLoader() {
   return (
     <div className="min-h-screen bg-[#F8FAFC] pb-32 pt-6 animate-pulse">

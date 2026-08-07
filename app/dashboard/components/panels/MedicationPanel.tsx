@@ -1,4 +1,4 @@
-// app/dashboard/panels/MedicationPanel.tsx
+// app/dashboard/components/panels/MedicationPanel.tsx
 
 "use client";
 
@@ -20,12 +20,10 @@ import {
   CheckCircle,
   Loader2,
   ChevronDown,
-  ChevronUp,
   Calendar,
   AlertCircle,
   UserPlus,
   Clock,
-  Package,
   HelpCircle,
   X,
   ChevronLeft,
@@ -44,6 +42,9 @@ import {
   BarChart3,
   Camera,
   Search,
+  Building,
+  Store,
+  Play,
 } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -65,6 +66,9 @@ import { poppins, bebasNeue } from "@/app/constants";
 import { usePrescribedMedications } from "@/app/dashboard/hooks/usePrescribedMedications";
 import { useUserContext } from "../../UserContext";
 import Tesseract from "tesseract.js";
+
+// ---------- Constants ----------
+const DEFAULT_MAX_DOSES = 90;
 
 // ---------- Types ----------
 type FamilyMember = {
@@ -88,6 +92,7 @@ type Medication = {
   dosage: string;
   quantityPerDose: number;
   totalQuantity: number;
+  durationDays?: number;
   ailment?: string;
   frequency: "once" | "twice" | "thrice" | "custom";
   times: string[];
@@ -95,7 +100,7 @@ type Medication = {
   startDate: string;
   endDate?: string;
   assignedTo: string;
-  status: "active" | "completed" | "paused";
+  status: "active" | "completed" | "paused" | "pending";
   doses: Dose[];
   createdAt: string;
   color?: string;
@@ -109,14 +114,14 @@ type UpcomingDose = {
   assignedToName: string;
 };
 
-type MedicationSource = "self" | "prescribed";
-
 interface ExtendedMedication extends Medication {
-  source?: MedicationSource;
-  centerId?: string;
+  source: "self" | "prescribed";
   centerName?: string;
   prescribedBy?: string;
   prescribedAt?: string;
+  sourceType?: "hospital" | "external";
+  prescriptionId?: string;
+  centerId?: string;
 }
 
 // ---------- Schemas ----------
@@ -125,7 +130,8 @@ const medicationSchema = z
     name: z.string().min(1, "Medication name is required"),
     dosage: z.string().min(1, "Dosage is required"),
     quantityPerDose: z.coerce.number().min(0.1, "Must be at least 0.1"),
-    totalQuantity: z.coerce.number().min(1, "Must be at least 1"),
+    totalQuantity: z.coerce.number().optional(),
+    durationDays: z.coerce.number().int().positive().optional(),
     ailment: z.string().optional(),
     frequency: z.enum(["once", "twice", "thrice", "custom"]),
     times: z.string().optional(),
@@ -137,6 +143,7 @@ const medicationSchema = z
     message: "Please specify custom times",
     path: ["times"],
   });
+
 type MedicationForm = z.infer<typeof medicationSchema>;
 
 const reactionSchema = z.object({
@@ -174,21 +181,81 @@ function getTimeOfDay(hour: number) {
   return "night";
 }
 
-function generateDoses(
+function getIntakesPerDay(frequency: string): number {
+  switch (frequency) {
+    case "once":
+      return 1;
+    case "twice":
+      return 2;
+    case "thrice":
+      return 3;
+    default:
+      return 3;
+  }
+}
+
+function deriveDuration(
+  totalQty: number,
+  qtyPerDose: number,
+  intakesPerDay: number,
+): number {
+  return Math.ceil(totalQty / (qtyPerDose * intakesPerDay));
+}
+
+function deriveTotalQuantity(
+  durationDays: number,
+  qtyPerDose: number,
+  intakesPerDay: number,
+): number {
+  return durationDays * qtyPerDose * intakesPerDay;
+}
+
+function generateDosesFromStart(
+  startDateTime: string,
+  frequency: "once" | "twice" | "thrice" | "custom",
+  totalQuantity: number,
+): Dose[] {
+  const start = new Date(startDateTime);
+  let intervalMs: number;
+  switch (frequency) {
+    case "once":
+      intervalMs = 24 * 60 * 60 * 1000;
+      break;
+    case "twice":
+      intervalMs = 12 * 60 * 60 * 1000;
+      break;
+    case "thrice":
+    case "custom":
+      intervalMs = 8 * 60 * 60 * 1000;
+      break;
+    default:
+      intervalMs = 8 * 60 * 60 * 1000;
+  }
+  const numDoses = totalQuantity > 0 ? totalQuantity : DEFAULT_MAX_DOSES;
+  const doses: Dose[] = [];
+  for (let i = 0; i < numDoses; i++) {
+    const doseTime = new Date(start.getTime() + i * intervalMs);
+    doses.push({
+      id: `dose-${i}-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+      scheduledTime: doseTime.toISOString(),
+    });
+  }
+  return doses;
+}
+
+function generateCustomDoses(
   startDate: string,
   times: string[],
-  qtyPerDose: number,
-  totalQty: number,
-  existing: Dose[] = [],
+  totalQuantity: number,
 ): Dose[] {
-  const doses: Dose[] = [];
+  const numDoses = totalQuantity > 0 ? totalQuantity : DEFAULT_MAX_DOSES;
   const [y, m, d] = startDate.split("-").map(Number);
   const start = new Date(y, m - 1, d);
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const perDay = times.length;
-  const maxDoses = Math.min(totalQty, perDay * 30);
-  for (let i = existing.length; i < maxDoses; i++) {
+  const doses: Dose[] = [];
+  for (let i = 0; i < numDoses; i++) {
     const dayOffset = Math.floor(i / perDay);
     const timeIdx = i % perDay;
     const date = new Date(start);
@@ -204,13 +271,26 @@ function generateDoses(
   return doses;
 }
 
-function generatePrescribedDoses(startDate: string, frequency: string): Dose[] {
-  let times: string[] = [];
-  if (frequency === "once") times = ["08:00"];
-  else if (frequency === "twice") times = ["08:00", "20:00"];
-  else if (frequency === "thrice") times = ["08:00", "14:00", "20:00"];
-  else return [];
-  return generateDoses(startDate, times, 1, 30, []);
+function computeEndDateFromDoses(doses: Dose[]): string | undefined {
+  if (doses.length === 0) return undefined;
+  const takenDoses = doses.filter((d) => d.takenAt);
+  if (takenDoses.length === 0) {
+    const lastDose = doses[doses.length - 1];
+    return new Date(lastDose.scheduledTime).toISOString().split("T")[0];
+  }
+  const lastTaken = takenDoses[takenDoses.length - 1];
+  return new Date(lastTaken.takenAt!).toISOString().split("T")[0];
+}
+
+function normalizeFrequency(
+  freq: string,
+): "once" | "twice" | "thrice" | "custom" {
+  const lower = freq.toLowerCase().trim();
+  if (lower.includes("once") || lower === "qd" || lower === "daily")
+    return "once";
+  if (lower.includes("twice") || lower === "bid") return "twice";
+  if (lower.includes("thrice") || lower === "tid") return "thrice";
+  return "custom";
 }
 
 function getAdherenceScore(medications: ExtendedMedication[]): number {
@@ -270,7 +350,7 @@ const SkeletonPulse = ({ className }: { className?: string }) => (
 );
 
 const SkeletonCard = () => (
-  <div className="bg-white border border-slate-200 rounded-3xl p-6">
+  <div className="bg-white border border-slate-200 rounded-2xl md:rounded-3xl p-5 md:p-6">
     <div className="flex items-start justify-between">
       <div className="flex-1 space-y-3">
         <div className="flex gap-2">
@@ -289,7 +369,7 @@ const SkeletonCard = () => (
 );
 
 const SkeletonStatCard = () => (
-  <div className="bg-white border border-slate-200 rounded-3xl p-7">
+  <div className="bg-white border border-slate-200 rounded-2xl md:rounded-3xl p-5 md:p-7">
     <SkeletonPulse className="h-4 w-20 rounded-lg mb-4" />
     <div className="space-y-3">
       {[...Array(3)].map((_, i) => (
@@ -317,7 +397,7 @@ const BentoTile = ({
     transition={{ type: "spring", stiffness: 300, damping: 25 }}
     onClick={onClick}
     className={cn(
-      "p-6 rounded-3xl border transition-all duration-300",
+      "p-4 md:p-6 rounded-2xl md:rounded-3xl border transition-all duration-300",
       gradient
         ? "bg-gradient-to-br text-white border-transparent shadow-lg"
         : "bg-white border-slate-200 shadow-sm hover:shadow-xl",
@@ -351,27 +431,29 @@ const Modal = ({
       animate={{ scale: 1, y: 0 }}
       exit={{ scale: 0.9, y: 20 }}
       transition={{ type: "spring", stiffness: 300, damping: 25 }}
-      className="bg-white rounded-3xl max-w-lg w-full max-h-[90vh] overflow-y-auto shadow-2xl border border-slate-200"
+      className="bg-white rounded-2xl md:rounded-3xl max-w-lg w-full max-h-[90vh] overflow-y-auto shadow-2xl border border-slate-200"
       onClick={(e) => e.stopPropagation()}
     >
       {(title || Icon) && (
-        <div className="flex items-center gap-3 px-6 pt-6 pb-2">
+        <div className="flex items-center gap-3 px-4 md:px-6 pt-5 md:pt-6 pb-2">
           {Icon && (
-            <div className="w-10 h-10 rounded-2xl bg-teal-50 flex items-center justify-center">
-              <Icon className="w-5 h-5 text-teal-600" />
+            <div className="w-9 h-9 md:w-10 md:h-10 rounded-2xl bg-teal-50 flex items-center justify-center">
+              <Icon className="w-4 h-4 md:w-5 md:h-5 text-teal-600" />
             </div>
           )}
           {title && (
-            <h2 className="text-xl font-bold text-slate-800">{title}</h2>
+            <h2 className="text-lg md:text-xl font-bold text-slate-800">
+              {title}
+            </h2>
           )}
         </div>
       )}
-      <div className="p-6 pt-2">{children}</div>
+      <div className="p-4 md:p-6 pt-2">{children}</div>
     </motion.div>
   </motion.div>
 );
 
-// ---------- Input Component with good contrast ----------
+// ---------- Input Components ----------
 const Input = ({ label, error, className, ...props }: any) => (
   <div className={cn("space-y-1.5", className)}>
     {label && (
@@ -392,7 +474,6 @@ const Input = ({ label, error, className, ...props }: any) => (
   </div>
 );
 
-// ---------- Select Input ----------
 const Select = ({ label, error, className, children, ...props }: any) => (
   <div className={cn("space-y-1.5", className)}>
     {label && (
@@ -415,7 +496,6 @@ const Select = ({ label, error, className, children, ...props }: any) => (
   </div>
 );
 
-// ---------- Textarea ----------
 const Textarea = ({ label, error, className, ...props }: any) => (
   <div className={cn("space-y-1.5", className)}>
     {label && (
@@ -436,7 +516,7 @@ const Textarea = ({ label, error, className, ...props }: any) => (
   </div>
 );
 
-// ---------- Drug Search Function ----------
+// ---------- Drug Search ----------
 async function searchDrug(
   query: string,
 ): Promise<{ name: string; dosage?: string; ailment?: string }[]> {
@@ -447,7 +527,6 @@ async function searchDrug(
     if (!res.ok) return [];
     const data = await res.json();
     if (!data.results) return [];
-
     return data.results.map((item: any) => {
       const brand = item.openfda?.brand_name?.[0] || "";
       const generic = item.openfda?.generic_name?.[0] || "";
@@ -466,7 +545,7 @@ async function searchDrug(
   }
 }
 
-// ---------- Medication Card ----------
+// ---------- Medication Card (with Ongoing support) ----------
 const MedicationCard = ({
   medication,
   expanded,
@@ -475,33 +554,27 @@ const MedicationCard = ({
   onReportReaction,
   onStop,
   isPast,
-  onLogPrescribedDose,
   colorIndex,
+  now,
 }: {
   medication: ExtendedMedication;
   expanded: boolean;
   onToggleExpand: () => void;
-  onLogDose: (doseId: string, taken: boolean) => void;
+  onLogDose: (doseId: string, taken: boolean, reaction?: string) => void;
   onReportReaction: (doseId: string) => void;
   onStop: () => void;
   isPast?: boolean;
-  onLogPrescribedDose?: (
-    medicationId: string,
-    centerId: string,
-    doseId: string,
-    taken: boolean,
-    reaction?: string,
-  ) => Promise<void>;
   colorIndex: number;
+  now: number;
 }) => {
   const medColor = medication.color || getMedicationColor(colorIndex);
   const isPrescribed = medication.source === "prescribed";
-  const qty = Number(medication.quantityPerDose) || 1;
-  const total = Number(medication.totalQuantity) || 0;
-  const takenCount = medication.doses.filter((d) => d.takenAt).length;
-  const totalNeeded = total / qty;
-  const remaining = Math.max(0, totalNeeded - takenCount) * qty;
-  const completion = totalNeeded > 0 ? (takenCount / totalNeeded) * 100 : 0;
+  const isOngoing = medication.totalQuantity === 0;
+
+  const totalDoses = medication.doses.length;
+  const takenDoses = medication.doses.filter((d) => d.takenAt).length;
+  const remainingDoses = totalDoses - takenDoses;
+  const completion = totalDoses > 0 ? (takenDoses / totalDoses) * 100 : 0;
 
   const today = new Date();
   const localToday = new Date(
@@ -516,6 +589,24 @@ const MedicationCard = ({
   const progress =
     todaysDoses.length > 0 ? (takenToday / todaysDoses.length) * 100 : 0;
 
+  // Next upcoming dose
+  const nextDose = medication.doses.find(
+    (d) => !d.takenAt && new Date(d.scheduledTime).getTime() > now,
+  );
+  const isNextDoseDue = nextDose
+    ? now >= new Date(nextDose.scheduledTime).getTime()
+    : false;
+
+  const nextDoseCountdown = nextDose
+    ? (() => {
+        const diff = new Date(nextDose.scheduledTime).getTime() - now;
+        if (diff <= 0) return "Due now";
+        const h = Math.floor(diff / 3600000);
+        const m = Math.floor((diff % 3600000) / 60000);
+        return `${h}h ${m}m`;
+      })()
+    : "";
+
   const next7 = Array.from({ length: 7 }, (_, i) => {
     const d = new Date();
     d.setDate(d.getDate() + i);
@@ -523,27 +614,6 @@ const MedicationCard = ({
       .toISOString()
       .split("T")[0];
   });
-
-  const handleLog = async (
-    doseId: string,
-    taken: boolean,
-    reaction?: string,
-  ) => {
-    if (isPrescribed && medication.centerId) {
-      await onLogPrescribedDose?.(
-        medication.id,
-        medication.centerId,
-        doseId,
-        taken,
-        reaction,
-      );
-    } else {
-      onLogDose(doseId, taken);
-    }
-  };
-
-  const stockStatus =
-    remaining <= qty * 3 ? "critical" : remaining <= qty * 7 ? "low" : "good";
 
   return (
     <motion.div
@@ -556,7 +626,7 @@ const MedicationCard = ({
       }}
       transition={{ type: "spring", stiffness: 300, damping: 25 }}
       className={cn(
-        "bg-white rounded-3xl border overflow-hidden transition-shadow duration-300",
+        "bg-white rounded-2xl md:rounded-3xl border overflow-hidden transition-shadow duration-300",
         isPast ? "border-slate-200 opacity-60" : "border-slate-200 shadow-sm",
       )}
     >
@@ -569,21 +639,24 @@ const MedicationCard = ({
         }}
       />
 
-      <div className="p-6">
+      <div className="p-4 md:p-6">
         <div className="flex items-start justify-between">
           <div className="flex-1 cursor-pointer" onClick={onToggleExpand}>
-            <div className="flex items-center gap-2 flex-wrap mb-1">
+            <div className="flex items-center gap-1.5 md:gap-2 flex-wrap mb-1">
               <div
-                className="w-8 h-8 rounded-xl flex items-center justify-center"
+                className="w-7 h-7 md:w-8 md:h-8 rounded-xl flex items-center justify-center"
                 style={{ backgroundColor: `${medColor}15` }}
               >
-                <Pill className="w-4 h-4" style={{ color: medColor }} />
+                <Pill
+                  className="w-3.5 h-3.5 md:w-4 md:h-4"
+                  style={{ color: medColor }}
+                />
               </div>
-              <h3 className="font-semibold text-slate-900 text-lg">
+              <h3 className="font-semibold text-slate-900 text-base md:text-lg">
                 {medication.name}
               </h3>
               <span
-                className="text-[10px] font-bold px-2.5 py-1 rounded-full"
+                className="text-[10px] font-bold px-2 py-0.5 rounded-full"
                 style={{
                   backgroundColor: `${medColor}15`,
                   color: medColor,
@@ -591,14 +664,20 @@ const MedicationCard = ({
               >
                 {medication.dosage}
               </span>
-              {isPrescribed && (
-                <span className="text-[10px] bg-blue-50 text-blue-700 px-2.5 py-1 rounded-full font-bold flex items-center gap-1 border border-blue-100">
-                  <Stethoscope className="w-3 h-3" />
-                  Prescribed
+              {isPrescribed && medication.sourceType && (
+                <span className="text-[10px] bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full font-bold flex items-center gap-1 border border-blue-100">
+                  {medication.sourceType === "hospital" ? (
+                    <Building className="w-3 h-3" />
+                  ) : (
+                    <Store className="w-3 h-3" />
+                  )}
+                  {medication.sourceType === "hospital"
+                    ? "Hospital"
+                    : "External"}
                 </span>
               )}
               {medication.ailment && (
-                <span className="text-[10px] bg-slate-100 text-slate-700 px-2.5 py-1 rounded-full font-medium border border-slate-200">
+                <span className="text-[10px] bg-slate-100 text-slate-700 px-2 py-0.5 rounded-full font-medium border border-slate-200">
                   {medication.ailment}
                 </span>
               )}
@@ -606,56 +685,57 @@ const MedicationCard = ({
 
             {isPrescribed && (
               <p className="text-xs text-slate-600 ml-10">
-                by{" "}
+                from{" "}
                 <span className="font-medium text-slate-800">
-                  {medication.prescribedBy}
-                </span>{" "}
-                · {medication.centerName}
+                  {medication.centerName}
+                </span>
+                {medication.prescribedBy && ` · by ${medication.prescribedBy}`}
               </p>
             )}
 
-            <div className="flex items-center gap-2 mt-2 ml-10">
-              <div
-                className={cn(
-                  "w-2 h-2 rounded-full",
-                  stockStatus === "critical" && "bg-red-500 animate-pulse",
-                  stockStatus === "low" && "bg-amber-500",
-                  stockStatus === "good" && "bg-emerald-500",
-                )}
-              />
-              <span className="text-xs text-slate-600">
-                <span className="font-semibold text-slate-800">
-                  {isNaN(remaining) ? "?" : Math.round(remaining)}
-                </span>{" "}
-                / {total} remaining
-                {stockStatus === "critical" && (
-                  <span className="text-red-600 font-bold ml-1">
-                    · Refill needed
-                  </span>
-                )}
-                {stockStatus === "low" && (
-                  <span className="text-amber-600 font-medium ml-1">
-                    · Running low
-                  </span>
-                )}
+            <div className="flex items-center gap-2 mt-1.5 md:mt-2 ml-10">
+              {isOngoing ? (
+                <span className="text-xs text-emerald-600 font-medium flex items-center gap-1">
+                  <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                  Ongoing
+                </span>
+              ) : (
+                <span className="text-xs text-slate-600">
+                  <span className="font-semibold text-slate-800">
+                    {remainingDoses}
+                  </span>{" "}
+                  / {totalDoses} doses remaining
+                </span>
+              )}
+            </div>
+            {/* Start and End dates */}
+            <div className="ml-10 mt-1.5 flex flex-wrap gap-x-3 gap-y-1">
+              <span className="text-[10px] text-slate-500">
+                Start: {new Date(medication.startDate).toLocaleDateString()}
               </span>
+              {medication.endDate && (
+                <span className="text-[10px] text-slate-500">
+                  Finished: {new Date(medication.endDate).toLocaleDateString()}
+                </span>
+              )}
             </div>
           </div>
 
           <button
             onClick={onToggleExpand}
-            className="p-2 hover:bg-slate-50 rounded-xl transition-colors"
+            className="p-1.5 md:p-2 hover:bg-slate-50 rounded-xl transition-colors"
           >
             <motion.div
               animate={{ rotate: expanded ? 180 : 0 }}
               transition={{ duration: 0.2 }}
             >
-              <ChevronDown className="w-5 h-5 text-slate-400" />
+              <ChevronDown className="w-4 h-4 md:w-5 md:h-5 text-slate-400" />
             </motion.div>
           </button>
         </div>
 
-        <div className="mt-5 space-y-3">
+        {/* Progress bars */}
+        <div className="mt-4 md:mt-5 space-y-3">
           <div>
             <div className="flex justify-between text-xs font-semibold text-slate-600 mb-1.5">
               <span className="flex items-center gap-1">
@@ -665,7 +745,7 @@ const MedicationCard = ({
                 {takenToday}/{todaysDoses.length} doses
               </span>
             </div>
-            <div className="w-full bg-slate-100 h-2.5 rounded-full overflow-hidden">
+            <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
               <motion.div
                 initial={{ width: 0 }}
                 animate={{ width: `${progress}%` }}
@@ -696,6 +776,67 @@ const MedicationCard = ({
           </div>
         </div>
 
+        {/* NEXT DOSE TIMER + BUTTON */}
+        {!isPast && nextDose && (
+          <div className="mt-4 p-3 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <Clock className="w-5 h-5 text-slate-400" />
+              <div>
+                <p className="text-xs font-semibold text-slate-700">
+                  Next dose
+                </p>
+                <p className="text-sm font-bold text-slate-900">
+                  {new Date(nextDose.scheduledTime).toLocaleTimeString([], {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })}
+                </p>
+              </div>
+              <span
+                className={cn(
+                  "text-xs font-bold px-2 py-1 rounded-lg",
+                  isNextDoseDue
+                    ? "text-red-600 bg-red-100"
+                    : nextDoseCountdown.includes("h")
+                      ? "text-slate-500"
+                      : "text-amber-600 bg-amber-100",
+                )}
+              >
+                {nextDoseCountdown}
+              </span>
+            </div>
+            {isNextDoseDue ? (
+              <div className="flex gap-2">
+                <button
+                  onClick={() => onLogDose(nextDose.id, true, "")}
+                  className="px-3 py-1.5 bg-emerald-600 text-white text-xs font-bold rounded-lg hover:bg-emerald-700 shadow-sm"
+                >
+                  <Check className="w-3 h-3 inline mr-1" />
+                  Take
+                </button>
+                <button
+                  onClick={() => onReportReaction(nextDose.id)}
+                  className="px-2 py-1.5 bg-amber-50 text-amber-700 text-xs font-bold rounded-lg hover:bg-amber-100 border border-amber-200"
+                >
+                  <AlertCircle className="w-3 h-3 inline mr-1" />
+                  Issue
+                </button>
+              </div>
+            ) : (
+              <span className="text-xs font-medium text-slate-400">
+                Upcoming
+              </span>
+            )}
+          </div>
+        )}
+        {!isPast && !nextDose && (
+          <div className="mt-4 p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-center">
+            <p className="text-xs font-medium text-emerald-700">
+              All scheduled doses completed
+            </p>
+          </div>
+        )}
+
         <AnimatePresence>
           {expanded && (
             <motion.div
@@ -703,14 +844,15 @@ const MedicationCard = ({
               animate={{ opacity: 1, height: "auto" }}
               exit={{ opacity: 0, height: 0 }}
               transition={{ duration: 0.3 }}
-              className="mt-5 space-y-5 overflow-hidden"
+              className="mt-4 md:mt-5 space-y-4 md:space-y-5 overflow-hidden"
             >
+              {/* Next 7 Days calendar */}
               <div>
-                <h4 className="text-xs font-semibold text-slate-700 mb-3 flex items-center gap-1.5 uppercase tracking-wider">
+                <h4 className="text-xs font-semibold text-slate-700 mb-2 md:mb-3 flex items-center gap-1.5 uppercase tracking-wider">
                   <Calendar className="w-3.5 h-3.5 text-slate-400" />
                   Next 7 Days
                 </h4>
-                <div className="grid grid-cols-7 gap-1.5">
+                <div className="grid grid-cols-7 gap-1">
                   {next7.map((day) => {
                     const dd = medication.doses.filter((d) =>
                       d.scheduledTime.startsWith(day),
@@ -726,7 +868,7 @@ const MedicationCard = ({
                       <div
                         key={day}
                         className={cn(
-                          "aspect-square rounded-xl flex flex-col items-center justify-center text-[10px] p-1 transition-all",
+                          "aspect-square rounded-lg md:rounded-xl flex flex-col items-center justify-center text-[10px] p-0.5 transition-all",
                           tt > 0
                             ? tk === tt
                               ? "bg-emerald-50 text-emerald-800 border border-emerald-200"
@@ -739,7 +881,9 @@ const MedicationCard = ({
                         <span className="text-[8px] font-medium opacity-60">
                           {dayName}
                         </span>
-                        <span className="font-bold text-sm">{dayNum}</span>
+                        <span className="font-bold text-xs md:text-sm">
+                          {dayNum}
+                        </span>
                         {tt > 0 && (
                           <span className="text-[8px] font-semibold">
                             {tk}/{tt}
@@ -749,123 +893,14 @@ const MedicationCard = ({
                     );
                   })}
                 </div>
-                {medication.endDate && (
-                  <p className="text-[10px] text-slate-500 mt-2 flex items-center gap-1">
-                    <Calendar className="w-3 h-3" />
-                    Est. finish:{" "}
-                    {new Date(medication.endDate).toLocaleDateString()}
-                  </p>
-                )}
-              </div>
-
-              <div>
-                <h4 className="text-xs font-semibold text-slate-700 mb-3 flex items-center gap-1.5 uppercase tracking-wider">
-                  <Clock className="w-3.5 h-3.5 text-slate-400" />
-                  Today's Schedule
-                </h4>
-                {todaysDoses.length === 0 ? (
-                  <div className="bg-slate-50 rounded-2xl p-4 text-center">
-                    <p className="text-xs text-slate-500">
-                      No doses scheduled for today.
-                    </p>
-                  </div>
-                ) : (
-                  <div className="space-y-2">
-                    {todaysDoses.map((dose) => {
-                      const taken = !!dose.takenAt;
-                      const doseTime = new Date(dose.scheduledTime);
-                      const hour = doseTime.getHours();
-                      const timeOfDay = getTimeOfDay(hour);
-                      const TimeIcon =
-                        timeOfDay === "morning"
-                          ? Sunrise
-                          : timeOfDay === "afternoon"
-                            ? Sun
-                            : timeOfDay === "evening"
-                              ? Sunset
-                              : Moon;
-                      const colorClass =
-                        timeOfDay === "morning"
-                          ? "bg-amber-50 text-amber-700"
-                          : timeOfDay === "afternoon"
-                            ? "bg-orange-50 text-orange-700"
-                            : timeOfDay === "evening"
-                              ? "bg-indigo-50 text-indigo-700"
-                              : "bg-slate-100 text-slate-700";
-
-                      return (
-                        <motion.div
-                          key={dose.id}
-                          layout
-                          className={cn(
-                            "flex items-center justify-between p-3.5 rounded-2xl border transition-all",
-                            taken
-                              ? "bg-emerald-50 border-emerald-100"
-                              : "bg-slate-50 border-slate-100",
-                          )}
-                        >
-                          <div className="flex items-center gap-3">
-                            <div
-                              className={cn(
-                                "w-9 h-9 rounded-xl flex items-center justify-center",
-                                colorClass,
-                              )}
-                            >
-                              <TimeIcon className="w-4 h-4" />
-                            </div>
-                            <div>
-                              <p className="text-sm font-medium text-slate-900">
-                                {doseTime.toLocaleTimeString([], {
-                                  hour: "2-digit",
-                                  minute: "2-digit",
-                                })}
-                              </p>
-                              {dose.reaction && (
-                                <p className="text-xs text-amber-600 mt-0.5 flex items-center gap-1">
-                                  <AlertCircle className="w-3 h-3" />
-                                  {dose.reaction}
-                                </p>
-                              )}
-                            </div>
-                          </div>
-
-                          {!isPast && !taken ? (
-                            <div className="flex gap-2">
-                              <button
-                                onClick={() => handleLog(dose.id, true)}
-                                className="px-4 py-2 bg-emerald-600 text-white text-xs font-bold rounded-xl hover:bg-emerald-700 transition-colors shadow-sm shadow-emerald-200"
-                              >
-                                <Check className="w-3.5 h-3.5 inline mr-1" />
-                                Take
-                              </button>
-                              <button
-                                onClick={() => onReportReaction(dose.id)}
-                                className="px-3 py-2 bg-amber-50 text-amber-700 text-xs font-bold rounded-xl hover:bg-amber-100 transition-colors border border-amber-200"
-                              >
-                                <AlertCircle className="w-3.5 h-3.5 inline mr-1" />
-                                Issue
-                              </button>
-                            </div>
-                          ) : (
-                            <span className="text-xs font-bold text-emerald-700 flex items-center gap-1.5 bg-emerald-50 px-3 py-1.5 rounded-xl">
-                              <CheckCircle className="w-4 h-4" />
-                              Taken
-                            </span>
-                          )}
-                        </motion.div>
-                      );
-                    })}
-                  </div>
-                )}
               </div>
 
               {!isPast && (
                 <button
                   onClick={onStop}
-                  className="w-full py-3 text-sm bg-slate-50 text-slate-600 rounded-2xl hover:bg-red-50 hover:text-red-600 transition-all font-bold flex items-center justify-center gap-2 border border-slate-200 hover:border-red-200"
+                  className="w-full py-2.5 md:py-3 text-xs md:text-sm bg-slate-50 text-slate-600 rounded-xl md:rounded-2xl hover:bg-red-50 hover:text-red-600 transition-all font-bold flex items-center justify-center gap-2 border border-slate-200 hover:border-red-200"
                 >
-                  <StopCircle className="w-4 h-4" />
-                  Stop Medication
+                  <StopCircle className="w-4 h-4" /> Stop / Finish Medication
                 </button>
               )}
             </motion.div>
@@ -880,9 +915,11 @@ const MedicationCard = ({
 const UpcomingDosePill = ({
   dose,
   index,
+  now,
 }: {
   dose: UpcomingDose;
   index: number;
+  now: number;
 }) => {
   const doseTime = new Date(dose.scheduledTime);
   const hour = doseTime.getHours();
@@ -903,10 +940,17 @@ const UpcomingDosePill = ({
         : timeOfDay === "evening"
           ? "bg-indigo-50 text-indigo-700"
           : "bg-slate-100 text-slate-700";
-  const now = Date.now();
+
   const diff = doseTime.getTime() - now;
   const isDue = diff <= 0;
   const isSoon = diff > 0 && diff <= 3600000;
+
+  const countdown =
+    diff <= 0
+      ? "Due now"
+      : diff < 3600000
+        ? `${Math.floor(diff / 60000)}m`
+        : `${Math.floor(diff / 3600000)}h ${Math.floor((diff % 3600000) / 60000)}m`;
 
   return (
     <motion.div
@@ -914,7 +958,7 @@ const UpcomingDosePill = ({
       animate={{ opacity: 1, x: 0 }}
       transition={{ delay: index * 0.1 }}
       className={cn(
-        "flex items-center gap-3 p-3 rounded-2xl border transition-all",
+        "flex items-center gap-2 md:gap-3 p-2.5 md:p-3 rounded-xl md:rounded-2xl border transition-all",
         isDue
           ? "bg-red-50 border-red-200"
           : isSoon
@@ -924,17 +968,17 @@ const UpcomingDosePill = ({
     >
       <div
         className={cn(
-          "w-10 h-10 rounded-xl flex items-center justify-center",
+          "w-8 h-8 md:w-10 md:h-10 rounded-xl flex items-center justify-center",
           colorClass,
         )}
       >
-        <TimeIcon className="w-5 h-5" />
+        <TimeIcon className="w-4 h-4 md:w-5 md:h-5" />
       </div>
       <div className="flex-1 min-w-0">
-        <p className="text-sm font-semibold text-slate-900 truncate">
+        <p className="text-xs md:text-sm font-semibold text-slate-900 truncate">
           {dose.medicationName}
         </p>
-        <p className="text-xs text-slate-600">
+        <p className="text-[10px] md:text-xs text-slate-600">
           {doseTime.toLocaleTimeString([], {
             hour: "2-digit",
             minute: "2-digit",
@@ -942,31 +986,25 @@ const UpcomingDosePill = ({
           · {dose.dosage} · {dose.assignedToName}
         </p>
       </div>
-      {isDue ? (
-        <span className="text-xs font-bold text-red-600 bg-red-100 px-2 py-1 rounded-lg">
-          Due Now
-        </span>
-      ) : isSoon ? (
-        <span className="text-xs font-bold text-amber-600 bg-amber-100 px-2 py-1 rounded-lg">
-          Soon
-        </span>
-      ) : (
-        <span className="text-xs font-medium text-slate-500">
-          {Math.floor(diff / 3600000)}h {Math.floor((diff % 3600000) / 60000)}m
-        </span>
-      )}
+      <span
+        className={cn(
+          "text-[10px] font-bold px-2 py-1 rounded-lg",
+          isDue
+            ? "text-red-600 bg-red-100"
+            : isSoon
+              ? "text-amber-600 bg-amber-100"
+              : "text-slate-500",
+        )}
+      >
+        {countdown}
+      </span>
     </motion.div>
   );
 };
 
-// ---------- Camera / Snap Modal ----------
-const SnapDrugModal = ({
-  onClose,
-  onSnap,
-}: {
-  onClose: () => void;
-  onSnap: (name: string) => void;
-}) => {
+// ---------- Camera / Snap Modal (unchanged) ----------
+const SnapDrugModal = ({ onClose, onSnap }: any) => {
+  // ... (keep the full implementation from your existing file)
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [stream, setStream] = useState<MediaStream | null>(null);
@@ -976,7 +1014,6 @@ const SnapDrugModal = ({
   const [error, setError] = useState<string | null>(null);
   const [step, setStep] = useState<"camera" | "result">("camera");
 
-  // Function to stop the camera stream
   const stopCamera = useCallback(() => {
     if (stream) {
       stream.getTracks().forEach((track) => {
@@ -991,7 +1028,6 @@ const SnapDrugModal = ({
     }
   }, [stream]);
 
-  // Start camera when step is "camera"
   useEffect(() => {
     if (step === "camera") {
       navigator.mediaDevices
@@ -1002,9 +1038,9 @@ const SnapDrugModal = ({
             videoRef.current.srcObject = mediaStream;
             const playPromise = videoRef.current.play();
             if (playPromise !== undefined) {
-              playPromise.catch((err) => {
-                console.warn("Auto-play prevented:", err);
-              });
+              playPromise.catch((err) =>
+                console.warn("Auto-play prevented:", err),
+              );
             }
           }
         })
@@ -1013,19 +1049,13 @@ const SnapDrugModal = ({
           console.error(err);
         });
     }
-    // Cleanup when step changes away from camera or component unmounts
     return () => {
-      if (step === "camera") {
-        stopCamera();
-      }
+      if (step === "camera") stopCamera();
     };
   }, [step, stopCamera]);
 
-  // Cleanup on unmount – always stop the camera
   useEffect(() => {
-    return () => {
-      stopCamera();
-    };
+    return () => stopCamera();
   }, [stopCamera]);
 
   const capture = () => {
@@ -1040,7 +1070,6 @@ const SnapDrugModal = ({
     const dataUrl = canvas.toDataURL("image/jpeg");
     setCapturedImage(dataUrl);
     setStep("result");
-    // Stop camera immediately after capture
     stopCamera();
     runOCR(dataUrl);
   };
@@ -1078,10 +1107,8 @@ const SnapDrugModal = ({
     setCapturedImage(null);
     setExtractedText("");
     setError(null);
-    // Camera will restart via the useEffect when step changes to "camera"
   };
 
-  // Handle manual close – stop camera before closing
   const handleClose = () => {
     stopCamera();
     onClose();
@@ -1089,9 +1116,11 @@ const SnapDrugModal = ({
 
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[100] p-4">
-      <div className="bg-white rounded-3xl max-w-lg w-full overflow-hidden shadow-2xl">
+      <div className="bg-white rounded-2xl md:rounded-3xl max-w-lg w-full overflow-hidden shadow-2xl">
         <div className="flex items-center justify-between p-4 border-b border-slate-200">
-          <h3 className="text-lg font-semibold text-slate-800">Snap Drug</h3>
+          <h3 className="text-base md:text-lg font-semibold text-slate-800">
+            Snap Drug
+          </h3>
           <button
             onClick={handleClose}
             className="p-1 hover:bg-slate-100 rounded-full"
@@ -1102,8 +1131,7 @@ const SnapDrugModal = ({
         <div className="p-4">
           {error && (
             <div className="bg-red-50 border border-red-200 text-red-600 p-3 rounded-xl text-sm mb-3 flex items-center gap-2">
-              <AlertCircle className="w-4 h-4" />
-              {error}
+              <AlertCircle className="w-4 h-4" /> {error}
             </div>
           )}
           {step === "camera" && (
@@ -1117,9 +1145,9 @@ const SnapDrugModal = ({
               <canvas ref={canvasRef} className="hidden" />
               <button
                 onClick={capture}
-                className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-white rounded-full p-4 shadow-lg hover:scale-105 transition-transform"
+                className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-white rounded-full p-3 md:p-4 shadow-lg hover:scale-105 transition-transform"
               >
-                <Camera className="w-6 h-6 text-slate-900" />
+                <Camera className="w-5 h-5 md:w-6 md:h-6 text-slate-900" />
               </button>
             </div>
           )}
@@ -1140,14 +1168,16 @@ const SnapDrugModal = ({
                 </label>
                 <Textarea
                   value={extractedText}
-                  onChange={(e: ChangeEvent<HTMLTextAreaElement>) => setExtractedText(e.target.value)}
+                  onChange={(e: ChangeEvent<HTMLTextAreaElement>) =>
+                    setExtractedText(e.target.value)
+                  }
                   placeholder="OCR result will appear here..."
                   className="min-h-[80px]"
                 />
                 {isProcessing && (
                   <div className="flex items-center gap-2 mt-2 text-sm text-slate-500">
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    Processing image...
+                    <Loader2 className="w-4 h-4 animate-spin" /> Processing
+                    image...
                   </div>
                 )}
               </div>
@@ -1182,6 +1212,14 @@ const SnapDrugModal = ({
 export default function MedicationPanel() {
   const user = useUserContext();
   const { profile } = useProfile();
+
+  // Live clock
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    const interval = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(interval);
+  }, []);
+
   const [selectedFamilyId, setSelectedFamilyId] = useState("self");
   const [familyMembers, setFamilyMembers] = useState<FamilyMember[]>([]);
   const [showAddMedModal, setShowAddMedModal] = useState(false);
@@ -1195,7 +1233,6 @@ export default function MedicationPanel() {
   const [helpSlide, setHelpSlide] = useState(0);
   const [stopConfirm, setStopConfirm] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"active" | "past">("active");
-
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<
     { name: string; dosage?: string; ailment?: string }[]
@@ -1241,55 +1278,142 @@ export default function MedicationPanel() {
   const { prescriptions: prescribedMeds, loading: prescribedLoading } =
     usePrescribedMedications();
 
-  // Merge
-  const allMedications = useMemo<ExtendedMedication[]>(() => {
-    const self = selfMedications.map((m, i) => ({
-      ...m,
-      source: "self" as const,
-      color: getMedicationColor(i),
-    }));
+  // Medication Meta
+  const [medicationMeta, setMedicationMeta] = useState<
+    Record<
+      string,
+      {
+        prescriptionId: string;
+        centerId: string;
+        sourceType?: "hospital" | "external";
+      }
+    >
+  >(() => {
+    if (typeof window !== "undefined") {
+      const stored = localStorage.getItem("medicationMeta");
+      if (stored) {
+        try {
+          return JSON.parse(stored);
+        } catch {}
+      }
+    }
+    return {};
+  });
 
-    const prescribed = prescribedMeds.map((p, i) => {
-      const doses = generatePrescribedDoses(
-        p.prescribedAt.split("T")[0],
-        p.frequency,
-      );
+  useEffect(() => {
+    localStorage.setItem("medicationMeta", JSON.stringify(medicationMeta));
+  }, [medicationMeta]);
+
+  // Merge self and prescribed
+  const allExtended = useMemo<ExtendedMedication[]>(() => {
+    const selfExtended = selfMedications.map((m, i) => {
+      const meta = medicationMeta[m.id];
       return {
-        id: p.id,
-        name: p.medication,
-        dosage: p.dosage,
-        quantityPerDose: 1,
-        totalQuantity: 30,
-        frequency: p.frequency as "once" | "twice" | "thrice" | "custom",
-        times: [],
-        instructions: p.instructions,
-        startDate: p.prescribedAt.split("T")[0],
-        assignedTo: selectedFamilyId,
-        status: p.status,
-        doses,
-        createdAt: p.prescribedAt,
-        source: "prescribed" as const,
-        centerId: p.centerId,
-        centerName: p.centerName,
-        prescribedBy: p.prescribedBy,
-        prescribedAt: p.prescribedAt,
-        color: getMedicationColor(self.length + i),
+        ...m,
+        source: "self" as const,
+        color: getMedicationColor(i),
+        status: m.status as "active" | "completed" | "paused" | "pending",
+        prescriptionId: meta?.prescriptionId,
+        centerId: meta?.centerId,
+        sourceType: meta?.sourceType,
       };
     });
 
-    return [...self, ...prescribed];
-  }, [selfMedications, prescribedMeds, selectedFamilyId]);
+    const startedIds = new Set(
+      Object.values(medicationMeta).map((v) => v.prescriptionId),
+    );
+    const unstarted = prescribedMeds.filter((p) => !startedIds.has(p.id));
 
-  const activeMeds = allMedications.filter((m) => m.status === "active");
-  const pastMeds = allMedications.filter((m) => m.status !== "active");
-  const adherenceScore = getAdherenceScore(allMedications);
-  const streak = getStreak(allMedications);
+    const prescribedExtended = unstarted.map((p, i) => ({
+      id: p.id,
+      name: p.medication,
+      dosage: p.dosage,
+      quantityPerDose: p.quantityPerDose || 1,
+      totalQuantity: p.totalQuantity || 0,
+      durationDays: p.durationDays,
+      frequency: normalizeFrequency(p.frequency),
+      times: [],
+      instructions: p.instructions,
+      startDate: new Date().toISOString().split("T")[0],
+      assignedTo: "self",
+      status: "pending" as const,
+      doses: [],
+      createdAt: p.prescribedAt,
+      source: "prescribed" as const,
+      centerId: p.centerId,
+      centerName: p.centerName,
+      prescribedBy: p.prescribedBy,
+      prescribedAt: p.prescribedAt,
+      sourceType: p.source,
+      color: getMedicationColor(selfExtended.length + i),
+      prescriptionId: p.id,
+    }));
+
+    return [...selfExtended, ...prescribedExtended];
+  }, [selfMedications, prescribedMeds, medicationMeta]);
+
+  // Filters
+  const activeMeds = allExtended.filter(
+    (m) => m.status === "active" && m.doses.length > 0,
+  );
+  const pastMeds = allExtended.filter(
+    (m) => m.status !== "active" && m.status !== "pending",
+  );
+  const unstartedMeds = allExtended.filter(
+    (m) => m.status === "pending" && m.source === "prescribed",
+  );
+
+  const groupedActive = useMemo(() => {
+    const groups: { label: string; items: ExtendedMedication[] }[] = [];
+    const selfItems = activeMeds.filter((m) => m.source === "self");
+    if (selfItems.length > 0)
+      groups.push({ label: "My Medications", items: selfItems });
+    const prescribedActive = activeMeds.filter(
+      (m) => m.source === "prescribed",
+    );
+    const centerMap = new Map<string, ExtendedMedication[]>();
+    prescribedActive.forEach((m) => {
+      const key = m.centerId || "unknown";
+      if (!centerMap.has(key)) centerMap.set(key, []);
+      centerMap.get(key)!.push(m);
+    });
+    for (const [centerId, items] of centerMap) {
+      const centerName = items[0]?.centerName || "Unknown Center";
+      groups.push({ label: centerName, items });
+    }
+    return groups;
+  }, [activeMeds]);
+
+  const groupedPast = useMemo(() => {
+    const groups: { label: string; items: ExtendedMedication[] }[] = [];
+    const selfItems = pastMeds.filter((m) => m.source === "self");
+    if (selfItems.length > 0)
+      groups.push({ label: "My Medications", items: selfItems });
+    const prescribedPast = pastMeds.filter((m) => m.source === "prescribed");
+    const centerMap = new Map<string, ExtendedMedication[]>();
+    prescribedPast.forEach((m) => {
+      const key = m.centerId || "unknown";
+      if (!centerMap.has(key)) centerMap.set(key, []);
+      centerMap.get(key)!.push(m);
+    });
+    for (const [centerId, items] of centerMap) {
+      const centerName = items[0]?.centerName || "Unknown Center";
+      groups.push({ label: centerName, items });
+    }
+    return groups;
+  }, [pastMeds]);
+
+  // Stats
+  const adherenceScore = getAdherenceScore(allExtended);
+  const streak = getStreak(allExtended);
 
   const upcomingDoses = useMemo<UpcomingDose[]>(() => {
-    const now = Date.now();
-    const all = allMedications.flatMap((med) =>
+    const nowTime = Date.now();
+    const all = allExtended.flatMap((med) =>
       med.doses
-        .filter((d) => !d.takenAt && new Date(d.scheduledTime).getTime() > now)
+        .filter(
+          (d) => !d.takenAt && new Date(d.scheduledTime).getTime() > nowTime,
+        )
         .map((d) => ({
           medicationId: med.id,
           medicationName: med.name,
@@ -1304,7 +1428,7 @@ export default function MedicationPanel() {
         new Date(b.scheduledTime).getTime(),
     );
     return all.slice(0, 5);
-  }, [allMedications]);
+  }, [allExtended]);
 
   const chartData = useMemo(() => {
     const last14Days = Array.from({ length: 14 }, (_, i) => {
@@ -1313,7 +1437,7 @@ export default function MedicationPanel() {
       return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
     }).reverse();
     return last14Days.map((day) => {
-      const dayDoses = allMedications.flatMap((m) =>
+      const dayDoses = allExtended.flatMap((m) =>
         m.doses.filter((d) => d.scheduledTime.startsWith(day)),
       );
       return {
@@ -1325,42 +1449,33 @@ export default function MedicationPanel() {
         total: dayDoses.length,
       };
     });
-  }, [allMedications]);
+  }, [allExtended]);
 
-  const [timeRemaining, setTimeRemaining] = useState("");
   const nextDose = upcomingDoses.length > 0 ? upcomingDoses[0] : null;
-  useEffect(() => {
-    if (!nextDose) return;
-    const update = () => {
-      const diff = new Date(nextDose.scheduledTime).getTime() - Date.now();
-      if (diff <= 0) {
-        setTimeRemaining("Due now");
-      } else {
-        const h = Math.floor(diff / 3600000);
-        const m = Math.floor((diff % 3600000) / 60000);
-        setTimeRemaining(`${h}h ${m}m`);
-      }
-    };
-    update();
-    const interval = setInterval(update, 60000);
-    return () => clearInterval(interval);
-  }, [nextDose]);
+  const timeRemaining = useMemo(() => {
+    if (!nextDose) return "";
+    const diff = new Date(nextDose.scheduledTime).getTime() - now;
+    if (diff <= 0) return "Due now";
+    const h = Math.floor(diff / 3600000);
+    const m = Math.floor((diff % 3600000) / 60000);
+    return `${h}h ${m}m`;
+  }, [nextDose, now]);
 
   const todayDosesRemaining = useMemo(() => {
     const today = new Date().toISOString().split("T")[0];
-    return allMedications
+    return allExtended
       .flatMap((m) => m.doses)
       .filter((d) => d.scheduledTime.startsWith(today) && !d.takenAt).length;
-  }, [allMedications]);
+  }, [allExtended]);
 
   const todayDosesTotal = useMemo(() => {
     const today = new Date().toISOString().split("T")[0];
-    return allMedications
+    return allExtended
       .flatMap((m) => m.doses)
       .filter((d) => d.scheduledTime.startsWith(today)).length;
-  }, [allMedications]);
+  }, [allExtended]);
 
-  // Forms
+  // ─── Forms ──────────────────────────────────────────────────────────
   const {
     register,
     handleSubmit,
@@ -1374,7 +1489,7 @@ export default function MedicationPanel() {
       frequency: "once",
       assignedTo: selectedFamilyId,
       quantityPerDose: 1,
-      totalQuantity: 30,
+      totalQuantity: 0, // 0 means "ongoing"
       startDate: new Date().toISOString().split("T")[0],
     },
   });
@@ -1389,6 +1504,8 @@ export default function MedicationPanel() {
   const familyForm = useForm<FamilyForm>({
     resolver: zodResolver(familySchema),
   });
+
+  // ─── Handlers ──────────────────────────────────────────────────────
 
   const handleDrugSearch = async (query: string) => {
     if (!query.trim()) {
@@ -1419,25 +1536,67 @@ export default function MedicationPanel() {
   };
 
   const onSubmitNewMed = async (formData: MedicationForm) => {
-    let times: string[] = [];
-    if (formData.frequency === "once") times = ["08:00"];
-    else if (formData.frequency === "twice") times = ["08:00", "20:00"];
-    else if (formData.frequency === "thrice")
-      times = ["08:00", "14:00", "20:00"];
-    else if (formData.frequency === "custom" && formData.times)
-      times = formData.times.split(",").map((t) => t.trim());
-    const doses = generateDoses(
-      formData.startDate,
-      times,
-      formData.quantityPerDose,
-      formData.totalQuantity,
-    );
+    let totalQty = formData.totalQuantity || 0; // 0 = ongoing
+    let durationDays = formData.durationDays;
+
+    // If duration is provided, compute total quantity
+    if (durationDays && totalQty === 0) {
+      const intakesPerDay = getIntakesPerDay(formData.frequency);
+      totalQty = deriveTotalQuantity(
+        durationDays,
+        formData.quantityPerDose,
+        intakesPerDay,
+      );
+    }
+
+    // If total quantity is provided, compute duration for display
+    if (totalQty > 0 && !durationDays) {
+      const intakesPerDay = getIntakesPerDay(formData.frequency);
+      durationDays = deriveDuration(
+        totalQty,
+        formData.quantityPerDose,
+        intakesPerDay,
+      );
+    }
+
+    // Generate doses
+    let timesArray: string[] = [];
+    let doses: Dose[] = [];
+    let endDateStr: string | undefined;
+
+    if (formData.frequency === "custom" && formData.times) {
+      timesArray = formData.times.split(",").map((t) => t.trim());
+      doses = generateCustomDoses(
+        formData.startDate,
+        timesArray,
+        totalQty || DEFAULT_MAX_DOSES,
+      );
+    } else {
+      const normFreq = formData.frequency as "once" | "twice" | "thrice";
+      const startDateTime = new Date().toISOString();
+      doses = generateDosesFromStart(
+        startDateTime,
+        normFreq,
+        totalQty || DEFAULT_MAX_DOSES,
+      );
+      endDateStr = computeEndDateFromDoses(doses);
+    }
+
     try {
       const result = await authPost("/api/medications", {
-        ...formData,
-        times,
-        doses,
+        name: formData.name,
+        dosage: formData.dosage,
+        quantityPerDose: formData.quantityPerDose,
+        totalQuantity: totalQty,
+        durationDays: durationDays,
+        frequency: formData.frequency,
+        times: timesArray,
+        instructions: formData.instructions,
+        startDate: formData.startDate,
+        endDate: endDateStr,
+        assignedTo: formData.assignedTo,
         status: "active",
+        doses,
       });
       if (result.success) {
         mutate(`/api/medications?memberId=${selectedFamilyId}`);
@@ -1449,81 +1608,247 @@ export default function MedicationPanel() {
     }
   };
 
+  const startPrescribedMedication = async (prescribed: ExtendedMedication) => {
+    if (!prescribed.prescriptionId) return;
+
+    const normalizedFreq = normalizeFrequency(prescribed.frequency);
+    const startDateTime = new Date().toISOString();
+
+    // Use totalQuantity from prescription, or 0 for ongoing
+    const totalQty = prescribed.totalQuantity || 0;
+    const doses = generateDosesFromStart(
+      startDateTime,
+      normalizedFreq,
+      totalQty || DEFAULT_MAX_DOSES,
+    );
+    const endDateStr = computeEndDateFromDoses(doses);
+
+    try {
+      const result = await authPost("/api/medications", {
+        name: prescribed.name,
+        dosage: prescribed.dosage,
+        quantityPerDose: prescribed.quantityPerDose || 1,
+        totalQuantity: totalQty,
+        durationDays: prescribed.durationDays,
+        frequency: normalizedFreq,
+        times: [],
+        instructions: prescribed.instructions || "",
+        startDate: new Date(startDateTime).toISOString().split("T")[0],
+        endDate: endDateStr,
+        assignedTo: "self",
+        status: "active",
+        doses,
+        prescriptionId: prescribed.prescriptionId,
+        centerId: prescribed.centerId,
+        sourceType: prescribed.sourceType,
+      });
+
+      if (result.success) {
+        const newId = result.data?.id ?? result.id;
+        if (!newId) {
+          alert("Created but could not retrieve ID.");
+          return;
+        }
+        const newMeta = {
+          ...medicationMeta,
+          [newId]: {
+            prescriptionId: prescribed.prescriptionId!,
+            centerId: prescribed.centerId!,
+            sourceType: prescribed.sourceType,
+          },
+        };
+        setMedicationMeta(newMeta);
+        localStorage.setItem("medicationMeta", JSON.stringify(newMeta));
+
+        mutate(`/api/medications?memberId=${selectedFamilyId}`);
+        alert("Medication started! Your doses are now scheduled.");
+      } else {
+        alert("Error: " + result.error);
+      }
+    } catch (err: any) {
+      console.error(err);
+      alert("Failed to start medication: " + (err.message || "Unknown error"));
+    }
+  };
+
+  // Reschedule doses after a late dose
+  const rescheduleDoses = (
+    medication: Medication,
+    takenDoseIndex: number,
+    actualTakenTime: string,
+  ): Dose[] => {
+    const doses = [...medication.doses];
+    const takenDose = doses[takenDoseIndex];
+    if (!takenDose) return doses;
+    const scheduledTime = new Date(takenDose.scheduledTime).getTime();
+    const actualTime = new Date(actualTakenTime).getTime();
+    if (actualTime <= scheduledTime + 5 * 60 * 1000) return doses;
+
+    const remainingDoses = doses
+      .slice(takenDoseIndex + 1)
+      .filter((d) => !d.takenAt);
+    if (remainingDoses.length === 0) return doses;
+
+    const intervalMs =
+      medication.frequency === "once"
+        ? 24 * 60 * 60 * 1000
+        : medication.frequency === "twice"
+          ? 12 * 60 * 60 * 1000
+          : 8 * 60 * 60 * 1000;
+
+    const newDoses = doses.slice(0, takenDoseIndex + 1);
+    let nextTime = actualTime + intervalMs;
+    for (const dose of remainingDoses) {
+      newDoses.push({
+        ...dose,
+        scheduledTime: new Date(nextTime).toISOString(),
+      });
+      nextTime += intervalMs;
+    }
+    return newDoses;
+  };
+
   const logDose = async (
     medicationId: string,
     doseId: string,
     taken: boolean,
     reaction?: string,
   ) => {
+    const swrKey = `/api/medications?memberId=${selectedFamilyId}`;
+    const actualTakenTime = new Date().toISOString();
+
+    mutate(
+      swrKey,
+      (currentData: any) => {
+        if (!currentData?.success) return currentData;
+        const meds = currentData.data;
+        const updatedMeds = meds.map((m: Medication) => {
+          if (m.id !== medicationId) return m;
+          const doseIndex = m.doses.findIndex((d: any) => d.id === doseId);
+          if (doseIndex === -1) return m;
+
+          const updatedDoses = [...m.doses];
+          updatedDoses[doseIndex] = {
+            ...updatedDoses[doseIndex],
+            takenAt: taken ? actualTakenTime : undefined,
+            reaction: reaction || updatedDoses[doseIndex].reaction,
+          };
+
+          const finalDoses =
+            taken && m.frequency !== "custom"
+              ? rescheduleDoses(
+                  { ...m, doses: updatedDoses },
+                  doseIndex,
+                  actualTakenTime,
+                )
+              : updatedDoses;
+
+          return { ...m, doses: finalDoses };
+        });
+        return { ...currentData, data: updatedMeds };
+      },
+      false,
+    );
+
     try {
       const result = await authPut(
         `/api/medications/${medicationId}/doses/${doseId}`,
-        {
-          taken,
-          reaction,
-        },
+        { taken, reaction },
       );
       if (result.success) {
-        mutate(`/api/medications?memberId=${selectedFamilyId}`);
-      } else alert("Error: " + (result.error || "Failed to log dose"));
-    } catch {
+        const currentData = await mutate(swrKey);
+        if (currentData?.success) {
+          const med = currentData.data.find(
+            (m: Medication) => m.id === medicationId,
+          );
+          if (med && taken && med.frequency !== "custom") {
+            const doseIndex = med.doses.findIndex((d: any) => d.id === doseId);
+            const newDoses = rescheduleDoses(med, doseIndex, actualTakenTime);
+            await authPut(`/api/medications/${medicationId}`, {
+              doses: newDoses,
+            });
+            mutate(swrKey);
+          }
+        }
+
+        const meta = medicationMeta[medicationId];
+        if (meta && meta.centerId && meta.prescriptionId) {
+          await syncToCenter(meta.centerId, {
+            medication:
+              selfMedications.find((m) => m.id === medicationId)?.name ||
+              "Unknown",
+            dose:
+              selfMedications.find((m) => m.id === medicationId)?.dosage || "1",
+            administeredAt: actualTakenTime,
+            administeredBy: user?.fullName || "Patient",
+            administeredById: user?.id,
+            reaction: reaction || "",
+            note: `Logged from patient app. Dose ID: ${doseId}`,
+          });
+        }
+      } else {
+        alert("Error: " + (result.error || "Failed to log dose"));
+        mutate(swrKey);
+      }
+    } catch (err) {
       alert("An error occurred");
+      mutate(swrKey);
     }
   };
 
-  const logPrescribedDose = async (
-    medicationId: string,
+  const syncToCenter = async (
     centerId: string,
-    doseId: string,
-    taken: boolean,
-    reaction?: string,
+    administration: {
+      medication: string;
+      dose: string;
+      administeredAt: string;
+      administeredBy: string;
+      administeredById?: string;
+      reaction: string;
+      note: string;
+    },
   ) => {
+    if (!user?.id) return;
     try {
       const getRes = await fetch(
-        `/api/centers/${centerId}/patients/${user?.id}`,
+        `/api/centers/${centerId}/patients/${user.id}`,
         {
           credentials: "include",
         },
       );
-      if (!getRes.ok) throw new Error("Failed to fetch patient record");
+      if (!getRes.ok) {
+        console.warn("Could not fetch patient record for sync");
+        return;
+      }
+
       const patientData = await getRes.json();
-      if (!patientData.success) throw new Error("Failed to fetch patient data");
+      if (!patientData.success) {
+        console.warn("Invalid patient data response");
+        return;
+      }
 
-      const existingAdmins = patientData.data?.medicationAdministrations || [];
-      const newAdmin = {
-        medication:
-          patientData.data?.prescriptions?.find(
-            (rx: any) =>
-              rx.medication ===
-              allMedications.find((m) => m.id === medicationId)?.name,
-          )?.medication || "Unknown",
-        dose: "1",
-        administeredAt: new Date().toISOString(),
-        administeredBy: "Patient (self)",
-        administeredById: user?.id,
-        reaction: reaction || "",
-        note: `Logged from patient app. Dose ID: ${doseId}`,
-      };
-
-      const updatedAdmins = [...existingAdmins, newAdmin];
+      let existingAdmins = patientData.data?.medicationAdministrations || [];
+      if (!Array.isArray(existingAdmins)) {
+        existingAdmins = Object.values(existingAdmins);
+      }
 
       const putRes = await fetch(
-        `/api/centers/${centerId}/patients/${user?.id}`,
+        `/api/centers/${centerId}/patients/${user.id}`,
         {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           credentials: "include",
-          body: JSON.stringify({ medicationAdministrations: updatedAdmins }),
+          body: JSON.stringify({
+            medicationAdministrations: [...existingAdmins, administration],
+          }),
         },
       );
-      if (!putRes.ok) throw new Error("Failed to update patient record");
-
-      alert(
-        "Dose logged successfully. It will be visible to your healthcare provider.",
-      );
+      if (!putRes.ok) {
+        const errorBody = await putRes.text();
+        console.warn(`Sync failed (${putRes.status}):`, errorBody);
+      }
     } catch (err) {
-      console.error("Failed to log prescribed dose", err);
-      alert("Failed to log dose for prescribed medication.");
+      console.warn("Sync to center error", err);
     }
   };
 
@@ -1531,6 +1856,7 @@ export default function MedicationPanel() {
     try {
       const result = await authPut(`/api/medications/${medicationId}`, {
         status: "completed",
+        endDate: new Date().toISOString().split("T")[0],
       });
       if (result.success) {
         mutate(`/api/medications?memberId=${selectedFamilyId}`);
@@ -1610,74 +1936,74 @@ export default function MedicationPanel() {
 
   if (error)
     return (
-      <div className="p-6 text-red-600 text-center bg-white rounded-3xl border shadow-sm">
+      <div className="p-6 text-red-600 text-center bg-white rounded-2xl md:rounded-3xl border shadow-sm">
         Error loading medications.
       </div>
     );
 
   const isLoadingCombined = isLoading || prescribedLoading;
 
+  // ─── Render ──────────────────────────────────────────────────────
   return (
     <div
-      className={cn("min-h-screen bg-slate-50 pb-32 pt-6", poppins.className)}
+      className={cn(
+        "min-h-screen bg-slate-50 pb-24 pt-1 md:pt-6",
+        poppins.className,
+      )}
     >
-      <div className="max-w-7xl mx-auto px-4 md:px-6 space-y-8">
-        {/* ─── HEADER ─────────────────────────────────────────────── */}
-        <motion.header
-          initial={{ opacity: 0, y: -20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="bg-white rounded-3xl p-6 md:p-8 border border-slate-200 shadow-sm"
-        >
-          <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-            <div>
-              <div className="flex items-center gap-2 mb-2">
-                <div className="w-8 h-8 rounded-xl bg-teal-50 flex items-center justify-center">
-                  <Activity className="w-4 h-4 text-teal-600" />
-                </div>
-                <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-[0.25em]">
-                  Adherence Protocol
-                </p>
-              </div>
-              <h1
-                className={cn(
-                  "text-4xl md:text-5xl text-slate-800 leading-none",
-                  bebasNeue.className,
-                )}
-              >
-                Medication <span className="text-teal-600">Tracker</span>
-              </h1>
-              <p className="text-sm text-slate-600 mt-2">
-                {streak > 0 ? (
-                  <span className="flex items-center gap-1.5 text-amber-600">
-                    <Sparkles className="w-4 h-4" />
-                    <span className="font-semibold">
-                      {streak}-day streak! Keep it up.
-                    </span>
+      <div className="max-w-7xl mx-auto px-4 md:px-6 space-y-5 md:space-y-8">
+        {/* HEADER */}
+        <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-6 mb-8">
+          <div>
+            <div className="flex items-center gap-3 mb-2">
+              <div className="h-8 w-1 rounded-full bg-gradient-to-b from-emerald-500 to-teal-600" />
+              <span className="text-[11px] font-bold text-emerald-600 uppercase tracking-[0.25em]">
+                Medication Management
+              </span>
+            </div>
+            <h1
+              className={cn(
+                "text-4xl md:text-5xl text-slate-900 leading-[1.1] tracking-tight",
+                bebasNeue.className,
+              )}
+            >
+              Medication <span className="text-emerald-600">Tracker</span>
+            </h1>
+            <p className="text-sm text-slate-600 mt-2 max-w-md">
+              {streak > 0 ? (
+                <span className="flex items-center gap-1.5 text-amber-600">
+                  <Sparkles className="w-4 h-4" />
+                  <span className="font-semibold">
+                    {streak}-day streak! Keep it up.
                   </span>
-                ) : (
-                  "Stay on top of your health regimen."
-                )}
-              </p>
-            </div>
-            <div className="flex gap-3">
-              <button
-                onClick={requestNotificationPermission}
-                className="flex items-center gap-2 px-5 py-3 bg-slate-800 text-white rounded-2xl text-xs font-semibold uppercase tracking-wider hover:bg-slate-700 transition-all"
-              >
-                <Bell size={14} /> Reminders
-              </button>
-              <button
-                onClick={() => setShowAddMedModal(true)}
-                className="flex items-center gap-2 px-5 py-3 bg-teal-600 text-white rounded-2xl text-xs font-semibold uppercase tracking-wider hover:bg-teal-700 transition-all shadow-md"
-              >
-                <Plus size={14} /> Add Med
-              </button>
-            </div>
+                </span>
+              ) : (
+                "Stay on top of your health regimen."
+              )}
+            </p>
           </div>
-        </motion.header>
 
-        {/* ─── STATS GRID ──────────────────────────────────────────── */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
+          {/* Action Buttons */}
+          <div className="flex items-center gap-3">
+            <button
+              onClick={requestNotificationPermission}
+              className="flex items-center gap-2 px-5 py-3 bg-slate-800 text-white rounded-xl font-medium hover:bg-slate-700 transition shadow-sm"
+            >
+              <Bell size={16} />
+              <span className="hidden sm:inline">Reminders</span>
+            </button>
+            <button
+              onClick={() => setShowAddMedModal(true)}
+              className="flex items-center gap-2 px-5 py-3 bg-emerald-600 text-white rounded-xl font-medium hover:bg-emerald-700 transition shadow-sm shadow-emerald-200"
+            >
+              <Plus size={16} />
+              <span className="hidden sm:inline">Add Med</span>
+            </button>
+          </div>
+        </div>
+
+        {/* STATS GRID */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 md:gap-5">
           {isLoadingCombined ? (
             <>
               <SkeletonStatCard />
@@ -1687,8 +2013,8 @@ export default function MedicationPanel() {
             </>
           ) : (
             <>
-              <BentoTile className="lg:col-span-1">
-                <div className="flex items-center justify-between mb-4">
+              <BentoTile className="lg:col-span-1 col-span-1 sm:col-span-2">
+                <div className="flex items-center justify-between mb-3">
                   <h3
                     className={cn(
                       "text-sm font-semibold text-slate-800 flex items-center gap-2",
@@ -1704,33 +2030,23 @@ export default function MedicationPanel() {
                     <UserPlus size={16} className="text-slate-400" />
                   </button>
                 </div>
-                <div className="space-y-1.5">
+                <div className="flex flex-wrap gap-1.5">
                   {familyMembers.map((m) => (
                     <button
                       key={m.id}
                       onClick={() => setSelectedFamilyId(m.id)}
                       className={cn(
-                        "w-full text-left px-4 py-3 rounded-xl text-sm font-medium transition-all flex items-center justify-between",
+                        "flex-1 min-w-[56px] text-center px-2 py-1.5 rounded-xl text-xs font-medium transition-all",
                         selectedFamilyId === m.id
                           ? "bg-teal-50 text-teal-800 border border-teal-200"
                           : "text-slate-600 hover:bg-slate-50",
                       )}
                     >
-                      <div className="flex items-center gap-2.5">
-                        <div
-                          className={cn(
-                            "w-2 h-2 rounded-full transition-all",
-                            selectedFamilyId === m.id
-                              ? "bg-teal-500 scale-125"
-                              : "bg-slate-300",
-                          )}
-                        />
-                        <span className="font-semibold">{m.name}</span>
-                      </div>
+                      <div className="truncate text-xs">{m.name}</div>
                       {m.relationship !== "self" && (
-                        <span className="text-[10px] text-slate-500 font-medium bg-slate-100 px-2 py-0.5 rounded-lg">
+                        <div className="text-[8px] text-slate-400">
                           {m.relationship}
-                        </span>
+                        </div>
                       )}
                     </button>
                   ))}
@@ -1739,17 +2055,17 @@ export default function MedicationPanel() {
 
               <BentoTile
                 gradient
-                className="bg-gradient-to-br from-teal-600 to-teal-800 text-white"
+                className="bg-gradient-to-br from-teal-600 to-teal-800 text-white relative"
               >
-                <div className="absolute top-0 right-0 p-4 opacity-10">
-                  <Pill size={64} />
+                <div className="absolute top-0 right-0 p-3 opacity-10">
+                  <Pill size={48} />
                 </div>
                 <div className="relative z-10">
-                  <div className="flex items-center gap-2 mb-2">
-                    <Calendar size={16} className="text-teal-200" />
+                  <div className="flex items-center gap-1.5 mb-1">
+                    <Calendar size={14} className="text-teal-200" />
                     <h3
                       className={cn(
-                        "text-sm font-semibold text-teal-100",
+                        "text-xs font-semibold text-teal-100",
                         bebasNeue.className,
                       )}
                     >
@@ -1757,19 +2073,19 @@ export default function MedicationPanel() {
                     </h3>
                   </div>
                   <div className="flex items-baseline gap-1">
-                    <p className="text-5xl font-bold text-white">
+                    <p className="text-3xl md:text-5xl font-bold text-white">
                       {todayDosesRemaining}
                     </p>
                     <span className="text-sm text-teal-200 font-medium">
                       /{todayDosesTotal}
                     </span>
                   </div>
-                  <p className="text-xs text-teal-100 mt-1">
+                  <p className="text-xs text-teal-100 mt-0.5">
                     {todayDosesRemaining === 0
                       ? "All done for today"
                       : "remaining today"}
                   </p>
-                  <div className="mt-3 w-full bg-white/20 h-1.5 rounded-full overflow-hidden">
+                  <div className="mt-2 w-full bg-white/20 h-1.5 rounded-full overflow-hidden">
                     <motion.div
                       initial={{ width: 0 }}
                       animate={{
@@ -1783,17 +2099,17 @@ export default function MedicationPanel() {
 
               <BentoTile
                 gradient
-                className="bg-gradient-to-br from-blue-600 to-blue-800 text-white"
+                className="bg-gradient-to-br from-blue-600 to-blue-800 text-white relative"
               >
-                <div className="absolute top-0 right-0 p-4 opacity-10">
-                  <Clock size={64} />
+                <div className="absolute top-0 right-0 p-3 opacity-10">
+                  <Clock size={48} />
                 </div>
                 <div className="relative z-10">
-                  <div className="flex items-center gap-2 mb-2">
-                    <Clock size={16} className="text-blue-200" />
+                  <div className="flex items-center gap-1.5 mb-1">
+                    <Clock size={14} className="text-blue-200" />
                     <h3
                       className={cn(
-                        "text-sm font-semibold text-blue-100",
+                        "text-xs font-semibold text-blue-100",
                         bebasNeue.className,
                       )}
                     >
@@ -1802,13 +2118,13 @@ export default function MedicationPanel() {
                   </div>
                   {nextDose ? (
                     <>
-                      <p className="text-lg font-semibold text-white truncate">
+                      <p className="text-sm md:text-lg font-semibold text-white truncate">
                         {nextDose.medicationName}
                       </p>
-                      <p className="text-3xl font-bold text-white mt-0.5">
+                      <p className="text-2xl md:text-3xl font-bold text-white mt-0.5">
                         {timeRemaining}
                       </p>
-                      <p className="text-xs text-blue-100 mt-1">
+                      <p className="text-[10px] text-blue-100 mt-0.5">
                         {new Date(nextDose.scheduledTime).toLocaleTimeString(
                           [],
                           {
@@ -1830,17 +2146,17 @@ export default function MedicationPanel() {
 
               <BentoTile
                 gradient
-                className="bg-gradient-to-br from-violet-600 to-violet-800 text-white"
+                className="bg-gradient-to-br from-violet-600 to-violet-800 text-white relative"
               >
-                <div className="absolute top-0 right-0 p-4 opacity-10">
-                  <Shield size={64} />
+                <div className="absolute top-0 right-0 p-3 opacity-10">
+                  <Shield size={48} />
                 </div>
                 <div className="relative z-10">
-                  <div className="flex items-center gap-2 mb-2">
-                    <TrendingUp size={16} className="text-violet-200" />
+                  <div className="flex items-center gap-1.5 mb-1">
+                    <TrendingUp size={14} className="text-violet-200" />
                     <h3
                       className={cn(
-                        "text-sm font-semibold text-violet-100",
+                        "text-xs font-semibold text-violet-100",
                         bebasNeue.className,
                       )}
                     >
@@ -1848,12 +2164,12 @@ export default function MedicationPanel() {
                     </h3>
                   </div>
                   <div className="flex items-baseline gap-2">
-                    <p className="text-5xl font-bold text-white">
+                    <p className="text-3xl md:text-5xl font-bold text-white">
                       {adherenceScore}%
                     </p>
                     <span
                       className={cn(
-                        "px-2 py-0.5 rounded-lg text-xs font-bold",
+                        "px-2 py-0.5 rounded-lg text-[10px] font-bold",
                         adherenceScore >= 90
                           ? "bg-emerald-400/30 text-emerald-100"
                           : adherenceScore >= 70
@@ -1868,7 +2184,7 @@ export default function MedicationPanel() {
                           : "Needs Work"}
                     </span>
                   </div>
-                  <p className="text-xs text-violet-100 mt-1">
+                  <p className="text-[10px] text-violet-100 mt-0.5">
                     {adherenceScore >= 90
                       ? "Outstanding consistency"
                       : adherenceScore >= 70
@@ -1881,19 +2197,18 @@ export default function MedicationPanel() {
           )}
         </div>
 
-        {/* ─── UPCOMING DOSES + CHART ────────────────────────────── */}
-        {!isLoadingCombined && allMedications.length > 0 && (
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+        {/* UPCOMING DOSES + CHART */}
+        {!isLoadingCombined && allExtended.length > 0 && (
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 md:gap-5">
             <BentoTile className="lg:col-span-1">
-              <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center justify-between mb-3">
                 <h3
                   className={cn(
                     "text-sm font-semibold text-slate-800 flex items-center gap-2",
                     bebasNeue.className,
                   )}
                 >
-                  <Clock className="text-teal-600" size={18} />
-                  Upcoming
+                  <Clock className="text-teal-600" size={18} /> Upcoming
                 </h3>
                 <span className="text-xs font-semibold text-slate-500 bg-slate-100 px-2 py-1 rounded-lg">
                   {upcomingDoses.length} doses
@@ -1901,7 +2216,7 @@ export default function MedicationPanel() {
               </div>
               <div className="space-y-2">
                 {upcomingDoses.length === 0 ? (
-                  <div className="text-center py-8">
+                  <div className="text-center py-6">
                     <CheckCircle className="w-10 h-10 text-emerald-400 mx-auto mb-2" />
                     <p className="text-sm font-medium text-slate-500">
                       No upcoming doses
@@ -1913,6 +2228,7 @@ export default function MedicationPanel() {
                       key={`${dose.medicationId}-${dose.scheduledTime}`}
                       dose={dose}
                       index={i}
+                      now={now}
                     />
                   ))
                 )}
@@ -1920,7 +2236,7 @@ export default function MedicationPanel() {
             </BentoTile>
 
             <BentoTile className="lg:col-span-2">
-              <div className="flex items-center justify-between mb-6">
+              <div className="flex items-center justify-between mb-4">
                 <div className="flex items-center gap-2">
                   <BarChart3 className="text-teal-600" size={18} />
                   <h3
@@ -1933,17 +2249,16 @@ export default function MedicationPanel() {
                   </h3>
                 </div>
                 <div className="flex gap-3">
-                  <div className="flex items-center gap-1.5 text-xs text-slate-600">
-                    <div className="w-2.5 h-2.5 rounded-full bg-teal-500" />
-                    Taken
+                  <div className="flex items-center gap-1 text-xs text-slate-600">
+                    <div className="w-2 h-2 rounded-full bg-teal-500" /> Taken
                   </div>
-                  <div className="flex items-center gap-1.5 text-xs text-slate-600">
-                    <div className="w-2.5 h-2.5 rounded-full bg-slate-300" />
+                  <div className="flex items-center gap-1 text-xs text-slate-600">
+                    <div className="w-2 h-2 rounded-full bg-slate-300" />{" "}
                     Scheduled
                   </div>
                 </div>
               </div>
-              <div className="h-[260px] w-full">
+              <div className="h-[200px] md:h-[260px] w-full">
                 <ResponsiveContainer>
                   <AreaChart
                     data={chartData}
@@ -2017,39 +2332,39 @@ export default function MedicationPanel() {
           </div>
         )}
 
-        {/* ─── MEDICATION LIST ──────────────────────────────────────── */}
+        {/* MEDICATION LIST – GROUPED */}
         {isLoadingCombined ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-5">
             {[...Array(4)].map((_, i) => (
               <SkeletonCard key={i} />
             ))}
           </div>
-        ) : allMedications.length === 0 ? (
-          <div className="bg-white rounded-3xl p-12 text-center border border-slate-200 shadow-sm">
-            <div className="w-20 h-20 bg-teal-50 rounded-3xl flex items-center justify-center mx-auto mb-5">
-              <Pill className="w-10 h-10 text-teal-600" />
+        ) : allExtended.length === 0 ? (
+          <div className="bg-white rounded-2xl md:rounded-3xl p-8 md:p-12 text-center border border-slate-200 shadow-sm">
+            <div className="w-16 h-16 md:w-20 md:h-20 bg-teal-50 rounded-3xl flex items-center justify-center mx-auto mb-4">
+              <Pill className="w-8 h-8 md:w-10 md:h-10 text-teal-600" />
             </div>
-            <p className="text-xl font-semibold text-slate-800 mb-2">
+            <p className="text-lg md:text-xl font-semibold text-slate-800 mb-2">
               No medications yet
             </p>
-            <p className="text-sm text-slate-500 mb-8 max-w-md mx-auto">
+            <p className="text-sm text-slate-500 mb-6 max-w-md mx-auto">
               Add your first medication to start tracking, or visit a linked
               center to get a prescription.
             </p>
             <button
               onClick={() => setShowAddMedModal(true)}
-              className="inline-flex items-center gap-2 px-7 py-3.5 bg-teal-600 text-white rounded-2xl font-semibold text-xs uppercase tracking-wider hover:bg-teal-700 transition shadow-md"
+              className="inline-flex items-center gap-2 px-6 py-3 bg-teal-600 text-white rounded-2xl font-semibold text-xs uppercase tracking-wider hover:bg-teal-700 transition shadow-md"
             >
               <Plus className="w-4 h-4" /> Add Medication
             </button>
           </div>
         ) : (
-          <div className="space-y-6">
+          <div className="space-y-5">
             <div className="flex items-center gap-1 bg-white rounded-2xl p-1 border border-slate-200 w-fit shadow-sm">
               <button
                 onClick={() => setActiveTab("active")}
                 className={cn(
-                  "px-5 py-2.5 rounded-xl text-xs font-semibold transition-all",
+                  "px-4 py-2 rounded-xl text-xs font-semibold transition-all",
                   activeTab === "active"
                     ? "bg-teal-600 text-white"
                     : "text-slate-600 hover:text-slate-800",
@@ -2060,7 +2375,7 @@ export default function MedicationPanel() {
               <button
                 onClick={() => setActiveTab("past")}
                 className={cn(
-                  "px-5 py-2.5 rounded-xl text-xs font-semibold transition-all",
+                  "px-4 py-2 rounded-xl text-xs font-semibold transition-all",
                   activeTab === "past"
                     ? "bg-slate-800 text-white"
                     : "text-slate-600 hover:text-slate-800",
@@ -2071,74 +2386,159 @@ export default function MedicationPanel() {
             </div>
 
             <AnimatePresence mode="wait">
-              {activeTab === "active" && activeMeds.length > 0 && (
+              {activeTab === "active" && (
                 <motion.div
                   key="active"
                   initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: -10 }}
-                  className="grid grid-cols-1 md:grid-cols-2 gap-5"
+                  className="space-y-6"
                 >
-                  {activeMeds.map((med, i) => (
-                    <MedicationCard
-                      key={med.id}
-                      medication={med}
-                      colorIndex={i}
-                      expanded={expandedMedId === med.id}
-                      onToggleExpand={() =>
-                        setExpandedMedId(
-                          expandedMedId === med.id ? null : med.id,
-                        )
-                      }
-                      onLogDose={(doseId, taken) =>
-                        logDose(med.id, doseId, taken)
-                      }
-                      onReportReaction={(doseId) =>
-                        setShowReactionModal({ medicationId: med.id, doseId })
-                      }
-                      onStop={() => setStopConfirm(med.id)}
-                      isPast={false}
-                      onLogPrescribedDose={logPrescribedDose}
-                    />
+                  {groupedActive.map((group) => (
+                    <div key={group.label}>
+                      <h3 className="text-sm font-semibold text-slate-700 mb-3 flex items-center gap-2">
+                        {group.label === "My Medications" ? (
+                          <Pill className="w-4 h-4 text-teal-600" />
+                        ) : (
+                          <Building className="w-4 h-4 text-blue-600" />
+                        )}
+                        {group.label}
+                        <span className="text-xs font-normal text-slate-400">
+                          ({group.items.length})
+                        </span>
+                      </h3>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-5">
+                        {group.items.map((med, i) => (
+                          <MedicationCard
+                            key={med.id}
+                            medication={med}
+                            colorIndex={i}
+                            expanded={expandedMedId === med.id}
+                            onToggleExpand={() =>
+                              setExpandedMedId(
+                                expandedMedId === med.id ? null : med.id,
+                              )
+                            }
+                            onLogDose={(doseId, taken, reaction) =>
+                              logDose(med.id, doseId, taken, reaction)
+                            }
+                            onReportReaction={(doseId) =>
+                              setShowReactionModal({
+                                medicationId: med.id,
+                                doseId,
+                              })
+                            }
+                            onStop={() => setStopConfirm(med.id)}
+                            isPast={false}
+                            now={now}
+                          />
+                        ))}
+                      </div>
+                    </div>
                   ))}
                 </motion.div>
               )}
 
-              {activeTab === "past" && pastMeds.length > 0 && (
+              {activeTab === "past" && (
                 <motion.div
                   key="past"
                   initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: -10 }}
-                  className="grid grid-cols-1 md:grid-cols-2 gap-5 opacity-75"
+                  className="space-y-6 opacity-75"
                 >
-                  {pastMeds.map((med, i) => (
-                    <MedicationCard
-                      key={med.id}
-                      medication={med}
-                      colorIndex={i}
-                      expanded={expandedMedId === med.id}
-                      onToggleExpand={() =>
-                        setExpandedMedId(
-                          expandedMedId === med.id ? null : med.id,
-                        )
-                      }
-                      onLogDose={() => {}}
-                      onReportReaction={() => {}}
-                      onStop={() => {}}
-                      isPast={true}
-                    />
+                  {groupedPast.map((group) => (
+                    <div key={group.label}>
+                      <h3 className="text-sm font-semibold text-slate-700 mb-3 flex items-center gap-2">
+                        {group.label === "My Medications" ? (
+                          <Pill className="w-4 h-4 text-teal-600" />
+                        ) : (
+                          <Building className="w-4 h-4 text-blue-600" />
+                        )}
+                        {group.label}
+                        <span className="text-xs font-normal text-slate-400">
+                          ({group.items.length})
+                        </span>
+                      </h3>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-5">
+                        {group.items.map((med, i) => (
+                          <MedicationCard
+                            key={med.id}
+                            medication={med}
+                            colorIndex={i}
+                            expanded={expandedMedId === med.id}
+                            onToggleExpand={() =>
+                              setExpandedMedId(
+                                expandedMedId === med.id ? null : med.id,
+                              )
+                            }
+                            onLogDose={() => {}}
+                            onReportReaction={() => {}}
+                            onStop={() => {}}
+                            isPast={true}
+                            now={now}
+                          />
+                        ))}
+                      </div>
+                    </div>
                   ))}
                 </motion.div>
               )}
             </AnimatePresence>
+
+            {/* Unstarted prescribed medications */}
+            {unstartedMeds.length > 0 && activeTab === "active" && (
+              <div className="mt-8 border-t border-slate-200 pt-6">
+                <h3 className="text-sm font-semibold text-slate-700 mb-3 flex items-center gap-2">
+                  <Building className="w-4 h-4 text-blue-600" />
+                  Prescriptions from Centers (not started)
+                </h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-5">
+                  {unstartedMeds.map((p) => (
+                    <div
+                      key={p.id}
+                      className="bg-white border border-slate-200 rounded-2xl md:rounded-3xl p-4 md:p-6 shadow-sm hover:shadow-md transition-shadow"
+                    >
+                      <div className="flex items-start justify-between">
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <Pill className="w-4 h-4 text-emerald-600" />
+                            <h4 className="font-semibold text-slate-900">
+                              {p.name}
+                            </h4>
+                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-100">
+                              {p.sourceType === "hospital"
+                                ? "Hospital"
+                                : "External"}
+                            </span>
+                          </div>
+                          <p className="text-sm text-slate-600 mt-1">
+                            {p.dosage} · {p.frequency}
+                          </p>
+                          <p className="text-xs text-slate-500">
+                            from {p.centerName} · by {p.prescribedBy}
+                          </p>
+                          <p className="text-xs text-slate-400 mt-1">
+                            {p.totalQuantity || "Ongoing"} doses total
+                          </p>
+                        </div>
+                        <button
+                          onClick={() => startPrescribedMedication(p)}
+                          className="px-4 py-2 bg-teal-600 text-white rounded-xl text-sm font-medium hover:bg-teal-700 transition-colors shadow-sm flex items-center gap-2"
+                        >
+                          <Play className="w-4 h-4" /> Start
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>
 
-      {/* ─── MODALS ──────────────────────────────────────────────────── */}
-
-      {/* Help Modal */}
+      {/* MODALS */}
       <AnimatePresence>
         {showHelp && (
           <Modal
@@ -2205,7 +2605,6 @@ export default function MedicationPanel() {
         )}
       </AnimatePresence>
 
-      {/* ─── ADD MEDICATION MODAL ──────────────────────────────── */}
       <AnimatePresence>
         {showAddMedModal && (
           <Modal
@@ -2217,7 +2616,6 @@ export default function MedicationPanel() {
               onSubmit={handleSubmit(onSubmitNewMed)}
               className="space-y-4 mt-2"
             >
-              {/* Drug search / snap row */}
               <div className="flex items-center gap-2">
                 <div className="flex-1 relative">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
@@ -2299,9 +2697,20 @@ export default function MedicationPanel() {
                 <Input
                   type="number"
                   {...register("totalQuantity")}
-                  label="Total stock *"
+                  label="Total quantity (0 = ongoing)"
                   error={errors.totalQuantity?.message}
                 />
+                <Input
+                  type="number"
+                  step="1"
+                  {...register("durationDays")}
+                  label="Duration (days) – optional"
+                  placeholder="e.g., 7"
+                  error={errors.durationDays?.message}
+                />
+                <div className="text-xs text-slate-400 -mt-2 col-span-2">
+                  * Leave both blank for "ongoing" (no fixed end date)
+                </div>
                 <Input
                   {...register("ailment")}
                   label="Ailment"
@@ -2374,7 +2783,6 @@ export default function MedicationPanel() {
         )}
       </AnimatePresence>
 
-      {/* ─── ADD FAMILY MODAL ────────────────────────────────────── */}
       <AnimatePresence>
         {showAddFamilyModal && (
           <Modal
@@ -2428,7 +2836,6 @@ export default function MedicationPanel() {
         )}
       </AnimatePresence>
 
-      {/* ─── REACTION MODAL ──────────────────────────────────────── */}
       <AnimatePresence>
         {showReactionModal && (
           <Modal
@@ -2438,18 +2845,7 @@ export default function MedicationPanel() {
           >
             <form
               onSubmit={reactionForm.handleSubmit(async (data) => {
-                const med = allMedications.find(
-                  (m) => m.id === showReactionModal.medicationId,
-                );
-                if (med?.source === "prescribed" && med.centerId) {
-                  await logPrescribedDose(
-                    med.id,
-                    med.centerId,
-                    showReactionModal.doseId,
-                    true,
-                    data.reaction,
-                  );
-                } else {
+                if (showReactionModal) {
                   await logDose(
                     showReactionModal.medicationId,
                     showReactionModal.doseId,
@@ -2501,7 +2897,6 @@ export default function MedicationPanel() {
         )}
       </AnimatePresence>
 
-      {/* ─── STOP CONFIRMATION ──────────────────────────────────── */}
       <AnimatePresence>
         {stopConfirm && (
           <Modal
@@ -2514,7 +2909,7 @@ export default function MedicationPanel() {
                 <StopCircle className="w-8 h-8 text-amber-600" />
               </div>
               <p className="text-sm text-slate-600">
-                This will move it to Past and stop reminders.
+                This will mark it as finished and move it to Past.
               </p>
               <div className="flex justify-center gap-3 pt-2">
                 <button
@@ -2527,7 +2922,7 @@ export default function MedicationPanel() {
                   onClick={() => stopConfirm && stopMedication(stopConfirm)}
                   className="px-5 py-2 text-sm bg-amber-600 text-white rounded-xl hover:bg-amber-700 shadow-sm"
                 >
-                  Stop
+                  Finish
                 </button>
               </div>
             </div>
@@ -2535,12 +2930,11 @@ export default function MedicationPanel() {
         )}
       </AnimatePresence>
 
-      {/* ─── SNAP DRUG MODAL ──────────────────────────────────────── */}
       <AnimatePresence>
         {showSnapModal && (
           <SnapDrugModal
             onClose={() => setShowSnapModal(false)}
-            onSnap={(name) => {
+            onSnap={(name: string) => {
               setValue("name", name);
               setShowSnapModal(false);
             }}

@@ -38,7 +38,7 @@ export function RequestCard({ request, onApprove }: RequestCardProps) {
             {request.name}
           </p>
           <p className="text-[10px] text-slate-400 font-medium truncate mt-0.5">
-            Requests access to{" "}
+            Wants to join{" "}
             <span className="font-bold text-slate-600">
               &ldquo;{request.challengeName}&rdquo;
             </span>

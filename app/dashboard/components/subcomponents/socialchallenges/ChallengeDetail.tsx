@@ -107,8 +107,7 @@ export function ChallengeDetail({
       });
   }, [challenge.participants]);
 
-  const { copied, shareViaWebShare, copyToClipboard, getShareLink } =
-    useChallengeSharing();
+  const { copied, shareViaWebShare, copyToClipboard } = useChallengeSharing();
 
   const comments = useMemo(
     () =>
@@ -153,41 +152,41 @@ export function ChallengeDetail({
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      className="fixed inset-0 bg-slate-900/40 backdrop-blur-md flex items-center justify-center z-50 p-4 overflow-y-auto"
+      className="fixed inset-0 bg-slate-950/60 backdrop-blur-md flex items-center justify-center z-50 p-4 overflow-y-auto"
       onClick={onClose}
     >
       <motion.div
-        initial={{ scale: 0.96, y: 15 }}
+        initial={{ scale: 0.95, y: 20 }}
         animate={{ scale: 1, y: 0 }}
-        exit={{ scale: 0.96, y: 15 }}
-        transition={{ type: "spring", duration: 0.4 }}
-        className="bg-white rounded-[28px] max-w-2xl w-full max-h-[85vh] overflow-y-auto p-6 md:p-8 shadow-2xl border border-slate-100 flex flex-col space-y-6 scrollbar-none"
+        exit={{ scale: 0.95, y: 20 }}
+        transition={{ type: "spring", stiffness: 300, damping: 25 }}
+        className="bg-white rounded-[32px] max-w-2xl w-full max-h-[90vh] overflow-y-auto p-6 md:p-8 shadow-2xl border border-slate-100 flex flex-col space-y-7 scrollbar-none"
         onClick={(e) => e.stopPropagation()}
       >
         {/* HEADER */}
-        <div className="flex items-start justify-between pb-4 border-b border-slate-100">
-          <div className="flex gap-4">
+        <div className="flex items-start justify-between pb-5 border-b border-slate-100">
+          <div className="flex items-center gap-4">
             {challenge.imageUrl ? (
               <img
                 src={challenge.imageUrl}
                 alt={challenge.name}
-                className="w-16 h-16 rounded-[18px] object-cover border border-slate-100"
+                className="w-16 h-16 rounded-2xl object-cover border border-slate-100 shadow-sm"
               />
             ) : (
-              <div className="w-16 h-16 rounded-[18px] bg-gradient-to-br from-emerald-500 to-teal-400 flex items-center justify-center shadow-inner">
-                <Trophy className="w-7 h-7 text-white/60" />
+              <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-slate-900 via-slate-800 to-emerald-950 flex items-center justify-center shadow-md">
+                <Trophy className="w-7 h-7 text-emerald-400" />
               </div>
             )}
-            <div>
-              <div className="flex items-center gap-2 mb-0.5">
-                <span className="px-2 py-0.5 bg-emerald-50 text-emerald-700 text-[9px] font-black uppercase tracking-wider rounded-md">
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <span className="px-2.5 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-100/60 text-[10px] font-extrabold uppercase tracking-wider rounded-md">
                   {challenge.activity}
                 </span>
-                <div className="flex items-center gap-1 text-[10px] text-slate-400">
+                <div className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-500">
                   {challenge.isPublic ? (
-                    <Globe className="w-3 h-3 text-emerald-600" />
+                    <Globe className="w-3.5 h-3.5 text-emerald-600" />
                   ) : (
-                    <Lock className="w-3 h-3 text-amber-600" />
+                    <Lock className="w-3.5 h-3.5 text-amber-600" />
                   )}
                   <span>
                     {challenge.isPublic ? "Public Group" : "Private Session"}
@@ -196,20 +195,20 @@ export function ChallengeDetail({
               </div>
               <h2
                 className={cn(
-                  "text-xl md:text-2xl font-black text-slate-900 tracking-tight",
+                  "text-2xl md:text-3xl font-black text-slate-900 tracking-tight",
                   bebasNeue.className,
                 )}
               >
                 {challenge.name}
               </h2>
-              <div className="flex items-center gap-1.5 text-[10px] text-slate-400 font-medium mt-1">
-                <Calendar className="w-3.5 h-3.5 text-slate-400" />
+              <div className="flex items-center gap-1.5 text-xs text-slate-400 font-medium">
+                <Calendar className="w-3.5 h-3.5 text-emerald-600" />
                 <span>
                   {new Date(challenge.startDate).toLocaleDateString(undefined, {
                     dateStyle: "medium",
                   })}
                 </span>
-                <span className="text-slate-300">→</span>
+                <span className="text-slate-300 font-bold">→</span>
                 <span>
                   {new Date(challenge.endDate).toLocaleDateString(undefined, {
                     dateStyle: "medium",
@@ -220,15 +219,15 @@ export function ChallengeDetail({
           </div>
           <button
             onClick={onClose}
-            className="p-2 hover:bg-slate-100 active:scale-90 rounded-full transition-all text-slate-400 hover:text-slate-900"
+            className="w-9 h-9 bg-slate-100 hover:bg-slate-200 active:scale-90 rounded-full transition-all flex items-center justify-center text-slate-500 hover:text-slate-900 shadow-sm"
           >
-            <X className="w-5 h-5" />
+            <X className="w-4 h-4" />
           </button>
         </div>
 
         {/* 🔒 INVITE CODE SECTION (for private challenges created by this user) */}
         {isCreator && !challenge.isPublic && (challenge as any).code && (
-          <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 space-y-3">
+          <div className="bg-amber-50/70 border border-amber-200/80 rounded-2xl p-4 space-y-3 shadow-sm">
             <div className="flex items-center gap-2">
               <Lock className="w-4 h-4 text-amber-600" />
               <span className="text-[10px] font-black text-amber-800 uppercase tracking-widest">
@@ -236,12 +235,12 @@ export function ChallengeDetail({
               </span>
             </div>
             <div className="flex items-center gap-2">
-              <code className="flex-1 bg-white px-4 py-3 rounded-xl text-base font-mono font-bold text-amber-700 border border-amber-200 tracking-widest text-center">
+              <code className="flex-1 bg-white px-4 py-3 rounded-xl text-base font-mono font-bold text-amber-700 border border-amber-200 tracking-widest text-center shadow-inner">
                 {(challenge as any).code}
               </code>
               <button
                 onClick={() => copyToClipboard((challenge as any).code)}
-                className="p-3 bg-amber-600 hover:bg-amber-700 text-white rounded-xl transition-colors flex items-center gap-1.5"
+                className="p-3 bg-amber-600 hover:bg-amber-700 text-white rounded-xl transition-colors flex items-center justify-center shadow-sm"
               >
                 {copied ? (
                   <Check className="w-4 h-4" />
@@ -258,7 +257,7 @@ export function ChallengeDetail({
                   (challenge as any).code,
                 )
               }
-              className="w-full py-2.5 bg-amber-100 hover:bg-amber-200 text-amber-700 text-[10px] font-black uppercase tracking-widest rounded-xl transition-colors flex items-center justify-center gap-2"
+              className="w-full py-2.5 bg-amber-100 hover:bg-amber-200 text-amber-800 text-[10px] font-black uppercase tracking-widest rounded-xl transition-colors flex items-center justify-center gap-2 shadow-sm"
             >
               <Share2 className="w-3.5 h-3.5" /> Share Challenge Invite
             </button>
@@ -267,16 +266,16 @@ export function ChallengeDetail({
 
         {/* 🌍 PUBLIC SHARE (for public challenges created by this user) */}
         {isCreator && challenge.isPublic && (
-          <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 space-y-3">
+          <div className="bg-emerald-50/50 border border-emerald-200/60 rounded-2xl p-4 space-y-3 shadow-sm">
             <div className="flex items-center gap-2">
               <Globe className="w-4 h-4 text-emerald-600" />
               <span className="text-[10px] font-black text-emerald-800 uppercase tracking-widest">
-                Public Challenge
+                Public Challenge Link
               </span>
             </div>
             <button
               onClick={() => shareViaWebShare(challenge.name, challenge.id)}
-              className="w-full py-2.5 bg-emerald-100 hover:bg-emerald-200 text-emerald-700 text-[10px] font-black uppercase tracking-widest rounded-xl transition-colors flex items-center justify-center gap-2"
+              className="w-full py-2.5 bg-emerald-100/80 hover:bg-emerald-200 text-emerald-800 text-[10px] font-black uppercase tracking-widest rounded-xl transition-colors flex items-center justify-center gap-2 shadow-sm"
             >
               <Share2 className="w-3.5 h-3.5" /> Share Challenge Link
             </button>
@@ -288,23 +287,25 @@ export function ChallengeDetail({
           <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
             About Challenge
           </h4>
-          <p className="text-sm text-slate-600 leading-relaxed bg-slate-50/50 p-4 rounded-2xl border border-slate-100/50">
+          <p className="text-xs md:text-sm text-slate-600 leading-relaxed bg-slate-50 p-4 rounded-2xl border border-slate-100 font-medium">
             {challenge.description}
           </p>
         </div>
 
         {/* TARGET & PROGRESS */}
-        <div className="bg-slate-900 text-white rounded-[24px] p-5 md:p-6 shadow-md space-y-4">
+        <div className="bg-slate-900 text-white rounded-2xl p-6 shadow-xl space-y-4">
           <div className="flex items-center justify-between pb-3 border-b border-white/10">
             <div className="flex items-center gap-2">
-              <Target className="w-4 h-4 text-emerald-400" />
+              <div className="p-1.5 bg-emerald-500/10 rounded-lg text-emerald-400">
+                <Target className="w-4 h-4" />
+              </div>
               <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">
                 Objective Milestone
               </span>
             </div>
             <span className="text-base font-black text-emerald-400">
               {challenge.targetValue}{" "}
-              <span className="text-xs font-normal text-slate-400">
+              <span className="text-xs font-semibold text-slate-400">
                 {challenge.targetUnit}
               </span>
             </span>
@@ -312,21 +313,23 @@ export function ChallengeDetail({
 
           {isParticipant && (
             <div className="space-y-3">
-              <div className="flex items-center justify-between text-xs">
+              <div className="flex items-center justify-between text-xs font-bold">
                 <span className="text-slate-400 font-medium">
                   Your Current Standing
                 </span>
-                <span className="font-bold text-white">
+                <span className="text-white">
                   {userProgress} / {challenge.targetValue}{" "}
-                  {challenge.targetUnit}
+                  <span className="text-[10px] text-slate-400 font-semibold">
+                    {challenge.targetUnit}
+                  </span>
                 </span>
               </div>
               <div className="w-full bg-white/10 h-2.5 rounded-full overflow-hidden">
                 <motion.div
                   initial={{ width: 0 }}
                   animate={{ width: `${percent}%` }}
-                  transition={{ duration: 0.6 }}
-                  className="bg-emerald-400 h-full rounded-full"
+                  transition={{ duration: 0.8, ease: "easeOut" }}
+                  className="bg-emerald-500 h-full rounded-full"
                 />
               </div>
 
@@ -335,7 +338,7 @@ export function ChallengeDetail({
                   {!showProgressInput ? (
                     <button
                       onClick={() => setShowProgressInput(true)}
-                      className="w-full py-3 bg-white/10 hover:bg-white/20 text-white text-[10px] font-black uppercase tracking-widest rounded-xl transition-all"
+                      className="w-full py-3 bg-emerald-500 hover:bg-emerald-600 text-slate-950 text-[10px] font-black uppercase tracking-widest rounded-xl transition-all shadow-md active:scale-95"
                     >
                       Log Progress Entry
                     </button>
@@ -351,7 +354,7 @@ export function ChallengeDetail({
                         onChange={(e) =>
                           setProgressValue(parseFloat(e.target.value) || 0)
                         }
-                        className="flex-1 px-4 py-2.5 text-xs bg-white/5 border border-white/10 rounded-xl text-white focus:outline-none focus:border-emerald-400"
+                        className="flex-1 px-4 py-2.5 text-xs bg-white/5 border border-white/20 rounded-xl text-white focus:outline-none focus:border-emerald-400 placeholder:text-slate-500"
                         placeholder="Type raw update value..."
                       />
                       <button
@@ -359,13 +362,13 @@ export function ChallengeDetail({
                           await onProgressUpdate(challenge.id, progressValue);
                           setShowProgressInput(false);
                         }}
-                        className="px-4 py-2.5 bg-emerald-500 hover:bg-emerald-600 text-slate-900 font-black text-[10px] uppercase tracking-widest rounded-xl"
+                        className="px-4 py-2.5 bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-black text-[10px] uppercase tracking-widest rounded-xl shadow-sm transition-all"
                       >
                         Save
                       </button>
                       <button
                         onClick={() => setShowProgressInput(false)}
-                        className="px-4 py-2.5 bg-white/5 text-slate-300 hover:text-white text-[10px] font-black uppercase tracking-widest rounded-xl"
+                        className="px-4 py-2.5 bg-white/5 hover:bg-white/10 text-slate-300 hover:text-white text-[10px] font-black uppercase tracking-widest rounded-xl transition-all"
                       >
                         Cancel
                       </button>
@@ -379,14 +382,14 @@ export function ChallengeDetail({
 
         {/* ACHIEVEMENTS / BADGES */}
         {isParticipant && (
-          <div className="bg-gradient-to-br from-amber-50/60 to-emerald-50/40 rounded-[24px] p-5 border border-slate-100 space-y-3">
+          <div className="bg-gradient-to-br from-amber-50/50 via-white to-emerald-50/40 rounded-2xl p-5 border border-slate-100 shadow-sm space-y-4">
             <div className="flex items-center justify-between">
               <h3 className="text-[10px] font-black text-slate-500 uppercase tracking-widest flex items-center gap-2">
                 <Award className="w-4 h-4 text-amber-500" /> Earned Vault
                 Rewards
               </h3>
-              <span className="text-xs font-black text-slate-800 bg-white px-2.5 py-1 rounded-lg border border-slate-100 shadow-sm">
-                {points} points
+              <span className="text-xs font-black text-emerald-800 bg-emerald-50 border border-emerald-100 px-3 py-1 rounded-xl shadow-sm">
+                {points} pts
               </span>
             </div>
 
@@ -398,10 +401,10 @@ export function ChallengeDetail({
                   <div
                     key={badge.name}
                     className={cn(
-                      "flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[11px] font-semibold shadow-sm transition-all border",
+                      "flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[11px] font-bold shadow-sm transition-all border",
                       earned
-                        ? `${badge.bg} ${badge.color} border-transparent`
-                        : "bg-slate-50 text-slate-400 border-slate-200/40 opacity-70",
+                        ? `${badge.bg} ${badge.color} border-emerald-200/60 shadow-md`
+                        : "bg-slate-50 text-slate-400 border-slate-200/60 opacity-60",
                     )}
                   >
                     <Icon className="w-3.5 h-3.5" /> {badge.name}
@@ -413,7 +416,7 @@ export function ChallengeDetail({
             {earnedBadges.length > 0 && (
               <button
                 onClick={shareBadge}
-                className="mt-2 flex items-center gap-2 text-[10px] font-black uppercase tracking-wider text-emerald-700 hover:text-emerald-900 transition-colors pt-2 border-t border-slate-200/40 w-fit"
+                className="flex items-center gap-2 text-[10px] font-black uppercase tracking-wider text-emerald-700 hover:text-emerald-900 transition-colors pt-2 border-t border-slate-100 w-fit"
               >
                 <Share2 className="w-3.5 h-3.5" /> Export PDF Certification
                 Badge
@@ -423,7 +426,7 @@ export function ChallengeDetail({
             <div ref={badgeRef} className="hidden">
               <div className="w-[340px] p-6 bg-emerald-600 rounded-3xl text-white shadow-2xl space-y-4">
                 <div className="flex items-center gap-3">
-                  <Trophy className="w-12 h-12 text-emerald-300" />
+                  <Trophy className="w-12 h-12 text-emerald-200" />
                   <div>
                     <h2
                       style={{ fontFamily: bebasNeue.style.fontFamily }}
@@ -462,21 +465,21 @@ export function ChallengeDetail({
               <BarChart3 className="w-4 h-4 text-emerald-500" /> 7-Day
               Performance Stream
             </h3>
-            <div className="h-40 w-full bg-slate-50 p-3 rounded-2xl border border-slate-100">
+            <div className="h-44 w-full bg-slate-50/80 p-4 rounded-2xl border border-slate-100 shadow-sm">
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart
                   data={chartData}
                   margin={{ top: 5, right: 5, left: -25, bottom: 0 }}
                 >
-                  <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
                   <XAxis
                     dataKey="date"
-                    tick={{ fontSize: 9, fill: "#94a3b8" }}
+                    tick={{ fontSize: 10, fill: "#64748b", fontWeight: 600 }}
                     axisLine={false}
                     tickLine={false}
                   />
                   <YAxis
-                    tick={{ fontSize: 9, fill: "#94a3b8" }}
+                    tick={{ fontSize: 10, fill: "#64748b", fontWeight: 600 }}
                     axisLine={false}
                     tickLine={false}
                   />
@@ -486,6 +489,8 @@ export function ChallengeDetail({
                       borderRadius: "12px",
                       color: "#fff",
                       fontSize: "11px",
+                      border: "none",
+                      boxShadow: "0 10px 15px -3px rgba(0, 0, 0, 0.1)",
                     }}
                   />
                   <Line
@@ -494,7 +499,7 @@ export function ChallengeDetail({
                     stroke="#10b981"
                     strokeWidth={3}
                     dot={{ r: 3, fill: "#10b981" }}
-                    activeDot={{ r: 5 }}
+                    activeDot={{ r: 5, fill: "#059669" }}
                   />
                 </LineChart>
               </ResponsiveContainer>
@@ -508,7 +513,7 @@ export function ChallengeDetail({
             <Users className="w-4 h-4 text-emerald-500" /> Verified Challengers
             ({participants.length})
           </h3>
-          <div className="space-y-2 max-h-44 overflow-y-auto pr-1">
+          <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
             {participants.map((p) => {
               const pct = challenge.targetValue
                 ? (Number(p.progress || 0) / challenge.targetValue) * 100
@@ -516,16 +521,16 @@ export function ChallengeDetail({
               return (
                 <div
                   key={p.uid}
-                  className="flex items-center gap-3 p-3 bg-slate-50/80 rounded-xl border border-slate-100/50"
+                  className="flex items-center gap-3 p-3.5 bg-slate-50/80 rounded-2xl border border-slate-100/80 shadow-sm"
                 >
                   {p.photo ? (
                     <img
                       src={p.photo}
                       alt={p.name}
-                      className="w-7 h-7 rounded-full object-cover border border-white ring-2 ring-slate-100"
+                      className="w-8 h-8 rounded-full object-cover border border-white ring-2 ring-emerald-500/20"
                     />
                   ) : (
-                    <div className="w-7 h-7 rounded-full bg-emerald-100 text-emerald-800 flex items-center justify-center text-xs font-black">
+                    <div className="w-8 h-8 rounded-full bg-emerald-100 text-emerald-800 flex items-center justify-center text-xs font-black shadow-inner">
                       {p.name?.charAt(0)}
                     </div>
                   )}
@@ -533,14 +538,14 @@ export function ChallengeDetail({
                     <p className="text-xs font-bold text-slate-900 truncate">
                       {p.name}
                     </p>
-                    <div className="flex items-center gap-3 mt-1">
-                      <div className="flex-1 h-1.5 bg-slate-200 rounded-full overflow-hidden">
+                    <div className="flex items-center gap-3 mt-1.5">
+                      <div className="flex-1 h-2 bg-slate-200/80 rounded-full overflow-hidden">
                         <div
-                          className="bg-emerald-500 h-full rounded-full"
-                          style={{ width: `${pct}%` }}
+                          className="bg-emerald-500 h-full rounded-full transition-all duration-500"
+                          style={{ width: `${Math.min(100, pct)}%` }}
                         />
                       </div>
-                      <span className="text-[10px] font-mono text-slate-500 whitespace-nowrap">
+                      <span className="text-[10px] font-bold text-slate-600 whitespace-nowrap">
                         {typeof p.progress === "number"
                           ? `${p.progress}/${challenge.targetValue}`
                           : "multi"}
@@ -568,49 +573,49 @@ export function ChallengeDetail({
               <input
                 {...register("text")}
                 placeholder="Share advice or update the squad..."
-                className="flex-1 px-4 py-2.5 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-emerald-500 focus:bg-white transition-all text-slate-900"
+                className="flex-1 px-4 py-3 text-xs bg-slate-50 border border-slate-200/80 rounded-xl focus:outline-none focus:border-emerald-500 focus:bg-white transition-all text-slate-900 shadow-sm"
               />
               <button
                 type="submit"
-                className="p-2.5 bg-slate-900 hover:bg-emerald-600 text-white rounded-xl transition-colors flex items-center justify-center active:scale-95"
+                className="px-4 py-3 bg-slate-900 hover:bg-emerald-600 text-white rounded-xl transition-all flex items-center justify-center active:scale-95 shadow-sm"
               >
                 <Send className="w-4 h-4" />
               </button>
             </form>
           )}
 
-          <div className="space-y-3 max-h-44 overflow-y-auto pr-1 pt-1">
+          <div className="space-y-2.5 max-h-48 overflow-y-auto pr-1 pt-1">
             {comments.length === 0 ? (
-              <p className="text-xs text-slate-400 italic text-center py-4">
+              <p className="text-xs text-slate-400 italic text-center py-4 bg-slate-50/50 rounded-2xl border border-slate-100">
                 No discussions recorded yet.
               </p>
             ) : (
               comments.map((c: any) => (
                 <div
                   key={c.timestamp}
-                  className="flex gap-2.5 bg-slate-50/40 p-3 rounded-xl border border-slate-100/30"
+                  className="flex gap-3 bg-slate-50/80 p-3.5 rounded-2xl border border-slate-100 shadow-sm"
                 >
                   {c.authorImage ? (
                     <img
                       src={c.authorImage}
                       alt={c.authorName}
-                      className="w-6 h-6 rounded-full object-cover"
+                      className="w-7 h-7 rounded-full object-cover shadow-sm"
                     />
                   ) : (
-                    <div className="w-6 h-6 rounded-full bg-slate-200 flex items-center justify-center text-slate-600 text-[10px] font-bold">
+                    <div className="w-7 h-7 rounded-full bg-slate-200 flex items-center justify-center text-slate-700 text-xs font-bold shadow-inner">
                       {c.authorName?.charAt(0)}
                     </div>
                   )}
-                  <div className="flex-1">
-                    <div className="flex items-center justify-between mb-0.5">
-                      <span className="text-xs font-bold text-slate-800">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-xs font-bold text-slate-900 truncate">
                         {c.authorName}
                       </span>
-                      <span className="text-[9px] text-slate-400">
+                      <span className="text-[10px] text-slate-400 font-medium">
                         {new Date(c.timestamp).toLocaleDateString()}
                       </span>
                     </div>
-                    <p className="text-xs text-slate-600 leading-normal">
+                    <p className="text-xs text-slate-600 leading-relaxed font-medium">
                       {c.text}
                     </p>
                   </div>
@@ -621,16 +626,16 @@ export function ChallengeDetail({
         </div>
 
         {/* FOOTER ACTIONS */}
-        <div className="flex gap-3 pt-4 border-t border-slate-100">
+        <div className="flex gap-3 pt-5 border-t border-slate-100">
           {isCreator ? (
             <>
-              <button className="flex-1 py-3.5 bg-slate-100 hover:bg-slate-200 text-slate-900 text-[10px] font-black uppercase tracking-widest rounded-xl flex items-center justify-center gap-2 transition-colors">
-                <Edit3 className="w-3.5 h-3.5" /> Edit Challenge
+              <button className="flex-1 py-3.5 bg-slate-100 hover:bg-slate-200 text-slate-900 text-[10px] font-black uppercase tracking-widest rounded-xl flex items-center justify-center gap-2 transition-colors shadow-sm">
+                <Edit3 className="w-3.5 h-3.5 text-slate-600" /> Edit Challenge
               </button>
               {onDelete && (
                 <button
                   onClick={onDelete}
-                  className="flex-1 py-3.5 bg-rose-50 text-rose-600 hover:bg-rose-100 text-[10px] font-black uppercase tracking-widest rounded-xl flex items-center justify-center gap-2 transition-colors"
+                  className="flex-1 py-3.5 bg-rose-50 text-rose-600 hover:bg-rose-100 text-[10px] font-black uppercase tracking-widest rounded-xl flex items-center justify-center gap-2 transition-colors shadow-sm"
                 >
                   <Trash2 className="w-3.5 h-3.5" /> Close Event
                 </button>
@@ -639,7 +644,7 @@ export function ChallengeDetail({
           ) : isParticipant ? (
             <button
               onClick={onLeave}
-              className="flex-1 py-3.5 bg-slate-100 hover:bg-rose-50 hover:text-rose-600 text-slate-600 text-[10px] font-black uppercase tracking-widest rounded-xl transition-all active:scale-98"
+              className="flex-1 py-3.5 bg-slate-100 hover:bg-rose-50 hover:text-rose-600 text-slate-600 text-[10px] font-black uppercase tracking-widest rounded-xl transition-all active:scale-95 shadow-sm"
             >
               Leave Challenge
             </button>
@@ -647,7 +652,7 @@ export function ChallengeDetail({
             isActive && (
               <button
                 onClick={onJoin}
-                className="flex-1 py-4 bg-slate-900 hover:bg-emerald-600 text-white text-[10px] font-black uppercase tracking-widest rounded-xl transition-all active:scale-98 shadow-md"
+                className="flex-1 py-4 bg-slate-900 hover:bg-emerald-600 text-white text-[11px] font-black uppercase tracking-widest rounded-xl transition-all active:scale-95 shadow-md hover:shadow-lg"
               >
                 {challenge.isPublic
                   ? "Accept Challenge & Join"
