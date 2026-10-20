@@ -5,18 +5,20 @@ import { adminDb, adminAuth } from "@/app/utils/firebaseAdmin";
 import { z } from "zod";
 import logger from "@/app/utils/logger";
 
+// Read directly from env. Set COOKIE_DOMAIN=users.dozamedic.com in prod.
+// ⚠️ In .env.local, leave it UNSET (or empty) so dev scopes to localhost.
+const COOKIE_DOMAIN = process.env.COOKIE_DOMAIN || undefined;
+
 const loginSchema = z.object({
   email: z.string().email(),
   password: z.string().min(1),
   rememberMe: z.boolean().optional().default(false),
 });
 
-// ─── GET handler for testing ──────────────────────────────────────
 export async function GET() {
   return NextResponse.json({ message: "Login route is working" });
 }
 
-// ─── POST handler ─────────────────────────────────────────────────
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
@@ -43,7 +45,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 1) Authenticate with Firebase REST API
     const signInUrl = `https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${apiKey}`;
     let signInResponse;
     try {
@@ -74,7 +75,6 @@ export async function POST(request: NextRequest) {
 
     const { localId: uid, idToken } = signInData;
 
-    // 2) Fetch user profile
     let userData;
     try {
       const userRef = adminDb.ref(`doza/users/${uid}`);
@@ -91,7 +91,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 3) Check role – must be "user"
     if (!userData || userData.role !== "user") {
       logger.warn({ uid, email, message: "Invalid role – not a user" });
       return NextResponse.json(
@@ -100,10 +99,9 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 4) Create session cookie
     const expiresIn = rememberMe
-      ? 14 * 24 * 60 * 60 * 1000 // 14 days
-      : 24 * 60 * 60 * 1000; // 1 day
+      ? 14 * 24 * 60 * 60 * 1000
+      : 24 * 60 * 60 * 1000;
 
     let sessionCookie;
     try {
@@ -121,7 +119,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 5) Build response
     const fullName = `${userData.personalProfile?.fname || ""} ${
       userData.personalProfile?.lname || ""
     }`.trim();
@@ -146,9 +143,13 @@ export async function POST(request: NextRequest) {
       secure: process.env.NODE_ENV === "production",
       sameSite: "lax",
       path: "/",
+      domain: COOKIE_DOMAIN,
     });
 
-    logger.info({ uid, email }, "User logged in successfully");
+    logger.info(
+      { uid, cookieDomain: COOKIE_DOMAIN },
+      "User logged in successfully",
+    );
     return response;
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);

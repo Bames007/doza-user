@@ -1,7 +1,13 @@
+// app/api/auth/set-session/route.ts
+
 import { NextRequest, NextResponse } from "next/server";
 import { adminAuth } from "@/app/utils/firebaseAdmin";
 import { z } from "zod";
 import logger from "@/app/utils/logger";
+
+// Read directly from env. Set COOKIE_DOMAIN=users.dozamedic.com in prod.
+// ⚠️ In .env.local, leave it UNSET (or empty) so dev scopes to localhost.
+const COOKIE_DOMAIN = process.env.COOKIE_DOMAIN || undefined;
 
 const setSessionSchema = z.object({
   idToken: z.string().min(1),
@@ -45,8 +51,10 @@ export async function POST(request: NextRequest) {
       secure: process.env.NODE_ENV === "production",
       sameSite: "lax",
       path: "/",
+      domain: COOKIE_DOMAIN,
     });
 
+    logger.info({ cookieDomain: COOKIE_DOMAIN }, "Session cookie set");
     return response;
   } catch (error) {
     logger.error({ message: "Set session failed", error });
