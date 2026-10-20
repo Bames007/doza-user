@@ -27,7 +27,7 @@ export async function GET(
   }
 
   try {
-    const snapshot = await adminDb.ref(`doza/medics/${id}`).once("value");
+    const snapshot = await adminDb.ref(`doza_medics/${id}`).once("value");
     const medic = snapshot.val();
 
     if (!medic) {

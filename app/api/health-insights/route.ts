@@ -46,7 +46,9 @@ export async function GET(request: NextRequest) {
     }
 
     insights.push("Hydration is the simplest way to boost energy.");
-    insights.push("Consistent logging helps our AI provide better insights.");
+    insights.push(
+      "Consistent logging helps our model provide better insights.",
+    );
 
     return NextResponse.json({ success: true, data: insights });
   } catch (error) {

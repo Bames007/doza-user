@@ -2,7 +2,7 @@
 import logger from "./logger";
 
 // -------------------------------------------------------------------
-// 1. Helper – read user identity from localStorage (unchanged)
+// 1. Helper – read user identity from localStorage (for headers only)
 // -------------------------------------------------------------------
 function getUserIdentity(): { id: string; name: string; role: string } {
   let id = "",
@@ -42,7 +42,7 @@ async function buildHeaders(extraHeaders?: Record<string, string>) {
 }
 
 // -------------------------------------------------------------------
-// 3. authFetcher – now with offline & 401 handling
+// 3. authFetcher – with offline handling & smarter 401 guard
 // -------------------------------------------------------------------
 export async function authFetcher(url: string, options?: RequestInit) {
   const { headers } = await buildHeaders(
@@ -54,7 +54,7 @@ export async function authFetcher(url: string, options?: RequestInit) {
     res = await fetch(url, {
       ...options,
       headers,
-      credentials: "include", // sends session cookie automatically
+      credentials: "include", // ← always send cookies
     });
   } catch (fetchError: any) {
     // Network offline – no response at all
@@ -78,12 +78,19 @@ export async function authFetcher(url: string, options?: RequestInit) {
       `API request failed: ${url} (${res.status})`,
     );
 
-    // 🔐 Session expired or missing → redirect to login
+    // 🔐 Session expired or missing – but avoid redirect loops
     if (res.status === 401 && typeof window !== "undefined") {
-      // Clear stale user data
-      localStorage.removeItem("userSession");
-      // Only redirect if we're not already on the login page
-      if (!window.location.pathname.startsWith("/login")) {
+      // Skip redirect for auth endpoints and if already on login page
+      const isAuthEndpoint = url.includes("/api/auth/");
+      const isLoginPage = window.location.pathname === "/login";
+      const isHomePage = window.location.pathname === "/";
+
+      if (!isAuthEndpoint && !isLoginPage && !isHomePage) {
+        // Clear stale user data
+        localStorage.removeItem("userSession");
+        localStorage.removeItem("userId");
+        localStorage.removeItem("userName");
+        localStorage.removeItem("userRole");
         window.location.href = "/login";
       }
       throw new Error("AUTH_REQUIRED");
@@ -100,7 +107,7 @@ export async function authFetcher(url: string, options?: RequestInit) {
 }
 
 // -------------------------------------------------------------------
-// 4. Other HTTP methods (unchanged, but use the same 401 guard)
+// 4. Other HTTP methods (with same 401 guard)
 // -------------------------------------------------------------------
 export async function authPost(url: string, data?: any) {
   const { headers } = await buildHeaders();
@@ -122,8 +129,10 @@ export async function authPost(url: string, data?: any) {
       `POST request failed: ${url} (${res.status})`,
     );
     if (res.status === 401 && typeof window !== "undefined") {
-      localStorage.removeItem("userSession");
-      if (!window.location.pathname.startsWith("/login")) {
+      const isAuthEndpoint = url.includes("/api/auth/");
+      const isLoginPage = window.location.pathname === "/login";
+      if (!isAuthEndpoint && !isLoginPage) {
+        localStorage.removeItem("userSession");
         window.location.href = "/login";
       }
       throw new Error("AUTH_REQUIRED");
@@ -153,8 +162,10 @@ export async function authPut(url: string, data?: any) {
       `PUT request failed: ${url} (${res.status})`,
     );
     if (res.status === 401 && typeof window !== "undefined") {
-      localStorage.removeItem("userSession");
-      if (!window.location.pathname.startsWith("/login")) {
+      const isAuthEndpoint = url.includes("/api/auth/");
+      const isLoginPage = window.location.pathname === "/login";
+      if (!isAuthEndpoint && !isLoginPage) {
+        localStorage.removeItem("userSession");
         window.location.href = "/login";
       }
       throw new Error("AUTH_REQUIRED");
@@ -183,8 +194,10 @@ export async function authDelete(url: string) {
       `DELETE request failed: ${url} (${res.status})`,
     );
     if (res.status === 401 && typeof window !== "undefined") {
-      localStorage.removeItem("userSession");
-      if (!window.location.pathname.startsWith("/login")) {
+      const isAuthEndpoint = url.includes("/api/auth/");
+      const isLoginPage = window.location.pathname === "/login";
+      if (!isAuthEndpoint && !isLoginPage) {
+        localStorage.removeItem("userSession");
         window.location.href = "/login";
       }
       throw new Error("AUTH_REQUIRED");

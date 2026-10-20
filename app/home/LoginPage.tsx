@@ -80,6 +80,7 @@ const LoginPage: React.FC = () => {
     }
 
     try {
+      // 🔥 CRITICAL: include credentials to accept the session cookie
       const res = await fetch("/api/auth/user-login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -88,6 +89,7 @@ const LoginPage: React.FC = () => {
           password: formData.password,
           rememberMe,
         }),
+        credentials: "include", // ← essential for receiving the cookie
       });
 
       const data = await res.json();
@@ -96,7 +98,7 @@ const LoginPage: React.FC = () => {
         throw new Error(data.error || "Login failed");
       }
 
-      // Store user info in localStorage for client‑side context
+      // Store user info in localStorage for client‑side UI (not for auth)
       if (data.data?.user) {
         localStorage.setItem(
           "userSession",
@@ -105,12 +107,18 @@ const LoginPage: React.FC = () => {
             loginTime: new Date().toISOString(),
           }),
         );
+        // Also store individual keys for convenience (if your app uses them)
+        localStorage.setItem("userId", data.data.user.id);
+        localStorage.setItem(
+          "userName",
+          data.data.user.fullName || data.data.user.name || "",
+        );
+        localStorage.setItem("userRole", data.data.user.role || "");
       }
 
-      // Flag for dashboard to skip intro animation
       sessionStorage.setItem("fromLogin", "true");
 
-      // Navigate directly – dashboard will handle its own bubble (or skip it)
+      // Navigate to dashboard
       router.push("/dashboard");
     } catch (err: any) {
       setError(err.message || "Invalid email or password");
@@ -122,7 +130,7 @@ const LoginPage: React.FC = () => {
     <div
       className={`min-h-screen bg-slate-50 selection:bg-emerald-100 ${poppins.className}`}
     >
-      {/* Dynamic Background Blurs */}
+      {/* Background blurs and rest of your UI – unchanged */}
       <div className="fixed inset-0 overflow-hidden pointer-events-none">
         <div className="absolute -top-[10%] -left-[10%] w-[40%] h-[40%] bg-emerald-100/40 rounded-full blur-[120px]" />
         <div className="absolute -bottom-[10%] -right-[10%] w-[40%] h-[40%] bg-blue-100/40 rounded-full blur-[120px]" />
@@ -216,7 +224,6 @@ const LoginPage: React.FC = () => {
                 </p>
               </header>
 
-              {/* Error Handling */}
               {error && (
                 <motion.div
                   initial={{ opacity: 0, scale: 0.95 }}
