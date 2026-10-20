@@ -19,9 +19,9 @@ const schema = z.object({
 
 export async function POST(
   req: NextRequest,
-  { params }: { params: Promise<{ id: string }> },
+  { params }: { params: Promise<{ centerId: string }> },
 ) {
-  const { id: centerId } = await params;
+  const { centerId } = await params;
   const userId = req.headers.get("x-user-id");
   if (!userId) return unauthorized();
 

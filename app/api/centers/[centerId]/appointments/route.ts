@@ -1,5 +1,5 @@
-// app/api/centers/[id]/appointments/route.ts
-// URL: /api/centers/[id]/appointments
+// app/api/centers/[centerId]/appointments/route.ts
+// URL: /api/centers/[centerId]/appointments
 // Methods: GET, POST
 
 import { NextRequest, NextResponse } from "next/server";
@@ -55,9 +55,9 @@ const appointmentCreateSchema = z
 // ─── GET ─────────────────────────────────────────────────────────────
 export async function GET(
   request: NextRequest,
-  { params }: { params: Promise<{ id: string }> },
+  { params }: { params: Promise<{ centerId: string }> },
 ) {
-  const { id: centerId } = await params;
+  const { centerId } = await params;
   try {
     const userId = request.headers.get("x-user-id");
     if (!userId) return unauthorized();
@@ -104,9 +104,9 @@ export async function GET(
 // ─── POST ────────────────────────────────────────────────────────────
 export async function POST(
   request: NextRequest,
-  { params }: { params: Promise<{ id: string }> },
+  { params }: { params: Promise<{ centerId: string }> },
 ) {
-  const { id: centerId } = await params;
+  const { centerId } = await params;
   try {
     const userId = request.headers.get("x-user-id");
     if (!userId) return unauthorized();
