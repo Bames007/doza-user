@@ -37,7 +37,10 @@ export function useAppointments(status?: string) {
     : "/api/appointments";
 
   const { data, error, isLoading } = useSWR(url, authFetcher, {
-    dedupingInterval: 60_000, // 1 minute – appointments change more often
+    dedupingInterval: 60_000,
+    revalidateOnFocus: false, // ← add this
+    keepPreviousData: true, // ← add this
+    revalidateIfStale: false, // ← add this
   });
 
   return {
@@ -58,7 +61,10 @@ export function useHealthRecords(type?: string, from?: string, to?: string) {
   const url = `/api/health-records${queryString ? "?" + queryString : ""}`;
 
   const { data, error, isLoading } = useSWR(url, authFetcher, {
-    dedupingInterval: 120_000, // 2 minutes
+    dedupingInterval: 120_000,
+    revalidateOnFocus: false, // ← add this
+    keepPreviousData: true, // ← add this
+    revalidateIfStale: false, // ← add this
   });
 
   return {

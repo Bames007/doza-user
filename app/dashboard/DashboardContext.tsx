@@ -13,6 +13,8 @@ export type PanelId =
   | "doza-map"
   | "profile"
   | "settings"
+  | "moodboard-history"
+  | "doza-therapist"
   | "help"
   | "doza-sport-shop"
   | "doza-medical-shop"

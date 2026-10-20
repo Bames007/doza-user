@@ -8,6 +8,23 @@ import { authPost } from "@/app/utils/client-auth";
 import { challengeSchema, commentSchema } from "@/app/types/schemas";
 import { UserInfo } from "./useProfile";
 
+// Fuzzy invalidate every SWR key that starts with /api/challenges.
+// Works whether the key is a string or a [url, userId] tuple.
+function invalidateChallenges() {
+  return mutate(
+    (key) => {
+      if (typeof key === "string") return key.startsWith("/api/challenges");
+      if (Array.isArray(key))
+        return (
+          typeof key[0] === "string" && key[0].startsWith("/api/challenges")
+        );
+      return false;
+    },
+    undefined,
+    { revalidate: true },
+  );
+}
+
 export function useChallengeMutations(user: UserInfo | null) {
   const [joinCode, setJoinCode] = useState("");
   const [selectedImage, setSelectedImage] = useState("");
@@ -41,8 +58,7 @@ export function useChallengeMutations(user: UserInfo | null) {
     };
     const result = await authPost("/api/challenges", payload);
     if (result.success) {
-      mutate("/api/challenges?type=my");
-      mutate("/api/challenges?visibility=public");
+      await invalidateChallenges();
       return true;
     }
     alert("Error: " + result.error);
@@ -58,10 +74,7 @@ export function useChallengeMutations(user: UserInfo | null) {
       userPhoto: user?.avatar || null,
     });
     if (result.success) {
-      mutate(`/api/challenges/${challengeId}`);
-      mutate("/api/challenges?type=my");
-      mutate("/api/challenges?visibility=public");
-      if (!isPublic) mutate("/api/challenges/requests");
+      await invalidateChallenges();
     } else {
       alert("Error: " + (result.error || "Failed to join"));
     }
@@ -74,7 +87,7 @@ export function useChallengeMutations(user: UserInfo | null) {
         code: joinCode,
       });
       if (result.success) {
-        mutate("/api/challenges?type=my");
+        await invalidateChallenges();
         setJoinCode("");
         return true;
       }
@@ -90,8 +103,7 @@ export function useChallengeMutations(user: UserInfo | null) {
     if (!confirm("Are you sure you want to leave this challenge?")) return;
     const result = await authPost(`/api/challenges/${challengeId}/leave`, {});
     if (result.success) {
-      mutate("/api/challenges?type=my");
-      mutate("/api/challenges?visibility=public");
+      await invalidateChallenges();
     } else {
       alert("Error: " + result.error);
     }
@@ -102,8 +114,7 @@ export function useChallengeMutations(user: UserInfo | null) {
       userId,
     });
     if (result.success) {
-      mutate(`/api/challenges/${challengeId}`);
-      mutate("/api/challenges/requests");
+      await invalidateChallenges();
     } else {
       alert("Error: " + result.error);
     }
@@ -117,7 +128,7 @@ export function useChallengeMutations(user: UserInfo | null) {
       progress,
     });
     if (result.success) {
-      mutate(`/api/challenges/${challengeId}`);
+      await invalidateChallenges();
     } else {
       alert("Error: " + (result.error || "Failed to update progress"));
     }
@@ -129,7 +140,7 @@ export function useChallengeMutations(user: UserInfo | null) {
       data,
     );
     if (result.success) {
-      mutate(`/api/challenges/${challengeId}`);
+      await invalidateChallenges();
     } else {
       alert("Error: " + (result.error || "Failed to add comment"));
     }

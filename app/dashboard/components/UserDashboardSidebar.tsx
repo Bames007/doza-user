@@ -21,13 +21,15 @@ import {
   Grid,
   ChevronRight,
   X,
+  Search,
+  FlaskConical,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useNotifications } from "../hooks/useNotification";
 import { bebasNeue, poppins } from "@/app/constants";
 import { cn } from "@/app/utils/utils";
 
-// ─── Custom Logo Icon for Doza Panel ──────────────────────────────
+// ─── Custom Logo Icon for Doza Panel ──────────────────────────
 const LogoIcon = ({
   className,
   active,
@@ -62,7 +64,7 @@ const LogoIcon = ({
   );
 };
 
-// ─── Navigation Items ──────────────────────────────────────────────
+// ─── Navigation Items ─────────────────────────────────────────
 const navigationItems = [
   { name: "Dashboard", panelId: "dashboard", icon: LayoutDashboard },
   { name: "Health Tracker", panelId: "health-tracker", icon: Heart },
@@ -99,6 +101,10 @@ export default function UserDashboardSidebar({
   const [isInactive, setIsInactive] = useState(false);
   const [showMoreMenu, setShowMoreMenu] = useState(false);
   const inactivityTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Search overlay state
+  const [showSearch, setShowSearch] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
 
   // Dynamic slot for mobile bottom nav overflow choice
   const [overflowChoices, setOverflowChoices] = useState<
@@ -145,6 +151,26 @@ export default function UserDashboardSidebar({
     window.location.href = "/";
   };
 
+  // ─── Search category handoff ────────────────────────────────
+  const handleSearchCategory = (type: "service" | "drug" | "test") => {
+    try {
+      sessionStorage.setItem(
+        "doza_map_handoff_v1",
+        JSON.stringify({
+          q: searchQuery.trim(),
+          type,
+          ts: Date.now(),
+        }),
+      );
+      window.dispatchEvent(new Event("doza-map-handoff"));
+    } catch (e) {
+      console.warn("Handoff failed", e);
+    }
+    setActivePanel("doza-map");
+    setShowSearch(false);
+    setSearchQuery("");
+  };
+
   const renderIcon = (
     item: (typeof navigationItems)[0],
     isActive: boolean,
@@ -168,7 +194,7 @@ export default function UserDashboardSidebar({
     );
   }
 
-  // ─── MOBILE VIEW ──────────────────────────────────────────────────
+  // ─── MOBILE VIEW ──────────────────────────────────────────
   if (isMobile) {
     const primaryMobileItems = [
       ...navigationItems.slice(0, 3),
@@ -178,13 +204,13 @@ export default function UserDashboardSidebar({
 
     return (
       <div className={poppins.className}>
-        {/* ─── White Personalised Mobile Top Header ──────────────────── */}
+        {/* ─── White Personalised Mobile Top Header ─────────── */}
         <div className="fixed top-0 left-0 right-0 z-50 bg-white/95 backdrop-blur-xl border-b border-slate-200 px-4 h-16 flex items-center justify-between shadow-xs">
-          <div className="flex items-center gap-3 min-w-0">
-            {/* Avatar – tap to go to profile */}
+          <div className="flex items-center gap-3 min-w-0 flex-1">
             <button
               onClick={() => handleNavigation("profile")}
               className="w-10 h-10 rounded-xl bg-emerald-50 border border-emerald-200 overflow-hidden shrink-0 active:scale-95 transition-all"
+              aria-label="Open profile"
             >
               {user.avatar ? (
                 <Image
@@ -200,7 +226,6 @@ export default function UserDashboardSidebar({
                 </div>
               )}
             </button>
-            {/* Welcome text */}
             <div className="flex items-baseline gap-1.5 min-w-0">
               <span className="text-base font-normal text-slate-800">
                 Welcome,
@@ -211,17 +236,99 @@ export default function UserDashboardSidebar({
             </div>
           </div>
 
-          {/* Notification Bell on the right */}
-          <button
-            onClick={() => handleNavigation("notifications")}
-            className="relative p-2.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-700 active:scale-95 transition-all"
-          >
-            <Bell size={18} />
-            {unreadCount > 0 && (
-              <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-emerald-500 rounded-full ring-2 ring-white" />
-            )}
-          </button>
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              onClick={() => setShowSearch(true)}
+              aria-label="Search"
+              className="min-h-11 min-w-11 inline-flex items-center justify-center rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-700 active:scale-95 transition-all"
+            >
+              <Search size={18} strokeWidth={2.2} />
+            </button>
+            <button
+              onClick={() => handleNavigation("notifications")}
+              aria-label="Notifications"
+              className="relative min-h-11 min-w-11 inline-flex items-center justify-center rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-700 active:scale-95 transition-all"
+            >
+              <Bell size={18} strokeWidth={2.2} />
+              {unreadCount > 0 && (
+                <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-emerald-500 rounded-full ring-2 ring-white" />
+              )}
+            </button>
+          </div>
         </div>
+
+        {/* ─── Search Overlay Dropdown ──────────────────────── */}
+        <AnimatePresence>
+          {showSearch && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 z-[90] bg-slate-950/50 backdrop-blur-sm"
+              onClick={() => setShowSearch(false)}
+            >
+              <motion.div
+                initial={{ y: -20, opacity: 0, scale: 0.97 }}
+                animate={{ y: 0, opacity: 1, scale: 1 }}
+                exit={{ y: -20, opacity: 0, scale: 0.97 }}
+                transition={{ type: "spring", damping: 26, stiffness: 260 }}
+                onClick={(e) => e.stopPropagation()}
+                className="absolute top-20 left-4 right-4 bg-white rounded-2xl shadow-2xl border border-slate-200 p-4"
+                role="dialog"
+                aria-label="Search"
+              >
+                <div className="flex items-center justify-between mb-3">
+                  <p className="text-sm font-bold text-slate-900">
+                    What do you need?
+                  </p>
+                  <button
+                    onClick={() => setShowSearch(false)}
+                    aria-label="Close search"
+                    className="min-h-9 min-w-9 inline-flex items-center justify-center rounded-lg hover:bg-slate-100 transition-colors"
+                  >
+                    <X size={16} className="text-slate-500" />
+                  </button>
+                </div>
+
+                <div className="relative mb-3">
+                  <Search
+                    size={16}
+                    className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"
+                  />
+                  <input
+                    autoFocus
+                    type="search"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder="Search or pick a category below"
+                    className="w-full min-h-11 pl-10 pr-3 bg-slate-50 rounded-xl border border-transparent focus:bg-white focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10 outline-none transition text-sm text-slate-900 placeholder:text-slate-400"
+                  />
+                </div>
+
+                <div className="grid grid-cols-3 gap-2">
+                  <CategoryCard
+                    icon={Pill}
+                    label="Drugs"
+                    hint="Pharmacies"
+                    onClick={() => handleSearchCategory("drug")}
+                  />
+                  <CategoryCard
+                    icon={Stethoscope}
+                    label="Medics"
+                    hint="Doctors & clinics"
+                    onClick={() => handleSearchCategory("service")}
+                  />
+                  <CategoryCard
+                    icon={FlaskConical}
+                    label="Tests"
+                    hint="Labs & scans"
+                    onClick={() => handleSearchCategory("test")}
+                  />
+                </div>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         {/* Floating Capsule Bottom Nav */}
         <div
@@ -238,12 +345,13 @@ export default function UserDashboardSidebar({
                 <button
                   key={item.panelId}
                   onClick={() => handleNavigation(item.panelId)}
-                  className={`p-3.5 rounded-2xl transition-all duration-300 relative ${
+                  className={`p-3.5 rounded-2xl transition-all duration-300 relative min-h-11 min-w-11 inline-flex items-center justify-center ${
                     isActive
                       ? "bg-white text-emerald-600 shadow-md scale-105"
                       : "text-white/80 hover:text-white"
                   }`}
                   title={item.name}
+                  aria-label={item.name}
                 >
                   {renderIcon(item, isActive, 20, "", true)}
                   {isActive && (
@@ -257,15 +365,16 @@ export default function UserDashboardSidebar({
             })}
             <button
               onClick={() => setShowMoreMenu(true)}
-              className="p-3.5 rounded-2xl text-white/90 bg-emerald-700/60 hover:bg-emerald-700 active:scale-95 transition-all border border-emerald-500/30"
+              className="p-3.5 rounded-2xl text-white/90 bg-emerald-700/60 hover:bg-emerald-700 active:scale-95 transition-all border border-emerald-500/30 min-h-11 min-w-11 inline-flex items-center justify-center"
               title="More Features"
+              aria-label="More features"
             >
               <Grid size={20} />
             </button>
           </div>
         </div>
 
-        {/* Fullscreen Total Emerald Menu Sheet Overlay */}
+        {/* Fullscreen Emerald More Menu Sheet */}
         <AnimatePresence>
           {showMoreMenu && (
             <motion.div
@@ -275,7 +384,6 @@ export default function UserDashboardSidebar({
               transition={{ type: "spring", damping: 30, stiffness: 300 }}
               className="fixed inset-0 z-[100] bg-emerald-600 backdrop-blur-3xl pt-20 p-6 flex flex-col justify-between overflow-y-auto custom-emerald-scrollbar"
             >
-              {/* Overlay Top Bar */}
               <div className="flex items-center justify-between border-b border-emerald-500/40 pb-4">
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 rounded-xl bg-emerald-700/60 border border-emerald-500/40 flex items-center justify-center">
@@ -292,12 +400,12 @@ export default function UserDashboardSidebar({
                 <button
                   onClick={() => setShowMoreMenu(false)}
                   className="w-10 h-10 rounded-xl bg-emerald-700/60 hover:bg-emerald-700 text-white flex items-center justify-center transition-all border border-emerald-500/40"
+                  aria-label="Close menu"
                 >
                   <X size={18} />
                 </button>
               </div>
 
-              {/* Expanded Layout for Overflow Menu Items */}
               <div className="grid grid-cols-1 gap-3 my-6 flex-1 content-center py-4">
                 {hiddenOverflowItems.map((item) => {
                   const isActive = activePanel === item.panelId;
@@ -349,18 +457,17 @@ export default function UserDashboardSidebar({
                 })}
               </div>
 
-              {/* Utility Bottom Actions inside Overlay */}
               <div className="pt-4 border-t border-emerald-500/40 flex items-center justify-between gap-3">
                 <button
                   onClick={() => handleNavigation("settings")}
-                  className="flex-1 py-4 bg-emerald-700/60 hover:bg-emerald-700 text-white border border-emerald-500/40 rounded-2xl text-xs font-semibold tracking-normal flex items-center justify-center gap-2 transition-all shadow-sm"
+                  className="flex-1 py-4 bg-emerald-700/60 hover:bg-emerald-700 text-white border border-emerald-500/40 rounded-2xl text-xs font-semibold tracking-normal flex items-center justify-center gap-2 transition-all shadow-sm min-h-11"
                 >
                   <Settings size={18} />
                   <span>Settings</span>
                 </button>
                 <button
                   onClick={handleLogout}
-                  className="flex-1 py-4 bg-red-600/80 hover:bg-red-600 text-white border border-red-500/40 rounded-2xl text-xs font-semibold tracking-normal flex items-center justify-center gap-2 transition-all shadow-sm"
+                  className="flex-1 py-4 bg-red-600/80 hover:bg-red-600 text-white border border-red-500/40 rounded-2xl text-xs font-semibold tracking-normal flex items-center justify-center gap-2 transition-all shadow-sm min-h-11"
                 >
                   <LogOut size={18} />
                   <span>Logout</span>
@@ -373,7 +480,7 @@ export default function UserDashboardSidebar({
     );
   }
 
-  // ─── DESKTOP VIEW ──────────────────────────────────────────────────
+  // ─── DESKTOP VIEW (unchanged) ──────────────────────────────
   return (
     <div
       className={cn(
@@ -381,7 +488,6 @@ export default function UserDashboardSidebar({
         poppins.className,
       )}
     >
-      {/* 1. Header & User Brand Profile Section */}
       <div className="p-6 pb-4">
         <div className="flex items-center gap-3 mb-6">
           <div className="w-10 h-10 rounded-2xl bg-emerald-500 border border-emerald-100 flex items-center justify-center shadow-md shadow-emerald-500/10">
@@ -399,7 +505,6 @@ export default function UserDashboardSidebar({
           </div>
         </div>
 
-        {/* User Card */}
         <div className="bg-white hover:border-emerald-300 transition-all duration-200 rounded-[1.8rem] p-4 border border-emerald-100 shadow-xs">
           <div className="flex items-center gap-3 mb-3">
             <div className="w-10 h-10 rounded-xl bg-emerald-50 overflow-hidden flex items-center justify-center border border-emerald-100 shrink-0">
@@ -438,7 +543,6 @@ export default function UserDashboardSidebar({
         </div>
       </div>
 
-      {/* 2. Main Navigation Items */}
       <div className="flex-1 px-4 overflow-y-auto custom-emerald-scrollbar py-2">
         <nav className="space-y-1.5 pr-1">
           <p className="text-[9px] font-semibold text-emerald-600/70 uppercase tracking-[0.2em] px-4 mb-2">
@@ -480,7 +584,6 @@ export default function UserDashboardSidebar({
         </nav>
       </div>
 
-      {/* 3. Bottom Utility Menu Bar */}
       <div className="p-4 bg-white/50 border-t border-emerald-100">
         <div className="bg-emerald-600 rounded-[1.5rem] p-1.5 flex items-center justify-between shadow-lg shadow-emerald-950/20 border border-emerald-500/40">
           {bottomItems.map((item) => {
@@ -494,12 +597,13 @@ export default function UserDashboardSidebar({
                     : handleNavigation(item.panelId!)
                 }
                 className={cn(
-                  "p-2.5 rounded-xl transition-all relative group cursor-pointer",
+                  "p-2.5 rounded-xl transition-all relative group cursor-pointer min-h-10 min-w-10 inline-flex items-center justify-center",
                   isActive
                     ? "bg-white text-emerald-600 shadow-md"
                     : "text-white hover:bg-emerald-700/60",
                 )}
                 title={item.label}
+                aria-label={item.label}
               >
                 <item.icon size={16} strokeWidth={2.2} />
                 {item.id === "notifications" && unreadCount > 0 && (
@@ -530,5 +634,33 @@ export default function UserDashboardSidebar({
         }
       `}</style>
     </div>
+  );
+}
+
+// ─── Category Card for Search Overlay ──────────────────────
+function CategoryCard({
+  icon: Icon,
+  label,
+  hint,
+  onClick,
+}: {
+  icon: any;
+  label: string;
+  hint: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className="min-h-20 flex flex-col items-center justify-center gap-1 p-2 rounded-xl bg-emerald-50 border border-emerald-200/70 hover:bg-emerald-100 hover:border-emerald-300 active:scale-[0.97] transition-all"
+    >
+      <Icon size={20} className="text-emerald-700" />
+      <span className="text-xs font-bold text-emerald-900 text-center leading-tight">
+        {label}
+      </span>
+      <span className="text-[10px] text-emerald-700/70 leading-tight text-center">
+        {hint}
+      </span>
+    </button>
   );
 }

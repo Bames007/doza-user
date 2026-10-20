@@ -20,7 +20,10 @@ export const useMedicalSavedItems = () => {
     data: SavedItem[];
   }>(user ? "/api/medical-store/saved" : null, authFetcher, {
     revalidateOnFocus: false,
+    revalidateOnReconnect: true,
     dedupingInterval: 300_000,
+    keepPreviousData: true,
+    revalidateIfStale: false,
   });
 
   const savedItems = data?.success ? data.data : [];

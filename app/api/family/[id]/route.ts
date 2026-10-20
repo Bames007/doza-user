@@ -52,30 +52,27 @@ export async function PUT(
       );
     }
 
-    const updates = parseResult.data;
-    const familyRef = adminDb.ref(`doza/users/${uid}/familyFriends`);
-    const snapshot = await familyRef.once("value");
-    let family = snapshot.val() || [];
-    const index = family.findIndex((c: any) => c.id === id);
-
-    if (index === -1) {
+    const contactRef = adminDb.ref(`doza/users/${uid}/familyFriends/${id}`);
+    const snap = await contactRef.get();
+    if (!snap.exists()) {
       return NextResponse.json(
         { success: false, error: "Contact not found" },
         { status: 404 },
       );
     }
 
-    family[index] = { ...family[index], ...updates };
-    await familyRef.set(family);
+    const updates = { ...parseResult.data, updatedAt: Date.now() };
+    await contactRef.update(updates); // ✅ surgical update
 
+    const updated = { id, ...snap.val(), ...updates };
     logger.info({ uid, contactId: id, message: "Family contact updated" });
-    return NextResponse.json({ success: true, data: family[index] });
+    return NextResponse.json({ success: true, data: updated });
   } catch (error) {
     logger.error({
       uid,
       contactId: id,
       message: "PUT family contact failed",
-      error,
+      error: error instanceof Error ? error.message : String(error),
     });
     return NextResponse.json(
       { success: false, error: "Unable to update contact" },
@@ -105,19 +102,16 @@ export async function DELETE(
   }
 
   try {
-    const familyRef = adminDb.ref(`doza/users/${uid}/familyFriends`);
-    const snapshot = await familyRef.once("value");
-    let family = snapshot.val() || [];
-    const newFamily = family.filter((c: any) => c.id !== id);
-
-    if (newFamily.length === family.length) {
+    const contactRef = adminDb.ref(`doza/users/${uid}/familyFriends/${id}`);
+    const snap = await contactRef.get();
+    if (!snap.exists()) {
       return NextResponse.json(
         { success: false, error: "Contact not found" },
         { status: 404 },
       );
     }
 
-    await familyRef.set(newFamily);
+    await contactRef.remove(); // ✅ deletes only this child
     logger.info({ uid, contactId: id, message: "Family contact deleted" });
     return NextResponse.json({ success: true });
   } catch (error) {
@@ -125,7 +119,7 @@ export async function DELETE(
       uid,
       contactId: id,
       message: "DELETE family contact failed",
-      error,
+      error: error instanceof Error ? error.message : String(error),
     });
     return NextResponse.json(
       { success: false, error: "Unable to delete contact" },

@@ -1,20 +1,20 @@
-// app/dashboard/hooks/usePendingRequests.ts
+// app/dashboard/hooks/usePendingLinkRequests.ts
 
 import useSWR from "swr";
 import { authFetcher } from "@/app/utils/client-auth";
 
-/**
- * Fetch pending link requests for a given userId.
- * @param userId – optional; if not provided, the hook will not fetch.
- */
 export function usePendingLinkRequests(userId?: string) {
   const { data, error, mutate } = useSWR(
     userId ? `/api/user/${userId}/pending-requests` : null,
     authFetcher,
     {
-      revalidateOnFocus: true,
-      dedupingInterval: 30_000,
-      refreshInterval: 60_000,
+      revalidateOnFocus: false, // ← was true; redundant with refreshInterval
+      revalidateOnReconnect: true,
+      dedupingInterval: 60_000,
+      refreshInterval: 60_000, // ← keeps OTP freshness without focus storms
+      keepPreviousData: true,
+      // NOTE: deliberately NOT setting revalidateIfStale: false —
+      //       we want a refetch on mount so users see current OTP state.
     },
   );
 

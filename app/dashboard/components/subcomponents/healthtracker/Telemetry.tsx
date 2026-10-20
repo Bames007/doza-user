@@ -9,6 +9,7 @@ import {
   Area,
   AreaChart,
 } from "recharts";
+import { Activity } from "lucide-react";
 import {
   metricConfig,
   MetricType,
@@ -18,6 +19,14 @@ import {
 import { formatDisplayValue } from "../../panels/HealthTrackerPanel";
 import { poppins, bebasNeue } from "@/app/constants";
 import { cn } from "@/app/utils/utils";
+
+// ─── Chart design tokens — single source of truth ─────────────
+const CHART = {
+  primary: "#059669", // emerald-600
+  secondary: "#34d399", // emerald-400
+  grid: "#F1F5F9", // slate-100
+  axis: "#64748B", // slate-500 (4.6:1 on white — passes AA)
+} as const;
 
 interface TelemetryChartProps {
   chartData: ChartDataPoint[];
@@ -35,20 +44,14 @@ export function TelemetryChart({
   const latestEntry = filteredRecords?.[filteredRecords.length - 1];
   const isBP = currentMetric === "bloodPressure";
 
-  // Helper function to format numbers safely with thousand separators
   const formatNumberWithCommas = (val: any) => {
     if (val === null || val === undefined) return "0";
-    if (typeof val === "number") {
-      return val.toLocaleString("en-US", { maximumFractionDigits: 0 });
-    }
-    const parsed = Number(val);
-    if (!isNaN(parsed)) {
-      return parsed.toLocaleString("en-US", { maximumFractionDigits: 0 });
-    }
-    return String(val);
+    const num = typeof val === "number" ? val : Number(val);
+    return !isNaN(num)
+      ? num.toLocaleString("en-US", { maximumFractionDigits: 0 })
+      : String(val);
   };
 
-  // Safe mapping for chart data to prevent any missing property crashes
   const enrichedChartData = (chartData || []).map((point: any) => {
     if (
       isBP &&
@@ -65,13 +68,9 @@ export function TelemetryChart({
         diastolic: bp.diastolic ?? 0,
       };
     }
-    return {
-      ...point,
-      numericValue: point?.numericValue ?? 0,
-    };
+    return { ...point, numericValue: point?.numericValue ?? 0 };
   });
 
-  // Terminal value display matching your exact design language safely
   const renderTerminalValue = (record: HealthRecord) => {
     try {
       const valStr = formatDisplayValue(record);
@@ -80,22 +79,19 @@ export function TelemetryChart({
         const sys = formatNumberWithCommas(sysRaw?.trim());
         const dia = formatNumberWithCommas(diaRaw?.trim());
         return (
-          <span
-            className={cn(
-              "flex items-baseline tracking-wide text-slate-900",
-              bebasNeue.className,
-            )}
-          >
-            <span className="text-2xl sm:text-3xl font-black">{sys}</span>
+          <span className={cn("flex items-baseline", bebasNeue.className)}>
+            <span className="text-2xl sm:text-3xl font-black text-slate-900">
+              {sys}
+            </span>
             <span
               className={cn(
-                "text-slate-300 font-light mx-0.5 text-lg",
+                "text-slate-400 font-light mx-1 text-lg",
                 poppins.className,
               )}
             >
               /
             </span>
-            <span className="text-xl sm:text-2xl font-bold text-slate-400">
+            <span className="text-xl sm:text-2xl font-bold text-slate-500">
               {dia}
             </span>
           </span>
@@ -104,7 +100,7 @@ export function TelemetryChart({
       return (
         <span
           className={cn(
-            "text-2xl sm:text-3xl font-black text-slate-900 leading-none tracking-wide",
+            "text-2xl sm:text-3xl font-black text-slate-900 leading-none",
             bebasNeue.className,
           )}
         >
@@ -126,49 +122,60 @@ export function TelemetryChart({
   };
 
   return (
-    <div
-      className={cn(
-        "w-full bg-white p-5 sm:p-6 rounded-2xl shadow-xs",
-        poppins.className,
-      )}
-    >
-      {/* Header Section */}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-end gap-2 mb-4 sm:mb-5 border-b border-slate-100/80 pb-3">
-        <div className="space-y-0.5">
-          <p className="text-[9px] font-extrabold text-emerald-600 uppercase tracking-[0.25em] block">
-            Activity History
-          </p>
-          <h3 className="font-extrabold text-lg sm:text-xl text-slate-900 uppercase tracking-tight leading-none font-poppins">
-            {activeLabel} Overview
-          </h3>
+    <div className={cn("w-full", poppins.className)}>
+      {/* ─── Header ─────────────────────────────────────── */}
+      <div className="flex flex-col gap-3 mb-5 pb-4 border-b border-slate-100">
+        {/* Row 1: eyebrow + unit pill */}
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2 min-w-0">
+            <span
+              className="w-1 h-3.5 rounded-full bg-emerald-500 shrink-0"
+              aria-hidden
+            />
+            <span className="text-xs font-bold text-emerald-700 uppercase tracking-[0.18em] truncate">
+              Activity History
+            </span>
+          </div>
+          {activeUnit && (
+            <span className="text-xs font-semibold text-slate-600 bg-slate-100 px-2 py-0.5 rounded-full shrink-0">
+              {activeUnit}
+            </span>
+          )}
         </div>
 
-        {latestEntry && (
-          <div className="text-left sm:text-right w-full sm:w-auto shrink-0">
-            <p className="text-[9px] font-extrabold text-slate-400 uppercase tracking-[0.25em] mb-0.5">
-              Latest Value
-            </p>
-            <div className="flex items-baseline justify-start sm:justify-end gap-1">
-              {renderTerminalValue(latestEntry)}
-              <span className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest mb-0.5 select-none shrink-0">
-                {activeUnit}
+        {/* Row 2: title + latest value */}
+        <div className="flex items-end justify-between gap-3">
+          <h3 className="text-base sm:text-lg md:text-xl font-bold text-slate-900 tracking-tight leading-tight">
+            {activeLabel} Overview
+          </h3>
+          {latestEntry && (
+            <div className="flex flex-col items-end shrink-0">
+              <span className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">
+                Latest
               </span>
+              {renderTerminalValue(latestEntry)}
             </div>
+          )}
+        </div>
+
+        {/* BP legend (only for blood pressure) */}
+        {isBP && enrichedChartData.length > 0 && (
+          <div className="flex items-center gap-4 pt-1">
+            <LegendDot color={CHART.primary} label="Systolic" />
+            <LegendDot color={CHART.secondary} label="Diastolic" />
           </div>
         )}
       </div>
 
-      {/* Chart Canvas with border removed */}
-      <div className="w-full h-[220px] sm:h-[260px] md:h-[300px] min-w-0 shrink-0 relative select-none text-[9px]">
+      {/* ─── Chart canvas ───────────────────────────────── */}
+      <div className="w-full h-[240px] sm:h-[280px] md:h-[320px] relative select-none">
         {enrichedChartData.length === 0 ? (
-          <div className="w-full h-full flex flex-col items-center justify-center text-slate-400 text-[9px] font-bold uppercase tracking-wider bg-slate-50/50 rounded-xl border border-dashed border-slate-200 p-4 text-center">
-            No history recorded yet.
-          </div>
+          <ChartEmpty />
         ) : (
           <ResponsiveContainer width="100%" height="100%">
             <AreaChart
               data={enrichedChartData}
-              margin={{ top: 5, right: 5, left: -32, bottom: 0 }}
+              margin={{ top: 8, right: 8, left: -20, bottom: 0 }}
             >
               <defs>
                 <linearGradient
@@ -178,8 +185,16 @@ export function TelemetryChart({
                   x2="0"
                   y2="1"
                 >
-                  <stop offset="5%" stopColor="#059669" stopOpacity={0.18} />
-                  <stop offset="95%" stopColor="#059669" stopOpacity={0.0} />
+                  <stop
+                    offset="5%"
+                    stopColor={CHART.primary}
+                    stopOpacity={0.2}
+                  />
+                  <stop
+                    offset="95%"
+                    stopColor={CHART.primary}
+                    stopOpacity={0}
+                  />
                 </linearGradient>
                 <linearGradient
                   id="colorMetricSecondary"
@@ -188,15 +203,23 @@ export function TelemetryChart({
                   x2="0"
                   y2="1"
                 >
-                  <stop offset="5%" stopColor="#34d399" stopOpacity={0.14} />
-                  <stop offset="95%" stopColor="#34d399" stopOpacity={0.0} />
+                  <stop
+                    offset="5%"
+                    stopColor={CHART.secondary}
+                    stopOpacity={0.18}
+                  />
+                  <stop
+                    offset="95%"
+                    stopColor={CHART.secondary}
+                    stopOpacity={0}
+                  />
                 </linearGradient>
               </defs>
 
               <CartesianGrid
-                strokeDasharray="4"
+                strokeDasharray="4 4"
                 vertical={false}
-                stroke="#f8fafc"
+                stroke={CHART.grid}
               />
 
               <XAxis
@@ -204,31 +227,33 @@ export function TelemetryChart({
                 axisLine={false}
                 tickLine={false}
                 tick={{
-                  fill: "#94a3b8",
-                  fontSize: 8.5,
-                  fontWeight: 700,
+                  fill: CHART.axis,
+                  fontSize: 10,
+                  fontWeight: 600,
                   fontFamily: "Poppins",
                 }}
                 dy={8}
+                minTickGap={20}
               />
 
               <YAxis
                 axisLine={false}
                 tickLine={false}
                 tick={{
-                  fill: "#94a3b8",
-                  fontSize: 8.5,
-                  fontWeight: 600,
+                  fill: CHART.axis,
+                  fontSize: 10,
+                  fontWeight: 500,
                   fontFamily: "Poppins",
                 }}
                 dx={-2}
+                width={40}
                 tickFormatter={(value) => formatNumberWithCommas(value)}
               />
 
               <Tooltip
                 content={<CustomChartTooltip unit={activeUnit} isBP={isBP} />}
                 cursor={{
-                  stroke: "#059669",
+                  stroke: CHART.primary,
                   strokeWidth: 1.25,
                   strokeDasharray: "4 4",
                 }}
@@ -240,19 +265,19 @@ export function TelemetryChart({
                   <Area
                     type="monotone"
                     dataKey="systolic"
-                    stroke="#059669"
+                    stroke={CHART.primary}
                     strokeWidth={2.5}
                     fill="url(#colorMetricPrimary)"
-                    isAnimationActive={true}
+                    isAnimationActive
                     animationDuration={350}
                   />
                   <Area
                     type="monotone"
                     dataKey="diastolic"
-                    stroke="#34d399"
+                    stroke={CHART.secondary}
                     strokeWidth={2.5}
                     fill="url(#colorMetricSecondary)"
-                    isAnimationActive={true}
+                    isAnimationActive
                     animationDuration={350}
                   />
                 </>
@@ -260,10 +285,10 @@ export function TelemetryChart({
                 <Area
                   type="monotone"
                   dataKey="numericValue"
-                  stroke="#059669"
+                  stroke={CHART.primary}
                   strokeWidth={2.5}
                   fill="url(#colorMetricPrimary)"
-                  isAnimationActive={true}
+                  isAnimationActive
                   animationDuration={300}
                 />
               )}
@@ -275,13 +300,41 @@ export function TelemetryChart({
   );
 }
 
+// ─── Legend dot ────────────────────────────────────────────
+function LegendDot({ color, label }: { color: string; label: string }) {
+  return (
+    <div className="flex items-center gap-1.5">
+      <span
+        className="w-2 h-2 rounded-full shrink-0"
+        style={{ backgroundColor: color }}
+        aria-hidden
+      />
+      <span className="text-xs font-semibold text-slate-600">{label}</span>
+    </div>
+  );
+}
+
+// ─── Empty state ───────────────────────────────────────────
+function ChartEmpty() {
+  return (
+    <div className="w-full h-full flex flex-col items-center justify-center bg-slate-50/60 rounded-xl border border-dashed border-slate-200 p-6 text-center">
+      <div className="w-10 h-10 rounded-xl bg-white border border-slate-200 inline-flex items-center justify-center mb-2.5">
+        <Activity size={18} className="text-slate-500" aria-hidden />
+      </div>
+      <p className="text-sm font-semibold text-slate-700 mb-0.5">
+        No readings yet
+      </p>
+      <p className="text-xs text-slate-500 max-w-[220px] leading-relaxed">
+        Add your first reading to see trends over time.
+      </p>
+    </div>
+  );
+}
+
+// ─── Tooltip ───────────────────────────────────────────────
 interface CustomChartTooltipProps {
   active?: boolean;
-  payload?: Array<{
-    value: any;
-    dataKey: string | number;
-    payload: any;
-  }>;
+  payload?: Array<{ value: any; dataKey: string | number; payload: any }>;
   unit: string;
   isBP: boolean;
 }
@@ -292,75 +345,55 @@ function CustomChartTooltip({
   unit,
   isBP,
 }: CustomChartTooltipProps) {
-  const formatNumberWithCommas = (val: any) => {
+  const fmt = (val: any) => {
     if (val === null || val === undefined) return "0";
-    if (typeof val === "number") {
-      return val.toLocaleString("en-US", { maximumFractionDigits: 0 });
-    }
-    const parsed = Number(val);
-    if (!isNaN(parsed)) {
-      return parsed.toLocaleString("en-US", { maximumFractionDigits: 0 });
-    }
-    return String(val);
+    const num = typeof val === "number" ? val : Number(val);
+    return !isNaN(num)
+      ? num.toLocaleString("en-US", { maximumFractionDigits: 0 })
+      : String(val);
   };
 
-  if (active && payload && payload.length > 0) {
-    const node = payload[0]?.payload;
-    const sysPayload = payload.find((p) => p.dataKey === "systolic");
-    const diaPayload = payload.find((p) => p.dataKey === "diastolic");
+  if (!active || !payload || payload.length === 0) return null;
 
-    const sysVal = formatNumberWithCommas(
-      sysPayload?.value ?? node?.systolic ?? "0",
-    );
-    const diaVal = formatNumberWithCommas(
-      diaPayload?.value ?? node?.diastolic ?? "0",
-    );
-    const formattedNodeVal = formatNumberWithCommas(
-      node?.displayValue ?? node?.numericValue ?? "0",
-    );
+  const node = payload[0]?.payload;
+  const sysPayload = payload.find((p) => p.dataKey === "systolic");
+  const diaPayload = payload.find((p) => p.dataKey === "diastolic");
+  const sysVal = fmt(sysPayload?.value ?? node?.systolic ?? 0);
+  const diaVal = fmt(diaPayload?.value ?? node?.diastolic ?? 0);
+  const nodeVal = fmt(node?.displayValue ?? node?.numericValue ?? 0);
 
-    return (
-      <div className="bg-slate-900 text-white p-3 rounded-xl shadow-2xl border border-slate-800 font-poppins min-w-[120px] backdrop-blur-md">
-        <p className="text-[8px] font-extrabold text-slate-400 uppercase tracking-[0.25em] mb-1">
-          {node?.date ?? ""}
-        </p>
-        <div className="flex items-baseline gap-1">
-          {isBP ? (
+  return (
+    <div className="bg-slate-900 text-white px-3 py-2.5 rounded-xl shadow-2xl border border-slate-800 min-w-[120px]">
+      <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">
+        {node?.date ?? ""}
+      </p>
+      <div className="flex items-baseline gap-1.5">
+        {isBP ? (
+          <span className={cn("flex items-baseline", bebasNeue.className)}>
+            <span className="text-xl font-black text-white">{sysVal}</span>
             <span
               className={cn(
-                "flex items-baseline tracking-wide",
-                bebasNeue.className,
+                "text-slate-500 font-light mx-0.5 text-sm",
+                poppins.className,
               )}
             >
-              <span className="text-xl font-black text-white">{sysVal}</span>
-              <span
-                className={cn(
-                  "text-slate-500 font-light mx-0.5 text-sm select-none",
-                  poppins.className,
-                )}
-              >
-                /
-              </span>
-              <span className="text-base font-bold text-slate-300">
-                {diaVal}
-              </span>
+              /
             </span>
-          ) : (
-            <span
-              className={cn(
-                "text-xl font-black text-white tracking-wide",
-                bebasNeue.className,
-              )}
-            >
-              {formattedNodeVal}
-            </span>
-          )}
-          <span className="text-[8px] font-extrabold text-emerald-400 uppercase tracking-widest ml-1 select-none font-poppins">
+            <span className="text-base font-bold text-slate-300">{diaVal}</span>
+          </span>
+        ) : (
+          <span
+            className={cn("text-xl font-black text-white", bebasNeue.className)}
+          >
+            {nodeVal}
+          </span>
+        )}
+        {unit && (
+          <span className="text-[11px] font-bold text-emerald-400 uppercase tracking-wider">
             {unit}
           </span>
-        </div>
+        )}
       </div>
-    );
-  }
-  return null;
+    </div>
+  );
 }

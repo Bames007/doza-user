@@ -1,6 +1,7 @@
-import { useState, useEffect, useMemo, useRef } from "react";
+// app/dashboard/hooks/useCenterSearch.ts
+import { useMemo } from "react";
 import useSWR from "swr";
-import { useUser } from "./useProfile"; // ✅ Changed to useProfile
+import { useUser } from "./useProfile";
 
 export interface SearchResult {
   centerId: string;
@@ -27,31 +28,19 @@ export function useCenterSearch(
   radius: number,
   userLocation?: { lat: number; lng: number } | null,
 ) {
-  // ✅ Use useUser to reliably get the current user ID
   const { user } = useUser();
   const userId = user?.id;
-
-  const [debouncedQuery, setDebouncedQuery] = useState(query);
-  const previousQueryRef = useRef(query);
-
-  useEffect(() => {
-    if (previousQueryRef.current === query) return;
-    previousQueryRef.current = query;
-
-    const timer = setTimeout(() => setDebouncedQuery(query), 400);
-    return () => clearTimeout(timer);
-  }, [query]);
 
   const searchParams = useMemo(() => {
     if (!userLocation) return null;
     return new URLSearchParams({
-      query: debouncedQuery.trim(),
+      query: query.trim(),
       type,
       lat: userLocation.lat.toString(),
       lng: userLocation.lng.toString(),
       radius: radius.toString(),
     }).toString();
-  }, [debouncedQuery, type, radius, userLocation]);
+  }, [query, type, radius, userLocation]);
 
   const url = userLocation ? `/api/centers/search?${searchParams}` : null;
 
@@ -60,8 +49,10 @@ export function useCenterSearch(
     ([url, uid]: [string, string]) => createFetcher(uid)(url),
     {
       revalidateOnFocus: false,
+      revalidateOnReconnect: true,
       dedupingInterval: 30_000,
       keepPreviousData: true,
+      revalidateIfStale: false,
     },
   );
 

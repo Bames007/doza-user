@@ -1,4 +1,4 @@
-// User App: app/dashboard/panels/DozaMapPanel.tsx
+// app/dashboard/panels/DozaMapPanel.tsx
 "use client";
 
 import { useState, useEffect, useMemo, useRef, useCallback, memo } from "react";
@@ -43,6 +43,32 @@ import { poppins, bebasNeue } from "@/app/constants";
 import { useDashboard } from "../../DashboardContext";
 import { useUser } from "../../hooks/useProfile";
 import { mutate } from "swr";
+import DatePicker from "@/app/components/CustomDatePicker";
+
+// ─── sessionStorage helpers ─────────────────────────────
+function ssGet(key: string): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    return sessionStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+function ssSet(key: string, value: string) {
+  if (typeof window === "undefined") return;
+  try {
+    sessionStorage.setItem(key, value);
+  } catch {}
+}
+function ssRemove(key: string) {
+  if (typeof window === "undefined") return;
+  try {
+    sessionStorage.removeItem(key);
+  } catch {}
+}
+
+const FOCUS =
+  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:ring-offset-2";
 
 // ---------- Types ----------
 interface SearchResult {
@@ -88,28 +114,21 @@ interface MatchItem {
 const DEFAULT_CENTER = { lat: 6.5244, lng: 3.3792 };
 const RETAIL_MARKUP_PERCENT = 15;
 const BIG_RADIUS = 99999;
+const VALID_DISTANCES = [5, 10, 20, 50, 100, 200, 500];
 
 const searchTabs = [
   {
     id: "service",
-    label: "Checkups & Care",
+    label: "Checkups",
+    fullLabel: "Checkups & Care",
     icon: Stethoscope,
-    color: "text-blue-500",
-    bg: "bg-blue-50",
   },
-  {
-    id: "drug",
-    label: "Medicines",
-    icon: Pill,
-    color: "text-emerald-500",
-    bg: "bg-emerald-50",
-  },
+  { id: "drug", label: "Medicines", fullLabel: "Medicines", icon: Pill },
   {
     id: "test",
     label: "Lab Tests",
+    fullLabel: "Lab Tests",
     icon: FlaskConical,
-    color: "text-purple-500",
-    bg: "bg-purple-50",
   },
 ] as const;
 
@@ -118,19 +137,19 @@ type SearchType = (typeof searchTabs)[number]["id"];
 const helpSlides = [
   {
     icon: <Search className="w-6 h-6" />,
-    title: "1. Search for Care",
+    title: "1. Search for care",
     description:
       "Type any drug name, medical checkup, or lab test you need. We'll search local inventories automatically.",
   },
   {
     icon: <Navigation className="w-6 h-6" />,
-    title: "2. Set Your Distance",
+    title: "2. Set your distance",
     description:
       "Choose how far you are willing to travel. We rank options by proximity to save you a long journey.",
   },
   {
     icon: <Clock className="w-6 h-6" />,
-    title: "3. Check Availability",
+    title: "3. Check availability",
     description:
       "See verified pricing, check if the clinic is open right now, and phone them directly before leaving home.",
   },
@@ -141,7 +160,7 @@ function getStatusLabel(hours?: any): { label: string; classes: string } {
   if (!hours?.opening || !hours?.closing || !hours?.days) {
     return {
       label: "Hours Unverified",
-      classes: "bg-slate-100 text-slate-600",
+      classes: "bg-slate-100 text-slate-700",
     };
   }
   const now = new Date();
@@ -157,7 +176,7 @@ function getStatusLabel(hours?: any): { label: string; classes: string } {
   if (!hours.days.includes(days[now.getDay()])) {
     return {
       label: "Closed Today",
-      classes: "bg-rose-50 text-rose-600 border border-rose-100",
+      classes: "bg-rose-50 text-rose-700 border border-rose-200",
     };
   }
   const currentMinutes = now.getHours() * 60 + now.getMinutes();
@@ -168,21 +187,107 @@ function getStatusLabel(hours?: any): { label: string; classes: string } {
   return isOpen
     ? {
         label: "Open Now",
-        classes: "bg-emerald-50 text-emerald-600 border border-emerald-100",
+        classes: "bg-emerald-50 text-emerald-700 border border-emerald-200",
       }
     : {
-        label: "Closed Right Now",
-        classes: "bg-rose-50 text-rose-600 border border-rose-100",
+        label: "Closed",
+        classes: "bg-rose-50 text-rose-700 border border-rose-200",
       };
 }
 
-function formatDistance(distance: number, isBeyondRange: boolean): string {
-  return isBeyondRange
-    ? `${distance.toFixed(1)} km (Beyond range)`
-    : `${distance.toFixed(1)} km`;
-}
+// ═════════════════════════════════════════════════════════════
+//  SEARCH INPUT — self-contained, debounced, bulletproof focus
+//  Parent does NOT re-render while user types.
+// ═════════════════════════════════════════════════════════════
+const SearchInput = memo(function SearchInput({
+  initialValue,
+  onDebouncedChange,
+  placeholder,
+  isLoading,
+}: {
+  initialValue: string;
+  onDebouncedChange: (v: string) => void;
+  placeholder: string;
+  isLoading: boolean;
+}) {
+  const [localValue, setLocalValue] = useState(initialValue);
+  const debounceRef = useRef<NodeJS.Timeout | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const lastSyncedRef = useRef(initialValue);
 
-// ---------- Skeleton Loaders ----------
+  // Sync from external value (handoff, external clear, sessionStorage restore)
+  useEffect(() => {
+    if (initialValue !== lastSyncedRef.current) {
+      lastSyncedRef.current = initialValue;
+      setLocalValue(initialValue);
+    }
+  }, [initialValue]);
+
+  // Cleanup debounce on unmount
+  useEffect(() => {
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, []);
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const v = e.target.value;
+    setLocalValue(v);
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      lastSyncedRef.current = v;
+      onDebouncedChange(v);
+    }, 250);
+  };
+
+  const handleClear = () => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    setLocalValue("");
+    lastSyncedRef.current = "";
+    onDebouncedChange("");
+    inputRef.current?.focus();
+  };
+
+  return (
+    <div className="relative">
+      <div className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none">
+        {isLoading ? (
+          <Loader2 className="w-5 h-5 animate-spin text-emerald-600" />
+        ) : (
+          <Search className="w-5 h-5" />
+        )}
+      </div>
+      <input
+        ref={inputRef}
+        type="text"
+        value={localValue}
+        onChange={handleChange}
+        placeholder={placeholder}
+        autoComplete="off"
+        autoCorrect="off"
+        autoCapitalize="off"
+        spellCheck={false}
+        enterKeyHint="search"
+        className="w-full h-12 md:h-14 pl-12 pr-12 bg-slate-50 border-2 border-transparent rounded-xl md:rounded-2xl focus:bg-white focus:border-emerald-600 text-slate-900 font-medium text-sm md:text-base transition-colors outline-none placeholder:text-slate-400"
+      />
+      {localValue && (
+        <button
+          type="button"
+          onClick={handleClear}
+          aria-label="Clear search"
+          className={cn(
+            "absolute right-2 top-1/2 -translate-y-1/2 min-h-9 min-w-9 inline-flex items-center justify-center rounded-lg text-slate-500 hover:bg-slate-200 hover:text-slate-900 transition-colors",
+            FOCUS,
+          )}
+        >
+          <X className="w-4 h-4" />
+        </button>
+      )}
+    </div>
+  );
+});
+
+// ---------- Skeletons ----------
 function SkeletonResultCard() {
   return (
     <div className="p-4 rounded-2xl border border-slate-100 bg-white space-y-4 animate-pulse">
@@ -216,79 +321,137 @@ function SkeletonMap() {
   return (
     <div className="w-full h-full bg-slate-100 flex items-center justify-center p-6 text-center">
       <div className="space-y-3">
-        <Loader2 className="w-8 h-8 animate-spin text-emerald-500 mx-auto" />
-        <p className="text-xs font-semibold text-slate-500 tracking-wide uppercase">
-          Mapping Health Centers...
+        <Loader2 className="w-8 h-8 animate-spin text-emerald-600 mx-auto" />
+        <p className="text-xs font-semibold text-slate-600 tracking-wide uppercase">
+          Mapping Health Centers…
         </p>
       </div>
     </div>
   );
 }
 
-// ---------- Memoized Search Input ----------
-const SearchInput = memo(
-  ({
-    value,
-    onChange,
-    placeholder,
-    isLoading,
-    onClear,
-  }: {
-    value: string;
-    onChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
-    placeholder: string;
-    isLoading: boolean;
-    onClear: () => void;
-  }) => (
-    <div className="flex-1 relative">
-      <div className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400">
-        {isLoading ? (
-          <Loader2 className="w-5 h-5 animate-spin text-emerald-500" />
-        ) : (
-          <Search className="w-5 h-5" />
-        )}
-      </div>
-      <input
-        type="text"
-        placeholder={placeholder}
-        value={value}
-        onChange={onChange}
-        className="w-full pl-12 pr-12 py-3.5 bg-slate-50 border border-transparent rounded-2xl focus:bg-white focus:border-emerald-500/30 focus:ring-4 focus:ring-emerald-500/5 text-slate-800 font-semibold text-sm transition-all outline-none placeholder:text-slate-400"
-      />
-      {value && (
-        <button
-          onClick={onClear}
-          className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors"
-          aria-label="Clear search"
-        >
-          <X className="w-4 h-4" />
-        </button>
-      )}
-    </div>
-  ),
-);
-SearchInput.displayName = "SearchInput";
-
-// ---------- Main Component (memoised) ----------
+// ---------- Main Component ----------
 const DozaMapPanel = memo(function DozaMapPanel() {
   const { location: userLocation, loading: locationLoading } =
     useUserLocation();
   const { setActivePanel } = useDashboard();
   const { user } = useUser();
 
-  // Debounced location
+  // ─── Persisted state ───────────────────────────────
+  const [searchQuery, setSearchQuery] = useState<string>(
+    () => ssGet("dmap:searchQuery") || "",
+  );
+  useEffect(() => {
+    if (searchQuery) ssSet("dmap:searchQuery", searchQuery);
+    else ssRemove("dmap:searchQuery");
+  }, [searchQuery]);
+
+  const [searchType, setSearchType] = useState<SearchType>(() => {
+    const v = ssGet("dmap:searchType");
+    if (v === "service" || v === "drug" || v === "test") return v;
+    return "service";
+  });
+  useEffect(() => {
+    ssSet("dmap:searchType", searchType);
+  }, [searchType]);
+
+  const [maxDistance, setMaxDistance] = useState<number>(() => {
+    const v = ssGet("dmap:maxDistance");
+    const n = v ? Number(v) : NaN;
+    return VALID_DISTANCES.includes(n) ? n : 50;
+  });
+  useEffect(() => {
+    ssSet("dmap:maxDistance", String(maxDistance));
+  }, [maxDistance]);
+
+  const [showOpenNow, setShowOpenNow] = useState<boolean>(
+    () => ssGet("dmap:showOpenNow") === "true",
+  );
+  useEffect(() => {
+    ssSet("dmap:showOpenNow", String(showOpenNow));
+  }, [showOpenNow]);
+
+  const [showBeyondRange, setShowBeyondRange] = useState<boolean>(
+    () => ssGet("dmap:showBeyondRange") === "true",
+  );
+  useEffect(() => {
+    ssSet("dmap:showBeyondRange", String(showBeyondRange));
+  }, [showBeyondRange]);
+
+  const [isSidebarExpanded, setIsSidebarExpanded] = useState<boolean>(
+    () => ssGet("dmap:isSidebarExpanded") !== "false",
+  );
+  useEffect(() => {
+    ssSet("dmap:isSidebarExpanded", String(isSidebarExpanded));
+  }, [isSidebarExpanded]);
+
+  const [isFullscreenMap, setIsFullscreenMap] = useState<boolean>(
+    () => ssGet("dmap:isFullscreenMap") === "true",
+  );
+  useEffect(() => {
+    ssSet("dmap:isFullscreenMap", String(isFullscreenMap));
+  }, [isFullscreenMap]);
+
+  // ─── Handoff consumer ─────────────────────────────
+  useEffect(() => {
+    const consumeHandoff = () => {
+      const raw = sessionStorage.getItem("doza_map_handoff_v1");
+      if (!raw) return;
+      try {
+        const { q, type, ts } = JSON.parse(raw);
+        if (Date.now() - ts > 60_000) {
+          sessionStorage.removeItem("doza_map_handoff_v1");
+          return;
+        }
+        if (q) setSearchQuery(q);
+        if (type === "service" || type === "drug" || type === "test") {
+          setSearchType(type);
+        }
+        sessionStorage.removeItem("doza_map_handoff_v1");
+      } catch {
+        sessionStorage.removeItem("doza_map_handoff_v1");
+      }
+    };
+    consumeHandoff();
+    window.addEventListener("doza-map-handoff", consumeHandoff);
+    return () => window.removeEventListener("doza-map-handoff", consumeHandoff);
+  }, []);
+
+  // ─── Scroll restoration ────────────────────────────
+  const scrollRestoredRef = useRef(false);
+  useEffect(() => {
+    const el =
+      (document.getElementById("dashboard-scroll") as HTMLElement | null) ||
+      (document.querySelector("main") as HTMLElement | null);
+    if (!el) return;
+
+    if (!scrollRestoredRef.current) {
+      const saved = ssGet("dmap:scroll");
+      el.scrollTo({ top: saved ? Number(saved) : 0, behavior: "instant" });
+      scrollRestoredRef.current = true;
+    }
+
+    const onScroll = () => ssSet("dmap:scroll", String(el.scrollTop));
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => el.removeEventListener("scroll", onScroll);
+  }, []);
+
+  // ─── Location debounce ─────────────────────────────
   const [debouncedLocation, setDebouncedLocation] = useState<{
     lat: number;
     lng: number;
-  } | null>(null);
+  } | null>(() => userLocation || null);
   const locationTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     if (userLocation) {
       if (locationTimeoutRef.current) clearTimeout(locationTimeoutRef.current);
+      if (!debouncedLocation) {
+        setDebouncedLocation(userLocation);
+        return;
+      }
       locationTimeoutRef.current = setTimeout(() => {
         if (
-          !debouncedLocation ||
           getDistance(
             debouncedLocation.lat,
             debouncedLocation.lng,
@@ -306,6 +469,7 @@ const DozaMapPanel = memo(function DozaMapPanel() {
     } else if (!locationLoading) {
       setDebouncedLocation(DEFAULT_CENTER);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userLocation, locationLoading]);
 
   function getDistance(
@@ -325,26 +489,17 @@ const DozaMapPanel = memo(function DozaMapPanel() {
     return R * c;
   }
 
+  // ─── Ephemeral state ───────────────────────────────
   const [mapCenter, setMapCenter] = useState<{
     lat: number;
     lng: number;
   } | null>(null);
   const [selectedPlace, setSelectedPlace] = useState<SearchResult | null>(null);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [searchType, setSearchType] = useState<SearchType>("service");
-  const [maxDistance, setMaxDistance] = useState(50);
-  const [showOpenNow, setShowOpenNow] = useState(false);
-  const [showBeyondRange, setShowBeyondRange] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
   const [helpSlide, setHelpSlide] = useState(0);
-  const [isFullscreenMap, setIsFullscreenMap] = useState(false);
-  const [isSidebarExpanded, setIsSidebarExpanded] = useState(true);
-
-  // Distance dropdown state
   const [distanceOpen, setDistanceOpen] = useState(false);
   const distanceDropdownRef = useRef<HTMLDivElement>(null);
 
-  // Close distance dropdown on outside click
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (
@@ -373,7 +528,7 @@ const DozaMapPanel = memo(function DozaMapPanel() {
   >("pickup");
   const [deliveryAddress, setDeliveryAddress] = useState("");
 
-  // Fetch all centres (big radius to bypass API distance filter)
+  // ─── Data ──────────────────────────────────────────
   const { results, isLoading, error } = useCenterSearch(
     searchQuery,
     searchType,
@@ -385,11 +540,8 @@ const DozaMapPanel = memo(function DozaMapPanel() {
     const within: SearchResult[] = [];
     const beyond: SearchResult[] = [];
     (results || []).forEach((result: SearchResult) => {
-      if (result.distance <= maxDistance) {
-        within.push(result);
-      } else {
-        beyond.push({ ...result, isBeyondRange: true });
-      }
+      if (result.distance <= maxDistance) within.push(result);
+      else beyond.push({ ...result, isBeyondRange: true });
     });
     return { withinRange: within, beyondRange: beyond };
   }, [results, maxDistance]);
@@ -398,10 +550,10 @@ const DozaMapPanel = memo(function DozaMapPanel() {
     let res = [...withinRange];
     if (showBeyondRange) res = [...res, ...beyondRange];
     if (showOpenNow) {
-      res = res.filter((r: SearchResult) => {
-        const status = getStatusLabel(r.operatingHours);
-        return status.label === "Open Now";
-      });
+      res = res.filter(
+        (r: SearchResult) =>
+          getStatusLabel(r.operatingHours).label === "Open Now",
+      );
     }
     return res.sort((a, b) => a.distance - b.distance);
   }, [withinRange, beyondRange, showOpenNow, showBeyondRange]);
@@ -411,18 +563,13 @@ const DozaMapPanel = memo(function DozaMapPanel() {
     else if (!locationLoading) setMapCenter(DEFAULT_CENTER);
   }, [debouncedLocation, locationLoading]);
 
-  const handleSearchChange = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      setSearchQuery(e.target.value);
-    },
-    [],
-  );
-
-  const handleClearSearch = useCallback(() => {
-    setSearchQuery("");
+  // ─── Handlers ──────────────────────────────────────
+  // Callback for SearchInput — fires 250ms after user stops typing
+  const handleDebouncedQueryChange = useCallback((v: string) => {
+    setSearchQuery(v);
   }, []);
 
-  // ---------- Action handlers ----------
+  // ─── Actions ───────────────────────────────────────
   const handleAction = (center: SearchResult, match?: MatchItem) => {
     setSelectedCenterForAction(center);
     const selected = match || center.matches?.[0] || null;
@@ -431,9 +578,7 @@ const DozaMapPanel = memo(function DozaMapPanel() {
     now.setHours(now.getHours() + 1);
     const roundedMinutes = Math.ceil(now.getMinutes() / 30) * 30;
     now.setMinutes(roundedMinutes);
-    const dateStr = now.toISOString().split("T")[0];
-    const timeStr = now.toTimeString().slice(0, 5);
-    setActionDate(dateStr);
+    setActionDate(now.toISOString().split("T")[0]);
     setActionTime("");
     setActionNotes("");
     setActionError("");
@@ -451,12 +596,10 @@ const DozaMapPanel = memo(function DozaMapPanel() {
     if (!selectedCenterForAction) return;
 
     const actionType = searchType;
-
     if (actionType === "service" && (!actionDate || !actionTime)) {
       setActionError("Please select a date and time for the appointment.");
       return;
     }
-
     if (
       actionType === "drug" &&
       fulfillmentMethod === "delivery" &&
@@ -471,9 +614,7 @@ const DozaMapPanel = memo(function DozaMapPanel() {
 
     try {
       const endpoint = `/api/centers/${selectedCenterForAction.centerId}/doza-requests`;
-      let payload: any = {
-        centerId: selectedCenterForAction.centerId,
-      };
+      let payload: any = { centerId: selectedCenterForAction.centerId };
 
       if (actionType === "service") {
         payload = {
@@ -503,9 +644,8 @@ const DozaMapPanel = memo(function DozaMapPanel() {
           notes: actionNotes || `Request for ${selectedMatch?.name}`,
           fulfillmentMethod,
         };
-        if (fulfillmentMethod === "delivery") {
+        if (fulfillmentMethod === "delivery")
           payload.deliveryAddress = deliveryAddress;
-        }
       } else if (actionType === "test") {
         payload = {
           ...payload,
@@ -521,10 +661,7 @@ const DozaMapPanel = memo(function DozaMapPanel() {
 
       const res = await fetch(endpoint, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-user-id": user.id,
-        },
+        headers: { "Content-Type": "application/json", "x-user-id": user.id },
         body: JSON.stringify(payload),
       });
 
@@ -535,7 +672,6 @@ const DozaMapPanel = memo(function DozaMapPanel() {
           `Server returned ${res.status}: ${text.substring(0, 100)}`,
         );
       }
-
       if (!res.ok) {
         const errorData = await res.json();
         throw new Error(errorData.error || `HTTP ${res.status}`);
@@ -578,74 +714,95 @@ const DozaMapPanel = memo(function DozaMapPanel() {
   };
 
   const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
+  const isColdStart =
+    (!debouncedLocation || isLoading) && filteredResults.length === 0;
+
+  const actionLabel =
+    searchType === "service"
+      ? "Book Appointment"
+      : searchType === "drug"
+        ? "Order Now"
+        : "Request Test";
 
   return (
-    <div
-      key="doza-map-panel"
+    <motion.div
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.2, ease: "easeOut" }}
       className={cn(
         "min-h-screen flex flex-col bg-[#F8FAFC] antialiased",
         poppins.className,
       )}
     >
-      {/* HEADER */}
-      <header className="w-full px-4 pt-4 md:pt-6 pb-2 max-w-7xl mx-auto z-30">
-        <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-6">
-          <div>
-            <div className="flex items-center gap-3 mb-2">
-              <div className="h-8 w-1 rounded-full bg-gradient-to-b from-emerald-500 to-teal-600" />
-              <span className="text-[11px] font-bold text-emerald-600 uppercase tracking-[0.25em]">
-                Doza Health Network
+      {/* ═══════════════════════════════════════════════════════
+          HEADER
+      ═══════════════════════════════════════════════════════ */}
+      <header className="w-full max-w-7xl mx-auto px-4 md:px-6 pt-5 md:pt-8 pb-4">
+        <div className="flex items-start justify-between gap-4">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2.5 mb-2">
+              <div className="h-7 w-1 rounded-full bg-emerald-600" />
+              <span className="text-xs font-bold text-emerald-700 uppercase tracking-widest">
+                Doza Network
               </span>
             </div>
             <h1
               className={cn(
-                "text-4xl md:text-5xl text-slate-900 leading-[1.1] tracking-tight",
+                "text-3xl sm:text-4xl md:text-5xl lg:text-6xl text-slate-900 leading-[1.05] tracking-tight",
                 bebasNeue.className,
               )}
             >
               Medical <span className="text-emerald-600">Locator</span>
             </h1>
-            <p className="text-sm text-slate-600 mt-2 max-w-md">
-              Find health centers near you
+            <p className="text-sm md:text-base text-slate-600 mt-2 max-w-lg">
+              Search checkups, medicines, and lab tests at health centers near
+              you.
             </p>
           </div>
+
           <button
+            type="button"
             onClick={() => {
               setHelpSlide(0);
               setShowHelp(true);
             }}
-            className="flex items-center gap-2 px-5 py-3 bg-slate-800 text-white rounded-xl font-medium hover:bg-slate-700 transition shadow-sm whitespace-nowrap"
+            aria-label="Help"
+            className={cn(
+              "shrink-0 min-h-11 min-w-11 md:min-w-0 md:px-4 rounded-xl bg-white border border-slate-200 hover:bg-slate-50 flex items-center justify-center md:justify-start gap-2 transition-colors shadow-sm",
+              FOCUS,
+            )}
           >
-            <HelpCircle size={16} />
-            <span className="hidden sm:inline">Help</span>
+            <HelpCircle size={18} className="text-slate-700" />
+            <span className="hidden md:inline text-sm font-semibold text-slate-700">
+              Help
+            </span>
           </button>
         </div>
       </header>
 
-      {/* Search Bar */}
-      <section className="w-full px-4 py-2 max-w-7xl mx-auto z-30 space-y-3">
-        <div className="bg-white border border-slate-100 rounded-3xl p-3 sm:p-4 shadow-md">
-          <div className="flex flex-col lg:flex-row gap-3 lg:items-center">
-            {/* Search Input */}
-            <div className="flex-1">
-              <SearchInput
-                key="doza-search-input"
-                value={searchQuery}
-                onChange={handleSearchChange}
-                placeholder={
-                  searchType === "service"
-                    ? "Search checkups, consultations, surgeries..."
-                    : searchType === "drug"
-                      ? "Search tablets, syrups, insulin generics..."
-                      : "Search blood tests, scans, x-rays..."
-                }
-                isLoading={isLoading}
-                onClear={handleClearSearch}
-              />
-            </div>
+      {/* ═══════════════════════════════════════════════════════
+          SEARCH SECTION
+      ═══════════════════════════════════════════════════════ */}
+      <section className="w-full max-w-7xl mx-auto px-4 md:px-6 pb-4">
+        <div className="bg-white rounded-2xl md:rounded-3xl border border-slate-200 shadow-sm p-4 md:p-6 space-y-3 md:space-y-4">
+          {/* Row 1 — search input, hero-sized */}
+          <SearchInput
+            initialValue={searchQuery}
+            onDebouncedChange={handleDebouncedQueryChange}
+            placeholder={
+              searchType === "service"
+                ? "Search checkups, consultations, surgeries…"
+                : searchType === "drug"
+                  ? "Search tablets, syrups, insulin generics…"
+                  : "Search blood tests, scans, x-rays…"
+            }
+            isLoading={isLoading}
+          />
 
-            {/* Search Tabs */}
-            <div className="grid grid-cols-3 gap-1 bg-slate-100/80 p-1 rounded-2xl overflow-x-auto shrink-0">
+          {/* Row 2 — Tabs (left) + Filters (right) */}
+          <div className="flex flex-col md:flex-row md:items-center gap-2 md:gap-3">
+            {/* Tabs */}
+            <div className="grid grid-cols-3 gap-1 bg-slate-100 p-1 rounded-xl md:rounded-2xl shrink-0">
               {searchTabs.map((tab) => {
                 const TabIcon = tab.icon;
                 const isSelected = searchType === tab.id;
@@ -656,26 +813,30 @@ const DozaMapPanel = memo(function DozaMapPanel() {
                     key={tab.id}
                     onClick={() => setSearchType(tab.id)}
                     className={cn(
-                      "flex flex-col sm:flex-row items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl text-[10px] sm:text-xs font-bold tracking-tight transition-all relative",
+                      "flex items-center justify-center gap-1.5 min-h-10 md:min-h-11 px-2 md:px-3 rounded-lg md:rounded-xl text-xs font-semibold transition-colors",
                       isSelected
-                        ? "bg-white text-slate-900 shadow-sm font-extrabold"
-                        : "text-slate-500 hover:text-slate-800",
+                        ? "bg-white text-slate-900 shadow-sm"
+                        : "text-slate-600 hover:text-slate-900",
+                      FOCUS,
                     )}
                   >
                     <TabIcon
                       className={cn(
                         "w-3.5 h-3.5 shrink-0",
-                        isSelected ? tab.color : "text-slate-400",
+                        isSelected ? "text-emerald-600" : "text-slate-500",
                       )}
                     />
-                    <span className="truncate">{tab.label}</span>
+                    <span className="hidden sm:inline truncate">
+                      {tab.fullLabel}
+                    </span>
+                    <span className="sm:hidden truncate">{tab.label}</span>
                     {count > 0 && (
                       <span
                         className={cn(
-                          "ml-1 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1.5 text-[9px] font-bold rounded-full",
+                          "ml-0.5 inline-flex items-center justify-center min-w-5 h-5 px-1.5 text-[10px] font-bold rounded-full",
                           isSelected
                             ? "bg-emerald-600 text-white"
-                            : "bg-slate-200 text-slate-600",
+                            : "bg-slate-200 text-slate-700",
                         )}
                       >
                         {count}
@@ -686,179 +847,184 @@ const DozaMapPanel = memo(function DozaMapPanel() {
               })}
             </div>
 
-            {/* Filters Area */}
-            <div className="flex flex-col sm:flex-row lg:items-center gap-2.5 w-full lg:w-auto shrink-0">
-              {/* Custom Distance Dropdown */}
+            {/* Filters */}
+            <div className="flex items-center gap-2 md:ml-auto shrink-0">
+              {/* Distance dropdown */}
               <div
-                className="relative flex-1 lg:w-52"
+                className="relative flex-1 md:flex-none"
                 ref={distanceDropdownRef}
               >
-                <div
+                <button
+                  type="button"
                   onClick={() => setDistanceOpen(!distanceOpen)}
+                  aria-haspopup="listbox"
+                  aria-expanded={distanceOpen}
                   className={cn(
-                    "relative flex items-center gap-3.5 px-3.5 py-2.5 bg-slate-50/80 border rounded-[22px] transition-all duration-300 h-16 lg:h-auto cursor-pointer shadow-2xs group",
+                    "w-full md:w-auto min-h-10 md:min-h-11 flex items-center gap-2 px-3 rounded-xl border transition-colors",
                     distanceOpen
-                      ? "bg-white border-emerald-500 ring-4 ring-emerald-500/10 shadow-md"
-                      : "border-slate-200/80 hover:bg-white hover:border-slate-300 hover:shadow-md",
+                      ? "bg-white border-emerald-600 ring-2 ring-emerald-600/15"
+                      : "bg-white border-slate-200 hover:border-slate-300 hover:bg-slate-50",
+                    FOCUS,
                   )}
                 >
-                  {/* Icon Box */}
-                  <div className="p-2.5 bg-white rounded-2xl border border-slate-200/60 shadow-xs flex items-center justify-center shrink-0 group-hover:scale-105 group-hover:border-emerald-500/30 transition-all">
-                    <Navigation className="w-4 h-4 text-emerald-600" />
-                  </div>
+                  <Navigation className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span className="text-xs font-semibold text-slate-900 whitespace-nowrap">
+                    {maxDistance} km
+                  </span>
+                  <ChevronDown
+                    className={cn(
+                      "w-3.5 h-3.5 text-slate-500 transition-transform shrink-0",
+                      distanceOpen && "rotate-180",
+                    )}
+                  />
+                </button>
 
-                  {/* Label + Selected Value */}
-                  <div className="flex flex-col min-w-0 flex-1">
-                    <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest leading-none mb-1">
-                      Search Radius
-                    </span>
-                    <span className="text-xs font-extrabold text-slate-900 truncate tracking-tight">
-                      Within {maxDistance} KM
-                    </span>
-                  </div>
-
-                  {/* Chevron Indicator */}
-                  <div className="text-slate-400 group-hover:text-slate-700 transition-colors shrink-0 pr-1">
-                    <ChevronDown
-                      className={cn(
-                        "w-4 h-4 transition-transform duration-300",
-                        distanceOpen && "rotate-180 text-emerald-600",
-                      )}
-                    />
-                  </div>
-                </div>
-
-                {/* Dropdown Options */}
                 <AnimatePresence>
                   {distanceOpen && (
                     <motion.div
-                      initial={{ opacity: 0, y: 8, scale: 0.98 }}
-                      animate={{ opacity: 1, y: 4, scale: 1 }}
-                      exit={{ opacity: 0, y: 8, scale: 0.98 }}
-                      transition={{ duration: 0.2, ease: "easeOut" }}
-                      className="absolute left-0 right-0 top-full mt-2 bg-white/95 backdrop-blur-2xl border border-slate-200/80 rounded-[24px] shadow-2xl p-2 z-50"
+                      initial={{ opacity: 0, y: 4, scale: 0.98 }}
+                      animate={{ opacity: 1, y: 6, scale: 1 }}
+                      exit={{ opacity: 0, y: 4, scale: 0.98 }}
+                      transition={{ duration: 0.15 }}
+                      role="listbox"
+                      className="absolute left-0 top-full mt-2 w-48 bg-white border border-slate-200 rounded-xl shadow-xl p-1.5 z-50"
                     >
-                      <div className="space-y-1">
-                        {[5, 10, 20, 50, 100, 200, 500].map((km) => {
-                          const isSelected = km === maxDistance;
-                          return (
-                            <div
-                              key={km}
-                              onClick={() => {
-                                setMaxDistance(km);
-                                setDistanceOpen(false);
-                              }}
-                              className={cn(
-                                "flex items-center justify-between px-3.5 py-3 rounded-xl text-xs font-bold cursor-pointer transition-all duration-200",
-                                isSelected
-                                  ? "bg-gradient-to-r from-emerald-500 to-teal-600 text-white shadow-md shadow-emerald-500/20"
-                                  : "text-slate-700 hover:bg-emerald-50 hover:text-emerald-900",
-                              )}
-                            >
-                              <span>Within {km} KM</span>
-                              {isSelected && (
-                                <Check className="w-4 h-4 text-white shrink-0 ml-2" />
-                              )}
-                            </div>
-                          );
-                        })}
-                      </div>
+                      {VALID_DISTANCES.map((km) => {
+                        const isSelected = km === maxDistance;
+                        return (
+                          <button
+                            key={km}
+                            type="button"
+                            role="option"
+                            aria-selected={isSelected}
+                            onClick={() => {
+                              setMaxDistance(km);
+                              setDistanceOpen(false);
+                            }}
+                            className={cn(
+                              "w-full min-h-10 flex items-center justify-between px-3 rounded-lg text-sm font-medium transition-colors",
+                              isSelected
+                                ? "bg-emerald-600 text-white"
+                                : "text-slate-700 hover:bg-slate-100",
+                              FOCUS,
+                            )}
+                          >
+                            <span>Within {km} km</span>
+                            {isSelected && (
+                              <Check className="w-4 h-4 shrink-0" />
+                            )}
+                          </button>
+                        );
+                      })}
                     </motion.div>
                   )}
                 </AnimatePresence>
               </div>
 
-              {/* Action Buttons */}
-              <div className="grid grid-cols-2 sm:flex sm:items-center gap-2 w-full sm:w-auto">
-                <button
-                  onClick={() => setShowOpenNow(!showOpenNow)}
-                  className={cn(
-                    "py-3 sm:py-2.5 px-4 rounded-2xl text-xs font-semibold border transition-all text-center truncate",
-                    showOpenNow
-                      ? "bg-emerald-600 border-emerald-600 text-white shadow-sm shadow-emerald-600/20"
-                      : "bg-white border-slate-200/80 text-slate-700 hover:bg-slate-50",
-                  )}
-                >
-                  Open Now
-                </button>
+              {/* Open Now toggle */}
+              <button
+                onClick={() => setShowOpenNow(!showOpenNow)}
+                className={cn(
+                  "min-h-10 md:min-h-11 px-3 rounded-xl text-xs font-semibold border transition-colors whitespace-nowrap",
+                  showOpenNow
+                    ? "bg-emerald-600 border-emerald-600 text-white"
+                    : "bg-white border-slate-200 text-slate-700 hover:bg-slate-50",
+                  FOCUS,
+                )}
+              >
+                Open Now
+              </button>
 
-                <button
-                  onClick={() => setShowBeyondRange(!showBeyondRange)}
-                  className={cn(
-                    "py-3 sm:py-2.5 px-4 rounded-2xl text-xs font-semibold border transition-all flex items-center justify-center gap-1.5 truncate",
-                    showBeyondRange
-                      ? "bg-slate-900 border-slate-900 text-white shadow-sm shadow-slate-900/20"
-                      : "bg-white border-slate-200/80 text-slate-700 hover:bg-slate-50",
-                  )}
-                >
-                  <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
-                  <span className="truncate">Beyond {maxDistance}km</span>
-                </button>
-              </div>
+              {/* Beyond toggle */}
+              <button
+                onClick={() => setShowBeyondRange(!showBeyondRange)}
+                className={cn(
+                  "min-h-10 md:min-h-11 px-3 rounded-xl text-xs font-semibold border transition-colors flex items-center gap-1.5 whitespace-nowrap",
+                  showBeyondRange
+                    ? "bg-slate-900 border-slate-900 text-white"
+                    : "bg-white border-slate-200 text-slate-700 hover:bg-slate-50",
+                  FOCUS,
+                )}
+              >
+                <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                <span className="hidden sm:inline">Beyond</span>
+                <span>{maxDistance}km</span>
+              </button>
             </div>
           </div>
         </div>
       </section>
 
-      {/* Map & Sidebar */}
-      <main className="flex-1 flex flex-col md:flex-row gap-4 px-4 pb-4 max-w-7xl w-full mx-auto min-h-0 overflow-hidden relative">
+      {/* ═══════════════════════════════════════════════════════
+          MAP + RESULTS
+      ═══════════════════════════════════════════════════════ */}
+      <main className="flex-1 flex flex-col md:flex-row gap-4 px-4 md:px-6 pb-4 max-w-7xl w-full mx-auto min-h-0 overflow-hidden relative">
         <aside
           className={cn(
-            "bg-white rounded-3xl border border-slate-100 shadow-sm transition-all duration-300 z-20 flex flex-col shrink-0 overflow-hidden",
+            "bg-white rounded-2xl border border-slate-200 shadow-sm transition-all duration-300 z-20 flex flex-col shrink-0 overflow-hidden",
             isFullscreenMap
               ? "hidden md:flex md:w-[380px]"
               : "w-full md:w-[380px]",
-            isSidebarExpanded ? "h-[50vh] md:h-auto flex-1" : "h-14 md:h-auto",
+            isSidebarExpanded ? "h-[45vh] md:h-auto flex-1" : "h-14 md:h-auto",
           )}
         >
-          <div
+          <button
+            type="button"
             onClick={() => {
               if (window.innerWidth < 768)
                 setIsSidebarExpanded(!isSidebarExpanded);
             }}
-            className="p-4 border-b border-slate-50 flex items-center justify-between bg-slate-50/50 cursor-pointer md:cursor-default"
+            className={cn(
+              "px-4 py-3 border-b border-slate-100 flex items-center justify-between text-left md:cursor-default min-h-14 bg-slate-50/60",
+              FOCUS,
+            )}
           >
-            <div>
+            <div className="min-w-0">
               <h3
                 className={cn(
-                  "text-xl text-slate-900 tracking-tight font-black",
+                  "text-base md:text-lg text-slate-900 tracking-tight font-bold",
                   bebasNeue.className,
                 )}
               >
-                Search <span className="text-emerald-600">Results</span>
+                Search results
               </h3>
-              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-                {filteredResults.length} options match criteria
+              <p className="text-xs font-semibold text-slate-500 mt-0.5">
+                {isColdStart
+                  ? "Searching…"
+                  : `${filteredResults.length} ${filteredResults.length === 1 ? "result" : "results"}`}
               </p>
             </div>
             <div className="flex items-center gap-2">
-              <div className="flex gap-1">
+              <div className="hidden sm:flex gap-1">
                 {withinRange.length > 0 && (
-                  <span className="text-[10px] font-extrabold bg-emerald-50 text-emerald-700 px-2.5 py-1 rounded-full border border-emerald-100">
-                    Nearby: {withinRange.length}
+                  <span className="text-xs font-semibold bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded-full border border-emerald-200">
+                    {withinRange.length} nearby
                   </span>
                 )}
                 {showBeyondRange && beyondRange.length > 0 && (
-                  <span className="text-[10px] font-extrabold bg-amber-50 text-amber-700 px-2.5 py-1 rounded-full border border-amber-100">
-                    Beyond: {beyondRange.length}
+                  <span className="text-xs font-semibold bg-amber-50 text-amber-700 px-2 py-0.5 rounded-full border border-amber-200">
+                    {beyondRange.length} beyond
                   </span>
                 )}
               </div>
-              <button className="md:hidden text-slate-400 p-1">
+              <div className="md:hidden min-h-8 min-w-8 inline-flex items-center justify-center text-slate-500">
                 {isSidebarExpanded ? (
                   <ChevronDown size={18} />
                 ) : (
                   <ChevronUp size={18} />
                 )}
-              </button>
+              </div>
             </div>
-          </div>
+          </button>
 
-          <div className="flex-1 overflow-y-auto p-3 space-y-2.5 custom-scrollbar bg-slate-50/20">
-            {isLoading ? (
+          <div className="flex-1 overflow-y-auto p-3 space-y-2.5 bg-slate-50/30">
+            {isColdStart ? (
               <SkeletonSidebar />
             ) : error ? (
-              <div className="p-6 text-center text-rose-500 text-xs font-semibold bg-rose-50 rounded-2xl border border-rose-100 flex items-center gap-2">
+              <div
+                role="alert"
+                className="p-5 text-center text-rose-800 text-xs font-semibold bg-rose-50 rounded-xl border border-rose-200 flex items-center gap-2"
+              >
                 <AlertCircle className="w-4 h-4 shrink-0" />
                 <span>
                   Could not synchronize medical logs. Check your database
@@ -886,20 +1052,19 @@ const DozaMapPanel = memo(function DozaMapPanel() {
                     if (window.innerWidth < 768) setIsSidebarExpanded(false);
                   }}
                   onAction={(match?: MatchItem) => handleAction(result, match)}
-                  actionLabel={
-                    searchType === "service"
-                      ? "Book Appointment"
-                      : searchType === "drug"
-                        ? "Order Now"
-                        : "Request Test"
-                  }
+                  onFocusMap={() => {
+                    setMapCenter(result.location);
+                    setSelectedPlace(result);
+                    if (window.innerWidth < 768) setIsSidebarExpanded(false);
+                  }}
+                  actionLabel={actionLabel}
                 />
               ))
             )}
           </div>
         </aside>
 
-        <section className="flex-1 min-h-[300px] md:min-h-0 relative rounded-3xl overflow-hidden border border-slate-100 shadow-md bg-slate-100">
+        <section className="flex-1 min-h-[45vh] md:min-h-0 relative rounded-2xl overflow-hidden border border-slate-200 shadow-sm bg-slate-100">
           {!apiKey || !mapCenter ? (
             <SkeletonMap />
           ) : (
@@ -947,13 +1112,7 @@ const DozaMapPanel = memo(function DozaMapPanel() {
                       onAction={(match?: MatchItem) =>
                         handleAction(selectedPlace, match)
                       }
-                      actionLabel={
-                        searchType === "service"
-                          ? "Book Appointment"
-                          : searchType === "drug"
-                            ? "Order Now"
-                            : "Request Test"
-                      }
+                      actionLabel={actionLabel}
                     />
                   </InfoWindow>
                 )}
@@ -963,7 +1122,13 @@ const DozaMapPanel = memo(function DozaMapPanel() {
 
           <button
             onClick={() => setIsFullscreenMap(!isFullscreenMap)}
-            className="absolute bottom-4 right-4 p-3 bg-slate-900 text-white rounded-xl shadow-lg z-10 hover:bg-slate-800 active:scale-95 transition-all hidden md:block"
+            aria-label={
+              isFullscreenMap ? "Exit fullscreen map" : "Fullscreen map"
+            }
+            className={cn(
+              "absolute bottom-4 right-4 min-h-11 min-w-11 inline-flex items-center justify-center bg-slate-900 text-white rounded-xl shadow-lg z-10 hover:bg-slate-800 active:scale-95 transition-all hidden md:flex",
+              FOCUS,
+            )}
           >
             {isFullscreenMap ? (
               <Minimize2 size={18} />
@@ -974,17 +1139,19 @@ const DozaMapPanel = memo(function DozaMapPanel() {
 
           {(withinRange.length > 0 ||
             (showBeyondRange && beyondRange.length > 0)) && (
-            <div className="absolute bottom-4 left-4 bg-white/90 backdrop-blur-sm rounded-xl p-2 shadow-lg z-10 text-[10px] font-bold">
+            <div className="absolute bottom-4 left-4 bg-white/95 backdrop-blur-sm rounded-xl px-3 py-2 shadow-lg z-10 text-xs font-semibold">
               <div className="flex items-center gap-3">
                 <div className="flex items-center gap-1.5">
-                  <div className="w-3 h-3 rounded-full bg-emerald-500" />
-                  <span className="text-slate-600">Within {maxDistance}km</span>
+                  <div className="w-2.5 h-2.5 rounded-full bg-emerald-600" />
+                  <span className="text-slate-700">
+                    {withinRange.length} nearby
+                  </span>
                 </div>
                 {showBeyondRange && beyondRange.length > 0 && (
                   <div className="flex items-center gap-1.5">
-                    <div className="w-3 h-3 rounded-full bg-amber-500" />
-                    <span className="text-slate-600">
-                      Beyond {maxDistance}km
+                    <div className="w-2.5 h-2.5 rounded-full bg-amber-500" />
+                    <span className="text-slate-700">
+                      {beyondRange.length} beyond
                     </span>
                   </div>
                 )}
@@ -998,7 +1165,6 @@ const DozaMapPanel = memo(function DozaMapPanel() {
       <AnimatePresence>
         {showActionModal && selectedCenterForAction && (
           <ActionModal
-            key="doza-action-modal"
             center={selectedCenterForAction}
             match={selectedMatch}
             type={searchType}
@@ -1031,14 +1197,15 @@ const DozaMapPanel = memo(function DozaMapPanel() {
           />
         )}
       </AnimatePresence>
-    </div>
+    </motion.div>
   );
 });
 
 export default DozaMapPanel;
 
-// ---------- ActionModal ----------
-
+// ═══════════════════════════════════════════════════════════════
+//  ACTION MODAL  (unchanged)
+// ═══════════════════════════════════════════════════════════════
 const ActionModal = memo(function ActionModal({
   center,
   match,
@@ -1087,18 +1254,16 @@ const ActionModal = memo(function ActionModal({
     try {
       const res = await fetch(
         `/api/centers/${center.centerId}/appointments?date=${date}`,
-        { headers: { "x-user-id": user.id } },
+        {
+          headers: { "x-user-id": user.id },
+        },
       );
       if (!res.ok) {
         setAppointmentsForDate([]);
         return;
       }
       const data = await res.json();
-      if (data.success) {
-        setAppointmentsForDate(data.data || []);
-      } else {
-        setAppointmentsForDate([]);
-      }
+      setAppointmentsForDate(data.success ? data.data || [] : []);
     } catch (err) {
       console.warn("Failed to fetch appointments, using no conflicts:", err);
       setAppointmentsForDate([]);
@@ -1125,7 +1290,7 @@ const ActionModal = memo(function ActionModal({
     const [openHour, openMin] = hours.opening.split(":").map(Number);
     const [closeHour, closeMin] = hours.closing.split(":").map(Number);
     const slots: string[] = [];
-    let current = new Date();
+    const current = new Date();
     current.setHours(openHour, openMin, 0, 0);
     const close = new Date();
     close.setHours(closeHour, closeMin, 0, 0);
@@ -1147,25 +1312,22 @@ const ActionModal = memo(function ActionModal({
         const start = new Date(app.startTime);
         return `${String(start.getHours()).padStart(2, "0")}:${String(start.getMinutes()).padStart(2, "0")}`;
       });
-    const available = allSlots.filter((slot) => !takenTimes.includes(slot));
-    setAvailableSlots(available);
+    setAvailableSlots(allSlots.filter((slot) => !takenTimes.includes(slot)));
   }, [appointmentsForDate, generateTimeSlots, type]);
 
-  const minDate = new Date().toISOString().split("T")[0];
+  const minDate = new Date();
+  minDate.setHours(0, 0, 0, 0);
   const maxDate = new Date();
   maxDate.setMonth(maxDate.getMonth() + 3);
-  const maxDateStr = maxDate.toISOString().split("T")[0];
 
   const isService = type === "service";
   const isDrug = type === "drug";
   const isTest = type === "test";
-
   const modalTitle = isService
     ? "Book Appointment"
     : isDrug
       ? "Order Medication"
       : "Request Lab Test";
-
   const submitLabel = isService
     ? "Book Appointment"
     : isDrug
@@ -1181,36 +1343,49 @@ const ActionModal = memo(function ActionModal({
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4"
+      className="fixed inset-0 bg-slate-950/50 backdrop-blur-sm flex items-end sm:items-center justify-center z-[200] sm:p-4"
       onClick={onClose}
     >
       <motion.div
-        initial={{ scale: 0.95, y: 20 }}
+        initial={{ scale: 0.98, y: 20 }}
         animate={{ scale: 1, y: 0 }}
-        exit={{ scale: 0.95, y: 20 }}
-        className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200/80 max-h-[90vh] overflow-y-auto"
+        exit={{ scale: 0.98, y: 20 }}
+        className="bg-white rounded-t-3xl sm:rounded-2xl max-w-md w-full p-5 sm:p-6 shadow-2xl border border-slate-200 max-h-[92vh] overflow-y-auto pb-[max(1rem,env(safe-area-inset-bottom))] sm:pb-6"
         onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
       >
+        <div className="sm:hidden flex justify-center mb-2" aria-hidden>
+          <div className="w-10 h-1 rounded-full bg-slate-300" />
+        </div>
+
         <div className="flex items-center justify-between mb-4">
           <h2
             className={cn(
-              "text-xl font-bold text-slate-800",
+              "text-lg sm:text-xl font-bold text-slate-900",
               bebasNeue.className,
             )}
           >
             {modalTitle}
           </h2>
           <button
+            type="button"
             onClick={onClose}
-            className="p-1.5 hover:bg-slate-100 rounded-lg transition-colors"
+            aria-label="Close"
+            className={cn(
+              "min-h-11 min-w-11 inline-flex items-center justify-center hover:bg-slate-100 rounded-xl transition-colors",
+              FOCUS,
+            )}
           >
-            <X className="w-5 h-5 text-slate-500" />
+            <X className="w-5 h-5 text-slate-600" />
           </button>
         </div>
 
-        <p className="text-sm text-slate-600 mb-4">
+        <p className="text-sm text-slate-700 mb-4">
           {center.centerName}
-          <span className="block text-xs text-slate-400">{center.address}</span>
+          <span className="block text-xs text-slate-500 mt-0.5">
+            {center.address}
+          </span>
           {isService && center.operatingHours && (
             <span className="block text-xs text-slate-500 mt-1">
               Hours: {center.operatingHours.opening} –{" "}
@@ -1221,9 +1396,11 @@ const ActionModal = memo(function ActionModal({
 
         {!isService && match && (
           <div className="bg-slate-50 rounded-xl p-4 mb-4 border border-slate-200 space-y-2">
-            <div className="flex items-start justify-between">
-              <div>
-                <h3 className="font-bold text-slate-800">{match.name}</h3>
+            <div className="flex items-start justify-between gap-2">
+              <div className="min-w-0">
+                <h3 className="font-bold text-slate-900 truncate">
+                  {match.name}
+                </h3>
                 {match.description && (
                   <p className="text-xs text-slate-500 mt-0.5">
                     {match.description}
@@ -1231,14 +1408,14 @@ const ActionModal = memo(function ActionModal({
                 )}
               </div>
               {retailPrice !== null && (
-                <span className="text-lg font-black text-emerald-600">
+                <span className="text-lg font-bold text-emerald-700 shrink-0">
                   ₦{retailPrice.toLocaleString()}
                 </span>
               )}
             </div>
             <div className="flex flex-wrap gap-2 text-xs">
               {match.unit && (
-                <span className="bg-white px-2 py-1 rounded border border-slate-200 text-gray-400">
+                <span className="bg-white px-2 py-1 rounded border border-slate-200 text-slate-700">
                   Unit: {match.unit}
                 </span>
               )}
@@ -1247,20 +1424,20 @@ const ActionModal = memo(function ActionModal({
                   className={cn(
                     "px-2 py-1 rounded border",
                     match.prescriptionRequired
-                      ? "bg-amber-50 text-amber-700 border-amber-200"
+                      ? "bg-amber-50 text-amber-800 border-amber-200"
                       : "bg-emerald-50 text-emerald-700 border-emerald-200",
                   )}
                 >
-                  {match.prescriptionRequired ? "Prescription Required" : "OTC"}
+                  {match.prescriptionRequired ? "Rx Required" : "OTC"}
                 </span>
               )}
               {isDrug && (
-                <span className="bg-blue-50 text-blue-700 px-2 py-1 rounded border border-blue-200">
+                <span className="bg-emerald-50 text-emerald-700 px-2 py-1 rounded border border-emerald-200">
                   Medication
                 </span>
               )}
               {isTest && (
-                <span className="bg-purple-50 text-purple-700 px-2 py-1 rounded border border-purple-200">
+                <span className="bg-emerald-50 text-emerald-700 px-2 py-1 rounded border border-emerald-200">
                   Lab Test
                 </span>
               )}
@@ -1271,28 +1448,26 @@ const ActionModal = memo(function ActionModal({
         <form onSubmit={onSubmit} className="space-y-4">
           {isService && (
             <>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">
+              <div className="space-y-1.5">
+                <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider">
                   Date *
                 </label>
-                <input
-                  type="date"
-                  min={minDate}
-                  max={maxDateStr}
+                <DatePicker
                   value={date}
-                  onChange={(e) => onDateChange(e.target.value)}
-                  className="w-full px-3 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500/40 focus:border-emerald-500 text-sm text-slate-800"
-                  required
+                  onChange={onDateChange}
+                  placeholder="Select date"
+                  minDate={minDate}
+                  maxDate={maxDate}
                 />
               </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">
+              <div className="space-y-2">
+                <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider">
                   Time *
                 </label>
                 {loadingSlots ? (
-                  <div className="flex items-center gap-2 text-slate-500">
+                  <div className="flex items-center gap-2 text-slate-500 text-sm">
                     <Loader2 className="w-4 h-4 animate-spin" />
-                    Loading available slots...
+                    Loading available slots…
                   </div>
                 ) : (
                   <div className="grid grid-cols-3 gap-2 max-h-48 overflow-y-auto">
@@ -1303,10 +1478,11 @@ const ActionModal = memo(function ActionModal({
                           type="button"
                           onClick={() => onTimeChange(slot)}
                           className={cn(
-                            "py-2 px-3 rounded-xl text-sm font-medium border transition-all",
+                            "min-h-11 rounded-xl text-sm font-semibold border transition-colors",
                             time === slot
                               ? "bg-emerald-600 border-emerald-600 text-white"
                               : "bg-white border-slate-200 text-slate-700 hover:bg-slate-50",
+                            FOCUS,
                           )}
                         >
                           {slot}
@@ -1319,8 +1495,8 @@ const ActionModal = memo(function ActionModal({
                     )}
                   </div>
                 )}
-                <p className="text-xs text-slate-500 mt-1">
-                  Select a time slot. Appointments are 30 minutes.
+                <p className="text-xs text-slate-500">
+                  Appointments are 30 minutes long.
                 </p>
               </div>
             </>
@@ -1328,39 +1504,42 @@ const ActionModal = memo(function ActionModal({
 
           {isDrug && (
             <>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">
+              <div className="space-y-1.5">
+                <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider">
                   Quantity
                 </label>
                 <input
                   type="number"
                   min="1"
                   defaultValue="1"
-                  className="w-full px-3 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500/40 focus:border-emerald-500 text-sm text-slate-800"
+                  className={cn(
+                    "w-full min-h-12 px-3.5 bg-slate-50 border border-slate-200 focus:bg-white focus:border-emerald-600 focus:ring-2 focus:ring-emerald-600/20 rounded-xl text-sm text-slate-900 outline-none transition",
+                    FOCUS,
+                  )}
                 />
               </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-3">
-                  Fulfilment Method
+              <div className="space-y-2">
+                <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider">
+                  Fulfilment method
                 </label>
-                <div className="grid grid-cols-2 gap-3">
-                  <motion.button
+                <div className="grid grid-cols-2 gap-2.5">
+                  <button
                     type="button"
                     onClick={() => setFulfillmentMethod("pickup")}
-                    whileTap={{ scale: 0.97 }}
                     className={cn(
-                      "relative flex flex-col items-center justify-center p-4 rounded-2xl border-2 transition-all duration-200",
+                      "relative flex flex-col items-center justify-center p-3 rounded-xl border-2 transition-colors min-h-[88px]",
                       fulfillmentMethod === "pickup"
-                        ? "border-emerald-500 bg-emerald-50 shadow-sm"
+                        ? "border-emerald-600 bg-emerald-50"
                         : "border-slate-200 bg-white hover:border-slate-300",
+                      FOCUS,
                     )}
                   >
                     <Store
                       className={cn(
-                        "w-6 h-6 mb-1.5 transition-colors",
+                        "w-6 h-6 mb-1.5",
                         fulfillmentMethod === "pickup"
                           ? "text-emerald-600"
-                          : "text-slate-400",
+                          : "text-slate-500",
                       )}
                     />
                     <span
@@ -1368,42 +1547,41 @@ const ActionModal = memo(function ActionModal({
                         "text-xs font-bold",
                         fulfillmentMethod === "pickup"
                           ? "text-emerald-700"
-                          : "text-slate-600",
+                          : "text-slate-700",
                       )}
                     >
                       Pickup
                     </span>
-                    <span className="text-[10px] text-slate-500 mt-0.5">
+                    <span className="text-xs text-slate-500 mt-0.5">
                       Visit the store
                     </span>
                     {fulfillmentMethod === "pickup" && (
                       <motion.div
                         initial={{ scale: 0 }}
                         animate={{ scale: 1 }}
-                        className="absolute top-2 right-2 w-4 h-4 bg-emerald-500 rounded-full flex items-center justify-center"
+                        className="absolute top-2 right-2 w-5 h-5 bg-emerald-600 rounded-full flex items-center justify-center"
                       >
                         <Check className="w-3 h-3 text-white" />
                       </motion.div>
                     )}
-                  </motion.button>
-
-                  <motion.button
+                  </button>
+                  <button
                     type="button"
                     onClick={() => setFulfillmentMethod("delivery")}
-                    whileTap={{ scale: 0.97 }}
                     className={cn(
-                      "relative flex flex-col items-center justify-center p-4 rounded-2xl border-2 transition-all duration-200",
+                      "relative flex flex-col items-center justify-center p-3 rounded-xl border-2 transition-colors min-h-[88px]",
                       fulfillmentMethod === "delivery"
-                        ? "border-emerald-500 bg-emerald-50 shadow-sm"
+                        ? "border-emerald-600 bg-emerald-50"
                         : "border-slate-200 bg-white hover:border-slate-300",
+                      FOCUS,
                     )}
                   >
                     <Truck
                       className={cn(
-                        "w-6 h-6 mb-1.5 transition-colors",
+                        "w-6 h-6 mb-1.5",
                         fulfillmentMethod === "delivery"
                           ? "text-emerald-600"
-                          : "text-slate-400",
+                          : "text-slate-500",
                       )}
                     />
                     <span
@@ -1411,36 +1589,43 @@ const ActionModal = memo(function ActionModal({
                         "text-xs font-bold",
                         fulfillmentMethod === "delivery"
                           ? "text-emerald-700"
-                          : "text-slate-600",
+                          : "text-slate-700",
                       )}
                     >
                       Delivery
                     </span>
-                    <span className="text-[10px] text-slate-500 mt-0.5">
-                      We’ll bring it to you
+                    <span className="text-xs text-slate-500 mt-0.5">
+                      To your address
                     </span>
                     {fulfillmentMethod === "delivery" && (
                       <motion.div
                         initial={{ scale: 0 }}
                         animate={{ scale: 1 }}
-                        className="absolute top-2 right-2 w-4 h-4 bg-emerald-500 rounded-full flex items-center justify-center"
+                        className="absolute top-2 right-2 w-5 h-5 bg-emerald-600 rounded-full flex items-center justify-center"
                       >
                         <Check className="w-3 h-3 text-white" />
                       </motion.div>
                     )}
-                  </motion.button>
+                  </button>
                 </div>
               </div>
               {fulfillmentMethod === "delivery" && (
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">
-                    Delivery Address *
+                <div className="space-y-1.5">
+                  <label
+                    htmlFor="delivery-address"
+                    className="block text-xs font-bold text-slate-600 uppercase tracking-wider"
+                  >
+                    Delivery address *
                   </label>
                   <textarea
+                    id="delivery-address"
                     value={deliveryAddress}
                     onChange={(e) => setDeliveryAddress(e.target.value)}
                     rows={3}
-                    className="w-full px-3 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500/40 focus:border-emerald-500 text-sm text-slate-800 placeholder:text-slate-400"
+                    className={cn(
+                      "w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 focus:bg-white focus:border-emerald-600 focus:ring-2 focus:ring-emerald-600/20 rounded-xl text-sm text-slate-900 placeholder:text-slate-400 outline-none transition resize-none",
+                      FOCUS,
+                    )}
                     placeholder="Enter your full delivery address"
                     required
                   />
@@ -1449,22 +1634,21 @@ const ActionModal = memo(function ActionModal({
             </>
           )}
 
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">
-              {isService
-                ? "Reason / Notes"
-                : isDrug
-                  ? "Special Instructions"
-                  : "Notes"}
+          <div className="space-y-1.5">
+            <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider">
+              {isService ? "Reason / notes" : isDrug ? "Instructions" : "Notes"}
             </label>
             <textarea
               value={notes}
               onChange={(e) => onNotesChange(e.target.value)}
               rows={3}
-              className="w-full px-3 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500/40 focus:border-emerald-500 text-sm text-slate-800 placeholder:text-slate-400"
+              className={cn(
+                "w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 focus:bg-white focus:border-emerald-600 focus:ring-2 focus:ring-emerald-600/20 rounded-xl text-sm text-slate-900 placeholder:text-slate-400 outline-none transition resize-none",
+                FOCUS,
+              )}
               placeholder={
                 isService
-                  ? "e.g., I have a persistent cough..."
+                  ? "e.g., I have a persistent cough…"
                   : isDrug
                     ? "e.g., I need generic version if available"
                     : "e.g., I need the test done urgently"
@@ -1473,27 +1657,36 @@ const ActionModal = memo(function ActionModal({
           </div>
 
           {error && (
-            <div className="bg-rose-50 text-rose-700 p-3 rounded-xl text-sm border border-rose-200 flex items-center gap-2">
-              <AlertCircle className="w-4 h-4" />
-              {error}
+            <div
+              role="alert"
+              className="bg-rose-50 text-rose-800 p-3 rounded-xl text-sm border border-rose-200 flex items-center gap-2"
+            >
+              <AlertCircle className="w-4 h-4 shrink-0" />
+              <span>{error}</span>
             </div>
           )}
 
-          <div className="flex justify-end gap-3 pt-2">
+          <div className="flex justify-end gap-2 pt-1">
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-100 rounded-xl transition-colors"
+              className={cn(
+                "min-h-11 px-4 rounded-xl text-sm font-semibold text-slate-700 hover:bg-slate-100 transition-colors",
+                FOCUS,
+              )}
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={submitting || (isService && !time)}
-              className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl transition-all text-sm font-medium flex items-center gap-2 disabled:opacity-50"
+              className={cn(
+                "min-h-11 px-5 rounded-xl bg-emerald-600 text-white text-sm font-bold hover:bg-emerald-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2",
+                FOCUS,
+              )}
             >
               {submitting && <Loader2 className="w-4 h-4 animate-spin" />}
-              {submitting ? "Processing..." : submitLabel}
+              {submitting ? "Processing…" : submitLabel}
             </button>
           </div>
         </form>
@@ -1502,7 +1695,9 @@ const ActionModal = memo(function ActionModal({
   );
 });
 
-// ---------- InfoWindowContent ----------
+// ═══════════════════════════════════════════════════════════════
+//  INFO WINDOW CONTENT  (unchanged)
+// ═══════════════════════════════════════════════════════════════
 function InfoWindowContent({
   place,
   maxDistance,
@@ -1520,63 +1715,56 @@ function InfoWindowContent({
 
   return (
     <div className="p-3.5 max-w-[290px] sm:max-w-xs bg-white text-slate-800 font-sans rounded-2xl">
-      {/* ─── HEADER: STATUS & DISTANCE ───────────────────────────── */}
       <div className="flex items-center justify-between gap-2 mb-2">
         <div className="flex items-center gap-1.5 min-w-0">
           <span
             className={cn(
-              "text-[10px] font-bold px-2 py-0.5 rounded-md shadow-2xs shrink-0",
+              "text-xs font-bold px-2 py-0.5 rounded-md shrink-0",
               status.classes,
             )}
           >
             {status.label}
           </span>
           <span className="text-slate-300">•</span>
-          <span className="text-[10px] font-bold text-slate-500 capitalize truncate">
+          <span className="text-xs font-bold text-slate-600 capitalize truncate">
             {place.centerType?.toLowerCase().replace("_", " ")}
           </span>
         </div>
-
-        <span className="text-[10px] font-bold text-slate-600 bg-slate-100 px-2 py-0.5 rounded-md border border-slate-200/60 shrink-0">
+        <span className="text-xs font-bold text-slate-700 bg-slate-100 px-2 py-0.5 rounded-md border border-slate-200 shrink-0">
           {place.distance ? `${place.distance.toFixed(1)} km` : "Nearby"}
         </span>
       </div>
 
-      {/* ─── CENTER NAME ────────────────────────────────────────── */}
       <h4 className="font-bold text-slate-900 text-sm sm:text-base leading-snug tracking-tight mb-1.5 line-clamp-1">
         {place.centerName}
       </h4>
 
-      {/* ─── BEYOND RANGE WARNING BANNER ────────────────────────── */}
       {isBeyond && (
-        <div className="mb-2.5 flex items-center gap-1.5 bg-amber-50 text-amber-800 px-2.5 py-1.5 rounded-xl border border-amber-200/60">
-          <AlertTriangle size={13} className="shrink-0 text-amber-600" />
-          <span className="text-[10px] font-semibold leading-tight">
-            {place.distance.toFixed(1)} km away (exceeds your {maxDistance}km
-            radius)
+        <div className="mb-2.5 flex items-center gap-1.5 bg-amber-50 text-amber-800 px-2.5 py-1.5 rounded-xl border border-amber-200">
+          <AlertTriangle size={13} className="shrink-0 text-amber-700" />
+          <span className="text-xs font-semibold leading-tight">
+            {place.distance.toFixed(1)} km away (exceeds {maxDistance}km radius)
           </span>
         </div>
       )}
 
-      {/* ─── RATINGS & TOP REVIEW ───────────────────────────────── */}
       {place.ratings && place.ratings.count > 0 && (
         <div className="mb-2.5 space-y-1.5">
           <div className="flex items-center gap-1.5">
-            <div className="flex items-center gap-1 bg-amber-50 px-1.5 py-0.5 rounded-md border border-amber-200/50">
-              <Star className="w-3 h-3 fill-amber-400 text-amber-400" />
-              <span className="font-bold text-xs text-slate-800">
+            <div className="flex items-center gap-1 bg-amber-50 px-1.5 py-0.5 rounded-md border border-amber-200">
+              <Star className="w-3 h-3 fill-amber-500 text-amber-500" />
+              <span className="font-bold text-xs text-slate-900">
                 {place.ratings.average.toFixed(1)}
               </span>
             </div>
-            <span className="text-[11px] text-slate-400 font-medium">
+            <span className="text-xs text-slate-600 font-medium">
               ({place.ratings.count} reviews)
             </span>
           </div>
-
           {place.ratings.comments && place.ratings.comments.length > 0 && (
-            <div className="text-[11px] text-slate-600 italic bg-slate-50/80 p-2 rounded-xl border border-slate-100 line-clamp-2">
-              &ldquo;{place.ratings.comments[0].comment}&rdquo;
-              <span className="text-slate-400 not-italic font-semibold ml-1">
+            <div className="text-xs text-slate-700 italic bg-slate-50 p-2 rounded-xl border border-slate-100 line-clamp-2">
+              "{place.ratings.comments[0].comment}"
+              <span className="text-slate-500 not-italic font-semibold ml-1">
                 — {place.ratings.comments[0].userName}
               </span>
             </div>
@@ -1584,28 +1772,26 @@ function InfoWindowContent({
         </div>
       )}
 
-      {/* ─── ADDRESS ────────────────────────────────────────────── */}
-      <p className="text-xs text-slate-500 mb-3 flex items-start gap-1.5">
-        <MapPin size={13} className="shrink-0 mt-0.5 text-slate-400" />
+      <p className="text-xs text-slate-600 mb-3 flex items-start gap-1.5">
+        <MapPin size={13} className="shrink-0 mt-0.5 text-slate-500" />
         <span className="line-clamp-2 leading-relaxed">
-          {place.address || "Address not cataloged"}
+          {place.address || "Address not catalogued"}
         </span>
       </p>
 
-      {/* ─── MATCHES LIST ───────────────────────────────────────── */}
       {place.matches && place.matches.length > 0 && (
-        <div className="mb-3 bg-slate-50/80 p-2.5 rounded-xl border border-slate-200/60 space-y-1.5">
+        <div className="mb-3 bg-slate-50 p-2.5 rounded-xl border border-slate-200 space-y-1.5">
           <div className="flex items-center justify-between">
-            <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">
-              Available Matches
+            <p className="text-xs font-bold text-slate-600 uppercase tracking-wider">
+              Available matches
             </p>
             {place.matches.length > 2 && (
-              <span className="text-[9px] font-bold text-emerald-600">
+              <span className="text-xs font-bold text-emerald-700">
                 +{place.matches.length - 2} more
               </span>
             )}
           </div>
-          <div className="space-y-1 divide-y divide-slate-200/40">
+          <div className="space-y-1 divide-y divide-slate-200">
             {place.matches.slice(0, 2).map((match) => {
               const displayPrice = Math.round(
                 match.price * (1 + RETAIL_MARKUP_PERCENT / 100),
@@ -1618,7 +1804,7 @@ function InfoWindowContent({
                   <span className="truncate max-w-[140px] text-slate-700 font-medium">
                     {match.name}
                   </span>
-                  <span className="font-extrabold text-emerald-600 shrink-0">
+                  <span className="font-bold text-emerald-700 shrink-0">
                     ₦{displayPrice.toLocaleString()}
                   </span>
                 </div>
@@ -1628,22 +1814,20 @@ function InfoWindowContent({
         </div>
       )}
 
-      {/* ─── ACTION BUTTONS ─────────────────────────────────────── */}
       <div className="flex gap-2 pt-1.5 border-t border-slate-100">
         {place.phone && (
           <a
             href={`tel:${place.phone}`}
-            className="flex-1 py-2.5 px-3 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl text-center text-xs font-semibold flex items-center justify-center gap-1.5 transition-all active:scale-95"
+            className="flex-1 min-h-10 px-3 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl text-center text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors active:scale-95"
           >
             <Phone size={13} className="text-slate-600 shrink-0" />
             <span>Call</span>
           </a>
         )}
-
         <button
           onClick={() => onAction(firstMatch)}
           className={cn(
-            "flex-1 py-2.5 px-3 text-white rounded-xl text-center text-xs font-semibold flex items-center justify-center gap-1.5 transition-all active:scale-95 shadow-2xs",
+            "flex-1 min-h-10 px-3 text-white rounded-xl text-center text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors active:scale-95",
             isBeyond
               ? "bg-amber-600 hover:bg-amber-700"
               : "bg-emerald-600 hover:bg-emerald-700",
@@ -1663,13 +1847,16 @@ function InfoWindowContent({
   );
 }
 
-// ---------- Result Card ----------
+// ═══════════════════════════════════════════════════════════════
+//  RESULT CARD  (unchanged)
+// ═══════════════════════════════════════════════════════════════
 function ResultCard({
   result,
   isActive,
   maxDistance,
   onClick,
   onAction,
+  onFocusMap,
   actionLabel,
 }: {
   result: SearchResult;
@@ -1677,6 +1864,7 @@ function ResultCard({
   maxDistance: number;
   onClick: () => void;
   onAction: (match?: MatchItem) => void;
+  onFocusMap: () => void;
   actionLabel: string;
 }) {
   const firstMatch = result.matches?.[0];
@@ -1691,26 +1879,24 @@ function ResultCard({
       whileTap={{ scale: 0.99 }}
       onClick={onClick}
       className={cn(
-        "w-full text-left p-4 sm:p-5 rounded-2xl md:rounded-3xl border transition-all cursor-pointer shadow-2xs relative overflow-hidden group",
+        "w-full text-left p-4 rounded-2xl border transition-all cursor-pointer relative overflow-hidden",
         isActive
-          ? "bg-emerald-950/90 border-emerald-500/80 text-white shadow-xl shadow-emerald-950/20 ring-2 ring-emerald-500/60 backdrop-blur-md"
+          ? "bg-emerald-50 border-2 border-emerald-600 shadow-md"
           : isBeyond
-            ? "bg-amber-50/40 border-amber-200/80 hover:border-amber-300"
-            : "bg-white border-slate-200/70 hover:border-slate-300 hover:shadow-sm",
+            ? "bg-amber-50/60 border border-amber-200 hover:border-amber-300"
+            : "bg-white border border-slate-200 hover:border-slate-300 hover:shadow-sm",
       )}
     >
-      {/* Active Indicator Accent Line */}
       {isActive && (
-        <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-emerald-400 via-teal-400 to-emerald-500" />
+        <div className="absolute top-0 left-0 right-0 h-1 bg-emerald-600" />
       )}
 
-      <div className="flex items-start gap-3.5 sm:gap-4">
-        {/* Center Avatar / Icon */}
+      <div className="flex items-start gap-3">
         <div
           className={cn(
-            "w-11 h-11 sm:w-12 sm:h-12 rounded-2xl flex items-center justify-center font-bold text-base sm:text-lg shrink-0 shadow-2xs transition-transform group-hover:scale-105",
+            "w-11 h-11 rounded-xl flex items-center justify-center font-bold text-base shrink-0",
             isActive
-              ? "bg-emerald-500 text-white shadow-emerald-500/30"
+              ? "bg-emerald-600 text-white"
               : isBeyond
                 ? "bg-amber-100 text-amber-800"
                 : "bg-slate-100 text-slate-700",
@@ -1720,25 +1906,19 @@ function ResultCard({
         </div>
 
         <div className="flex-1 min-w-0">
-          {/* Header Info: Name & Distance */}
           <div className="flex justify-between items-start gap-2 mb-1">
-            <h4
-              className={cn(
-                "font-bold truncate text-sm sm:text-base tracking-tight",
-                isActive ? "text-emerald-100" : "text-slate-900",
-              )}
-            >
+            <h4 className="font-bold truncate text-sm tracking-tight text-slate-900">
               {result.centerName}
             </h4>
             <div className="flex flex-col items-end gap-1 shrink-0">
               <span
                 className={cn(
-                  "text-[10px] sm:text-xs font-bold px-2 py-0.5 rounded-lg border tracking-wide",
+                  "text-xs font-bold px-2 py-0.5 rounded-lg border",
                   isActive
-                    ? "bg-emerald-500/20 border-emerald-400/30 text-emerald-300"
+                    ? "bg-white border-emerald-600 text-emerald-700"
                     : isBeyond
                       ? "bg-amber-100 border-amber-200 text-amber-800"
-                      : "bg-slate-100 border-slate-200/60 text-slate-700",
+                      : "bg-slate-100 border-slate-200 text-slate-700",
                 )}
               >
                 {result.distance
@@ -1746,130 +1926,80 @@ function ResultCard({
                   : "Nearby"}
               </span>
               {isBeyond && (
-                <span className="text-[9px] font-bold text-amber-600 uppercase tracking-wider">
-                  Beyond Range
+                <span className="text-xs font-bold text-amber-700 uppercase tracking-wider">
+                  Beyond range
                 </span>
               )}
             </div>
           </div>
 
-          {/* Status & Center Type Tags */}
           <div className="flex flex-wrap items-center gap-2 mt-1.5">
             <span
               className={cn(
-                "text-[10px] font-bold px-2 py-0.5 rounded-md shadow-2xs",
+                "text-xs font-bold px-2 py-0.5 rounded-md",
                 status.classes,
               )}
             >
               {status.label}
             </span>
-            <span className={isActive ? "text-emerald-700" : "text-slate-300"}>
-              •
-            </span>
-            <span
-              className={cn(
-                "text-xs font-medium capitalize truncate",
-                isActive ? "text-emerald-300/80" : "text-slate-500",
-              )}
-            >
+            <span className="text-slate-300">•</span>
+            <span className="text-xs font-medium capitalize truncate text-slate-600">
               {result.centerType?.toLowerCase().replace("_", " ")}
             </span>
           </div>
 
-          {/* Ratings */}
           {result.ratings && result.ratings.count > 0 && (
             <div className="flex items-center gap-1.5 mt-2">
-              <div
-                className={cn(
-                  "flex items-center gap-1 px-2 py-0.5 rounded-md border",
-                  isActive
-                    ? "bg-emerald-900/60 border-emerald-700/50"
-                    : "bg-amber-50 border-amber-200/50",
-                )}
-              >
-                <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
-                <span
-                  className={cn(
-                    "text-xs font-bold",
-                    isActive ? "text-emerald-100" : "text-slate-800",
-                  )}
-                >
+              <div className="flex items-center gap-1 px-2 py-0.5 rounded-md border bg-amber-50 border-amber-200">
+                <Star className="w-3.5 h-3.5 fill-amber-500 text-amber-500" />
+                <span className="text-xs font-bold text-slate-900">
                   {result.ratings.average.toFixed(1)}
                 </span>
               </div>
-              <span
-                className={cn(
-                  "text-[11px]",
-                  isActive ? "text-emerald-400/70" : "text-slate-400",
-                )}
-              >
+              <span className="text-xs text-slate-600">
                 ({result.ratings.count} reviews)
               </span>
             </div>
           )}
 
-          {/* Requested Resource / Match Box */}
           {firstMatch && (
-            <div
-              className={cn(
-                "mt-3.5 pt-3.5 border-t flex flex-col gap-3",
-                isActive ? "border-emerald-800/60" : "border-slate-100",
-              )}
-            >
+            <div className="mt-3 pt-3 border-t border-slate-200 flex flex-col gap-3">
               <div
                 className={cn(
                   "flex justify-between items-center p-3 rounded-xl border",
                   isActive
-                    ? "bg-emerald-900/40 border-emerald-700/40"
-                    : "bg-slate-50/50 border-slate-200/40",
+                    ? "bg-white border-emerald-200"
+                    : "bg-slate-50 border-slate-200",
                 )}
               >
                 <div className="min-w-0 flex-1 pr-3">
-                  <p
-                    className={cn(
-                      "text-[10px] uppercase font-bold tracking-wider mb-0.5",
-                      isActive ? "text-emerald-400" : "text-slate-400",
-                    )}
-                  >
-                    Requested Resource
+                  <p className="text-xs uppercase font-bold tracking-wider mb-0.5 text-slate-500">
+                    Requested resource
                   </p>
-                  <p
-                    className={cn(
-                      "text-xs sm:text-sm font-semibold truncate",
-                      isActive ? "text-white" : "text-slate-800",
-                    )}
-                  >
+                  <p className="text-sm font-semibold truncate text-slate-900">
                     {firstMatch.name}
                   </p>
                 </div>
                 <div className="text-right shrink-0">
-                  <p
-                    className={cn(
-                      "text-[10px] uppercase font-bold tracking-wider mb-0.5",
-                      isActive ? "text-emerald-400/70" : "text-slate-400",
-                    )}
-                  >
-                    Est. Retail Price
+                  <p className="text-xs uppercase font-bold tracking-wider mb-0.5 text-slate-500">
+                    Est. retail
                   </p>
-                  <p
-                    className={cn(
-                      "text-sm sm:text-base font-black tracking-tight",
-                      isActive ? "text-emerald-300" : "text-emerald-600",
-                    )}
-                  >
+                  <p className="text-sm font-bold tracking-tight text-emerald-700">
                     ₦{estRetailPrice?.toLocaleString()}
                   </p>
                 </div>
               </div>
 
-              {/* Action Buttons */}
               <div className="flex items-center gap-2">
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
                     onAction(firstMatch);
                   }}
-                  className="flex-1 py-2.5 px-4 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs sm:text-sm font-semibold transition-all active:scale-95 shadow-xs flex items-center justify-center gap-2"
+                  className={cn(
+                    "flex-1 min-h-11 px-4 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-sm font-semibold transition-colors flex items-center justify-center gap-2",
+                    FOCUS,
+                  )}
                 >
                   {actionLabel === "Book Appointment" ? (
                     <Calendar className="w-4 h-4 shrink-0" />
@@ -1883,40 +2013,30 @@ function ResultCard({
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
-                    console.log("More info for:", result.centerId);
+                    onFocusMap();
                   }}
                   className={cn(
-                    "px-3.5 py-2.5 rounded-xl text-xs sm:text-sm font-semibold transition-all active:scale-95 flex items-center justify-center gap-1.5",
+                    "min-h-11 min-w-11 px-3 rounded-xl text-sm font-semibold transition-colors flex items-center justify-center gap-1.5",
                     isActive
-                      ? "bg-emerald-900/60 hover:bg-emerald-900 text-emerald-200 border border-emerald-700/50"
+                      ? "bg-white hover:bg-slate-100 text-slate-700 border border-slate-200"
                       : "bg-slate-100 hover:bg-slate-200 text-slate-700",
+                    FOCUS,
                   )}
-                  title="More Information"
+                  title="Show on map"
+                  aria-label="Show on map"
                 >
                   <Info className="w-4 h-4 shrink-0" />
-                  <span className="hidden xs:inline">Info</span>
                 </button>
               </div>
             </div>
           )}
 
-          {/* Alternatives Count Banner */}
           {result.matches?.length > 1 && (
-            <div
-              className={cn(
-                "mt-3 text-[11px] font-medium text-right flex items-center justify-end gap-1",
-                isActive ? "text-emerald-300/80" : "text-slate-500",
-              )}
-            >
-              <span
-                className={cn(
-                  "font-bold",
-                  isActive ? "text-emerald-300" : "text-emerald-600",
-                )}
-              >
+            <div className="mt-3 text-xs font-medium text-right flex items-center justify-end gap-1 text-slate-600">
+              <span className="font-bold text-emerald-700">
                 +{result.matches.length - 1}
               </span>{" "}
-              more alternatives available here
+              more alternatives
             </div>
           )}
         </div>
@@ -1925,7 +2045,9 @@ function ResultCard({
   );
 }
 
-// ---------- Empty State ----------
+// ═══════════════════════════════════════════════════════════════
+//  EMPTY STATE  (unchanged)
+// ═══════════════════════════════════════════════════════════════
 function EmptyState({
   searchQuery,
   searchType,
@@ -1942,30 +2064,32 @@ function EmptyState({
       if (showBeyondRange) {
         return `No ${searchType}s found matching "${searchQuery}" anywhere within ${maxDistance}km or beyond.`;
       }
-      return `No ${searchType}s found matching "${searchQuery}" within ${maxDistance}km. Try expanding your distance or enabling "Show Beyond ${maxDistance}km".`;
+      return `No ${searchType}s found matching "${searchQuery}" within ${maxDistance}km. Try expanding your distance or enabling beyond-range results.`;
     }
     if (showBeyondRange) {
-      return `No ${searchType}s found within ${maxDistance}km or beyond. Try a different search type.`;
+      return `No ${searchType}s found within ${maxDistance}km or beyond. Try a different category.`;
     }
-    return `No ${searchType}s found within ${maxDistance}km. Try enabling "Show Beyond ${maxDistance}km" to see farther options.`;
+    return `No ${searchType}s found within ${maxDistance}km. Try enabling beyond-range results to see farther options.`;
   };
 
   return (
     <div className="flex flex-col items-center justify-center py-12 px-6 text-center">
       <div className="w-14 h-14 bg-slate-50 rounded-2xl flex items-center justify-center mb-4">
-        <Search className="w-6 h-6 text-slate-300" />
+        <Search className="w-6 h-6 text-slate-400" />
       </div>
       <h4 className="text-slate-800 font-bold text-sm mb-1">
-        No Matches Found
+        No matches found
       </h4>
-      <p className="text-slate-400 text-xs leading-relaxed max-w-[240px]">
+      <p className="text-slate-600 text-xs leading-relaxed max-w-[240px]">
         {getMessage()}
       </p>
     </div>
   );
 }
 
-// ---------- Help Modal ----------
+// ═══════════════════════════════════════════════════════════════
+//  HELP MODAL  (unchanged)
+// ═══════════════════════════════════════════════════════════════
 function HelpModal({
   slides,
   onClose,
@@ -1982,29 +2106,34 @@ function HelpModal({
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-end sm:items-center justify-center z-[100] p-4"
+      className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm flex items-end sm:items-center justify-center z-[100] sm:p-4"
       onClick={onClose}
     >
       <motion.div
         initial={{ y: 50, scale: 0.95 }}
         animate={{ y: 0, scale: 1 }}
         exit={{ y: 50, scale: 0.95 }}
-        className="bg-white rounded-t-[2.5rem] sm:rounded-[2.5rem] max-w-sm w-full p-6 sm:p-8 shadow-2xl relative overflow-hidden"
+        className="bg-white rounded-t-3xl sm:rounded-2xl max-w-sm w-full p-6 shadow-2xl relative overflow-hidden pb-[max(1.5rem,env(safe-area-inset-bottom))] sm:pb-6"
         onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
       >
+        <div className="sm:hidden flex justify-center mb-3" aria-hidden>
+          <div className="w-10 h-1 rounded-full bg-slate-300" />
+        </div>
         <div className="text-center">
           <div className="w-14 h-14 bg-emerald-50 text-emerald-600 rounded-2xl flex items-center justify-center mx-auto mb-5 border border-emerald-100">
             {slides[currentSlide].icon}
           </div>
           <h3
             className={cn(
-              "text-2xl text-slate-900 mb-2 font-black tracking-tight",
+              "text-2xl text-slate-900 mb-2 font-bold tracking-tight",
               bebasNeue.className,
             )}
           >
             {slides[currentSlide].title}
           </h3>
-          <p className="text-slate-500 text-xs font-medium leading-relaxed mb-6 px-2">
+          <p className="text-slate-600 text-sm leading-relaxed mb-6 px-2">
             {slides[currentSlide].description}
           </p>
           <div className="flex justify-center gap-1.5 mb-6">
@@ -2012,11 +2141,12 @@ function HelpModal({
               <button
                 key={i}
                 onClick={() => setSlide(i)}
+                aria-label={`Go to slide ${i + 1}`}
                 className={cn(
-                  "h-1.5 rounded-full transition-all",
+                  "h-2 rounded-full transition-all",
                   i === currentSlide
-                    ? "w-5 bg-slate-900"
-                    : "w-1.5 bg-slate-200",
+                    ? "w-5 bg-emerald-600"
+                    : "w-2 bg-slate-300",
                 )}
               />
             ))}
@@ -2025,16 +2155,22 @@ function HelpModal({
             {currentSlide < slides.length - 1 ? (
               <button
                 onClick={() => setSlide(currentSlide + 1)}
-                className="w-full py-3 bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-xs rounded-xl transition"
+                className={cn(
+                  "w-full min-h-11 bg-slate-100 hover:bg-slate-200 text-slate-900 font-bold text-sm rounded-xl transition-colors",
+                  FOCUS,
+                )}
               >
-                Next Step
+                Next step
               </button>
             ) : (
               <button
                 onClick={onClose}
-                className="w-full py-3 bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs rounded-xl transition shadow-md"
+                className={cn(
+                  "w-full min-h-11 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm rounded-xl transition-colors",
+                  FOCUS,
+                )}
               >
-                Start Locating
+                Start locating
               </button>
             )}
           </div>

@@ -29,24 +29,21 @@ import {
   ChevronLeft,
   ChevronRight,
   StopCircle,
-  Activity,
   TrendingUp,
-  Shield,
-  Stethoscope,
   Sunrise,
   Sun,
   Sunset,
   Moon,
   Check,
-  Sparkles,
   BarChart3,
   Camera,
   Search,
   Building,
   Store,
   Play,
+  Flame,
 } from "lucide-react";
-import { useForm } from "react-hook-form";
+import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import {
@@ -62,13 +59,27 @@ import {
 import { cn } from "@/app/utils/utils";
 import { authFetcher, authPost, authPut } from "@/app/utils/client-auth";
 import { useProfile } from "@/app/dashboard/hooks/useUserData";
-import { poppins, bebasNeue } from "@/app/constants";
+import { poppins } from "@/app/constants";
 import { usePrescribedMedications } from "@/app/dashboard/hooks/usePrescribedMedications";
 import { useUserContext } from "../../UserContext";
 import Tesseract from "tesseract.js";
+import DatePicker from "@/app/components/CustomDatePicker";
 
 // ---------- Constants ----------
 const DEFAULT_MAX_DOSES = 90;
+const EMERALD = "#059669";
+
+const FOCUS =
+  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:ring-offset-2";
+
+// Shared SWR config — no refetch on focus, warm cache, no skeleton flash
+const SWR_PANEL_CONFIG = {
+  revalidateOnFocus: false,
+  revalidateOnReconnect: true,
+  dedupingInterval: 60_000,
+  keepPreviousData: true,
+  revalidateIfStale: false,
+} as const;
 
 // ---------- Types ----------
 type FamilyMember = {
@@ -103,7 +114,6 @@ type Medication = {
   status: "active" | "completed" | "paused" | "pending";
   doses: Dose[];
   createdAt: string;
-  color?: string;
 };
 
 type UpcomingDose = {
@@ -158,22 +168,31 @@ const familySchema = z.object({
 });
 type FamilyForm = z.infer<typeof familySchema>;
 
-// ---------- Helpers ----------
-const medicationColors = [
-  "#0d9488", // teal-600
-  "#7c3aed", // violet-600
-  "#db2777", // pink-600
-  "#d97706", // amber-600
-  "#2563eb", // blue-600
-  "#059669", // emerald-600
-  "#9333ea", // purple-600
-  "#dc2626", // red-600
-];
-
-function getMedicationColor(index: number): string {
-  return medicationColors[index % medicationColors.length];
+// ---------- sessionStorage helpers ----------
+function ssGet(key: string): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    return sessionStorage.getItem(key);
+  } catch {
+    return null;
+  }
 }
 
+function ssSet(key: string, value: string) {
+  if (typeof window === "undefined") return;
+  try {
+    sessionStorage.setItem(key, value);
+  } catch {}
+}
+
+function ssRemove(key: string) {
+  if (typeof window === "undefined") return;
+  try {
+    sessionStorage.removeItem(key);
+  } catch {}
+}
+
+// ---------- Helpers ----------
 function getTimeOfDay(hour: number) {
   if (hour >= 5 && hour < 12) return "morning";
   if (hour >= 12 && hour < 17) return "afternoon";
@@ -323,7 +342,7 @@ function getStreak(medications: ExtendedMedication[]): number {
 const CustomTooltip = ({ active, payload, label }: any) => {
   if (active && payload?.length) {
     return (
-      <div className="bg-white p-4 rounded-xl shadow-lg border border-slate-200">
+      <div className="bg-white p-3 rounded-xl shadow-lg border border-slate-200">
         <p className="text-sm font-semibold text-slate-800 mb-2">{label}</p>
         {payload.map((entry: any, idx: number) => (
           <div
@@ -344,13 +363,13 @@ const CustomTooltip = ({ active, payload, label }: any) => {
   return null;
 };
 
-// ---------- Skeleton Loaders ----------
+// ---------- Skeletons ----------
 const SkeletonPulse = ({ className }: { className?: string }) => (
   <div className={cn("animate-pulse bg-slate-200 rounded-xl", className)} />
 );
 
 const SkeletonCard = () => (
-  <div className="bg-white border border-slate-200 rounded-2xl md:rounded-3xl p-5 md:p-6">
+  <div className="bg-white border border-slate-200 rounded-2xl p-5">
     <div className="flex items-start justify-between">
       <div className="flex-1 space-y-3">
         <div className="flex gap-2">
@@ -369,7 +388,7 @@ const SkeletonCard = () => (
 );
 
 const SkeletonStatCard = () => (
-  <div className="bg-white border border-slate-200 rounded-2xl md:rounded-3xl p-5 md:p-7">
+  <div className="bg-white border border-slate-200 rounded-2xl p-5">
     <SkeletonPulse className="h-4 w-20 rounded-lg mb-4" />
     <div className="space-y-3">
       {[...Array(3)].map((_, i) => (
@@ -384,28 +403,63 @@ const BentoTile = ({
   children,
   className,
   onClick,
-  gradient,
+  hero,
 }: {
   children: React.ReactNode;
   className?: string;
   onClick?: () => void;
-  gradient?: boolean;
+  hero?: boolean;
 }) => (
   <motion.div
-    whileHover={{ y: -3 }}
-    whileTap={{ scale: 0.99 }}
+    whileTap={{ scale: 0.995 }}
     transition={{ type: "spring", stiffness: 300, damping: 25 }}
     onClick={onClick}
     className={cn(
-      "p-4 md:p-6 rounded-2xl md:rounded-3xl border transition-all duration-300",
-      gradient
-        ? "bg-gradient-to-br text-white border-transparent shadow-lg"
-        : "bg-white border-slate-200 shadow-sm hover:shadow-xl",
+      "rounded-2xl border transition-all duration-300 h-full",
+      hero
+        ? "bg-emerald-600 text-white border-transparent shadow-lg"
+        : "bg-white border-slate-200 shadow-sm md:hover:shadow-md",
       className,
     )}
   >
     {children}
   </motion.div>
+);
+
+const SectionHeader = ({
+  icon: Icon,
+  label,
+  right,
+  light,
+}: {
+  icon: any;
+  label: string;
+  right?: React.ReactNode;
+  light?: boolean;
+}) => (
+  <div className="flex items-center justify-between mb-4">
+    <div className="flex items-center gap-2.5 min-w-0">
+      <div
+        className={cn(
+          "w-8 h-8 rounded-lg flex items-center justify-center shrink-0",
+          light ? "bg-white/15" : "bg-emerald-50",
+        )}
+      >
+        <Icon
+          className={cn("w-4 h-4", light ? "text-white" : "text-emerald-700")}
+        />
+      </div>
+      <h3
+        className={cn(
+          "text-xs font-bold uppercase tracking-wider truncate",
+          light ? "text-emerald-50" : "text-slate-500",
+        )}
+      >
+        {label}
+      </h3>
+    </div>
+    {right}
+  </div>
 );
 
 const Modal = ({
@@ -423,29 +477,47 @@ const Modal = ({
     initial={{ opacity: 0 }}
     animate={{ opacity: 1 }}
     exit={{ opacity: 0 }}
-    className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center z-50 p-4"
+    className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-end sm:items-center justify-center z-50 sm:p-4"
     onClick={onClose}
   >
     <motion.div
-      initial={{ scale: 0.9, y: 20 }}
-      animate={{ scale: 1, y: 0 }}
-      exit={{ scale: 0.9, y: 20 }}
-      transition={{ type: "spring", stiffness: 300, damping: 25 }}
-      className="bg-white rounded-2xl md:rounded-3xl max-w-lg w-full max-h-[90vh] overflow-y-auto shadow-2xl border border-slate-200"
+      initial={{ y: "30%", scale: 0.98 }}
+      animate={{ y: 0, scale: 1 }}
+      exit={{ y: "30%", scale: 0.98 }}
+      transition={{ type: "spring", stiffness: 300, damping: 28 }}
+      className="bg-white rounded-t-3xl sm:rounded-2xl max-w-lg w-full max-h-[92vh] overflow-y-auto shadow-2xl border border-slate-200 pb-[max(1rem,env(safe-area-inset-bottom))] sm:pb-0"
       onClick={(e) => e.stopPropagation()}
+      role="dialog"
+      aria-modal="true"
     >
+      <div className="sm:hidden flex justify-center pt-3" aria-hidden>
+        <div className="w-10 h-1 rounded-full bg-slate-300" />
+      </div>
       {(title || Icon) && (
-        <div className="flex items-center gap-3 px-4 md:px-6 pt-5 md:pt-6 pb-2">
-          {Icon && (
-            <div className="w-9 h-9 md:w-10 md:h-10 rounded-2xl bg-teal-50 flex items-center justify-center">
-              <Icon className="w-4 h-4 md:w-5 md:h-5 text-teal-600" />
-            </div>
-          )}
-          {title && (
-            <h2 className="text-lg md:text-xl font-bold text-slate-800">
-              {title}
-            </h2>
-          )}
+        <div className="flex items-center justify-between gap-3 px-4 md:px-6 pt-4 md:pt-6 pb-2">
+          <div className="flex items-center gap-3 min-w-0">
+            {Icon && (
+              <div className="w-9 h-9 md:w-10 md:h-10 rounded-xl bg-emerald-50 flex items-center justify-center shrink-0">
+                <Icon className="w-4 h-4 md:w-5 md:h-5 text-emerald-700" />
+              </div>
+            )}
+            {title && (
+              <h2 className="text-lg md:text-xl font-bold text-slate-900 truncate">
+                {title}
+              </h2>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close"
+            className={cn(
+              "shrink-0 min-h-11 min-w-11 inline-flex items-center justify-center rounded-xl text-slate-500 hover:bg-slate-100 hover:text-slate-900 transition-colors",
+              FOCUS,
+            )}
+          >
+            <X size={18} strokeWidth={2.5} />
+          </button>
         </div>
       )}
       <div className="p-4 md:p-6 pt-2">{children}</div>
@@ -453,70 +525,174 @@ const Modal = ({
   </motion.div>
 );
 
-// ---------- Input Components ----------
-const Input = ({ label, error, className, ...props }: any) => (
-  <div className={cn("space-y-1.5", className)}>
-    {label && (
-      <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider">
-        {label}
-      </label>
-    )}
-    <input
-      {...props}
-      className={cn(
-        "w-full px-4 py-2.5 text-sm bg-white border rounded-xl transition-all outline-none placeholder:text-slate-400 text-slate-800",
-        error
-          ? "border-red-300 focus:border-red-500 focus:ring-2 focus:ring-red-100"
-          : "border-slate-300 focus:border-teal-500 focus:ring-2 focus:ring-teal-100",
+const Input = ({ label, error, className, id, ...props }: any) => {
+  const autoId =
+    id || `input-${label?.toString().toLowerCase().replace(/\s+/g, "-")}`;
+  return (
+    <div className={cn("space-y-1.5", className)}>
+      {label && (
+        <label
+          htmlFor={autoId}
+          className="block text-xs font-bold text-slate-600 uppercase tracking-wider"
+        >
+          {label}
+        </label>
       )}
-    />
-    {error && <p className="text-red-500 text-xs">{error}</p>}
-  </div>
-);
-
-const Select = ({ label, error, className, children, ...props }: any) => (
-  <div className={cn("space-y-1.5", className)}>
-    {label && (
-      <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider">
-        {label}
-      </label>
-    )}
-    <select
-      {...props}
-      className={cn(
-        "w-full px-4 py-2.5 text-sm bg-white border rounded-xl transition-all outline-none text-slate-800",
-        error
-          ? "border-red-300 focus:border-red-500 focus:ring-2 focus:ring-red-100"
-          : "border-slate-300 focus:border-teal-500 focus:ring-2 focus:ring-teal-100",
-      )}
-    >
-      {children}
-    </select>
-    {error && <p className="text-red-500 text-xs">{error}</p>}
-  </div>
-);
+      <input
+        id={autoId}
+        {...props}
+        className={cn(
+          "w-full min-h-12 px-4 text-sm bg-slate-50 border rounded-xl transition-all outline-none placeholder:text-slate-500 text-slate-900 font-medium",
+          error
+            ? "border-rose-300 focus:border-rose-500 focus:ring-2 focus:ring-rose-100"
+            : "border-slate-200 focus:bg-white focus:border-emerald-600 focus:ring-2 focus:ring-emerald-600/20",
+        )}
+      />
+      {error && <p className="text-xs text-rose-700 font-semibold">{error}</p>}
+    </div>
+  );
+};
 
 const Textarea = ({ label, error, className, ...props }: any) => (
   <div className={cn("space-y-1.5", className)}>
     {label && (
-      <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider">
+      <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider">
         {label}
       </label>
     )}
     <textarea
       {...props}
       className={cn(
-        "w-full px-4 py-2.5 text-sm bg-white border rounded-xl transition-all outline-none placeholder:text-slate-400 text-slate-800 resize-y min-h-[80px]",
+        "w-full px-4 py-3 text-sm bg-slate-50 border rounded-xl transition-all outline-none placeholder:text-slate-500 text-slate-900 font-medium resize-y min-h-[80px]",
         error
-          ? "border-red-300 focus:border-red-500 focus:ring-2 focus:ring-red-100"
-          : "border-slate-300 focus:border-teal-500 focus:ring-2 focus:ring-teal-100",
+          ? "border-rose-300 focus:border-rose-500 focus:ring-2 focus:ring-rose-100"
+          : "border-slate-200 focus:bg-white focus:border-emerald-600 focus:ring-2 focus:ring-emerald-600/20",
       )}
     />
-    {error && <p className="text-red-500 text-xs">{error}</p>}
+    {error && <p className="text-xs text-rose-700 font-semibold">{error}</p>}
   </div>
 );
 
-// ---------- Drug Search ----------
+const SelectDropdown = ({
+  value,
+  onChange,
+  options,
+  label,
+  error,
+  placeholder = "Select…",
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  options: { value: string; label: string }[];
+  label?: string;
+  error?: string;
+  placeholder?: string;
+}) => {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const selected = options.find((o) => o.value === value);
+
+  useEffect(() => {
+    const handleClick = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node))
+        setOpen(false);
+    };
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, []);
+
+  return (
+    <div className="space-y-1.5" ref={ref}>
+      {label && (
+        <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider">
+          {label}
+        </label>
+      )}
+      <div className="relative">
+        <button
+          type="button"
+          onClick={() => setOpen(!open)}
+          aria-haspopup="listbox"
+          aria-expanded={open}
+          className={cn(
+            "w-full min-h-12 flex items-center justify-between gap-2 text-left",
+            "bg-slate-50 border rounded-xl px-4 py-2.5",
+            "text-sm font-semibold text-slate-900 transition-colors",
+            error
+              ? "border-rose-300"
+              : "border-slate-200 hover:border-slate-300",
+            open &&
+              !error &&
+              "bg-white border-emerald-600 ring-2 ring-emerald-600/20",
+            "focus:outline-none focus:bg-white focus:border-emerald-600 focus:ring-2 focus:ring-emerald-600/20",
+          )}
+        >
+          <span
+            className={cn(
+              "truncate",
+              !selected && "text-slate-500 font-normal",
+            )}
+          >
+            {selected?.label || placeholder}
+          </span>
+          <ChevronDown
+            size={16}
+            className={cn(
+              "text-slate-500 transition-transform shrink-0",
+              open && "rotate-180 text-emerald-700",
+            )}
+          />
+        </button>
+        <AnimatePresence>
+          {open && (
+            <motion.div
+              initial={{ opacity: 0, y: -8, scale: 0.98 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: -8, scale: 0.98 }}
+              transition={{ duration: 0.15 }}
+              role="listbox"
+              className="absolute top-full left-0 right-0 mt-2 bg-white border border-slate-200 rounded-xl shadow-xl z-50 max-h-64 overflow-y-auto p-1.5 space-y-0.5"
+            >
+              {options.map((opt) => {
+                const isSelected = opt.value === value;
+                return (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    role="option"
+                    aria-selected={isSelected}
+                    onClick={() => {
+                      onChange(opt.value);
+                      setOpen(false);
+                    }}
+                    className={cn(
+                      "w-full min-h-11 flex items-center justify-between gap-2 px-3 py-2 rounded-lg text-sm font-semibold text-left transition-colors",
+                      isSelected
+                        ? "bg-emerald-50 text-emerald-900"
+                        : "text-slate-700 hover:bg-slate-50",
+                      FOCUS,
+                    )}
+                  >
+                    <span className="truncate">{opt.label}</span>
+                    {isSelected && (
+                      <Check
+                        size={16}
+                        className="text-emerald-700 shrink-0"
+                        strokeWidth={3}
+                      />
+                    )}
+                  </button>
+                );
+              })}
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+      {error && <p className="text-xs text-rose-700 font-semibold">{error}</p>}
+    </div>
+  );
+};
+
 async function searchDrug(
   query: string,
 ): Promise<{ name: string; dosage?: string; ailment?: string }[]> {
@@ -545,7 +721,7 @@ async function searchDrug(
   }
 }
 
-// ---------- Medication Card (with Ongoing support) ----------
+// ---------- Medication Card ----------
 const MedicationCard = ({
   medication,
   expanded,
@@ -554,7 +730,6 @@ const MedicationCard = ({
   onReportReaction,
   onStop,
   isPast,
-  colorIndex,
   now,
 }: {
   medication: ExtendedMedication;
@@ -564,10 +739,8 @@ const MedicationCard = ({
   onReportReaction: (doseId: string) => void;
   onStop: () => void;
   isPast?: boolean;
-  colorIndex: number;
   now: number;
 }) => {
-  const medColor = medication.color || getMedicationColor(colorIndex);
   const isPrescribed = medication.source === "prescribed";
   const isOngoing = medication.totalQuantity === 0;
 
@@ -589,7 +762,6 @@ const MedicationCard = ({
   const progress =
     todaysDoses.length > 0 ? (takenToday / todaysDoses.length) * 100 : 0;
 
-  // Next upcoming dose
   const nextDose = medication.doses.find(
     (d) => !d.takenAt && new Date(d.scheduledTime).getTime() > now,
   );
@@ -620,52 +792,33 @@ const MedicationCard = ({
       layout
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
-      whileHover={{
-        y: -4,
-        boxShadow: "0 20px 40px -12px rgba(15, 23, 42, 0.15)",
-      }}
+      whileTap={{ scale: 0.995 }}
       transition={{ type: "spring", stiffness: 300, damping: 25 }}
       className={cn(
-        "bg-white rounded-2xl md:rounded-3xl border overflow-hidden transition-shadow duration-300",
+        "bg-white rounded-2xl border overflow-hidden transition-shadow duration-300",
         isPast ? "border-slate-200 opacity-60" : "border-slate-200 shadow-sm",
       )}
     >
-      <div
-        className="h-1.5 w-full"
-        style={{
-          background: isPast
-            ? "#cbd5e1"
-            : `linear-gradient(90deg, ${medColor}, ${medColor}88)`,
-        }}
-      />
+      <div className="h-1 w-full bg-emerald-600" />
 
-      <div className="p-4 md:p-6">
-        <div className="flex items-start justify-between">
-          <div className="flex-1 cursor-pointer" onClick={onToggleExpand}>
-            <div className="flex items-center gap-1.5 md:gap-2 flex-wrap mb-1">
-              <div
-                className="w-7 h-7 md:w-8 md:h-8 rounded-xl flex items-center justify-center"
-                style={{ backgroundColor: `${medColor}15` }}
-              >
-                <Pill
-                  className="w-3.5 h-3.5 md:w-4 md:h-4"
-                  style={{ color: medColor }}
-                />
+      <div className="p-4 md:p-5">
+        <div className="flex items-start justify-between gap-2">
+          <div
+            className="flex-1 cursor-pointer min-w-0"
+            onClick={onToggleExpand}
+          >
+            <div className="flex items-center gap-2 flex-wrap mb-2">
+              <div className="w-8 h-8 rounded-lg bg-emerald-50 flex items-center justify-center shrink-0">
+                <Pill className="w-4 h-4 text-emerald-700" />
               </div>
-              <h3 className="font-semibold text-slate-900 text-base md:text-lg">
+              <h3 className="font-semibold text-slate-900 text-base md:text-lg truncate">
                 {medication.name}
               </h3>
-              <span
-                className="text-[10px] font-bold px-2 py-0.5 rounded-full"
-                style={{
-                  backgroundColor: `${medColor}15`,
-                  color: medColor,
-                }}
-              >
+              <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-100">
                 {medication.dosage}
               </span>
               {isPrescribed && medication.sourceType && (
-                <span className="text-[10px] bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full font-bold flex items-center gap-1 border border-blue-100">
+                <span className="text-xs bg-slate-100 text-slate-700 px-2 py-0.5 rounded-full font-semibold flex items-center gap-1 border border-slate-200">
                   {medication.sourceType === "hospital" ? (
                     <Building className="w-3 h-3" />
                   ) : (
@@ -677,14 +830,14 @@ const MedicationCard = ({
                 </span>
               )}
               {medication.ailment && (
-                <span className="text-[10px] bg-slate-100 text-slate-700 px-2 py-0.5 rounded-full font-medium border border-slate-200">
+                <span className="text-xs bg-slate-100 text-slate-700 px-2 py-0.5 rounded-full font-medium border border-slate-200">
                   {medication.ailment}
                 </span>
               )}
             </div>
 
             {isPrescribed && (
-              <p className="text-xs text-slate-600 ml-10">
+              <p className="text-xs text-slate-600 ml-10 mb-1">
                 from{" "}
                 <span className="font-medium text-slate-800">
                   {medication.centerName}
@@ -693,9 +846,9 @@ const MedicationCard = ({
               </p>
             )}
 
-            <div className="flex items-center gap-2 mt-1.5 md:mt-2 ml-10">
+            <div className="flex items-center gap-2 mt-1.5 ml-10">
               {isOngoing ? (
-                <span className="text-xs text-emerald-600 font-medium flex items-center gap-1">
+                <span className="text-xs text-emerald-700 font-medium flex items-center gap-1">
                   <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
                   Ongoing
                 </span>
@@ -708,13 +861,12 @@ const MedicationCard = ({
                 </span>
               )}
             </div>
-            {/* Start and End dates */}
             <div className="ml-10 mt-1.5 flex flex-wrap gap-x-3 gap-y-1">
-              <span className="text-[10px] text-slate-500">
+              <span className="text-xs text-slate-500">
                 Start: {new Date(medication.startDate).toLocaleDateString()}
               </span>
               {medication.endDate && (
-                <span className="text-[10px] text-slate-500">
+                <span className="text-xs text-slate-500">
                   Finished: {new Date(medication.endDate).toLocaleDateString()}
                 </span>
               )}
@@ -723,19 +875,23 @@ const MedicationCard = ({
 
           <button
             onClick={onToggleExpand}
-            className="p-1.5 md:p-2 hover:bg-slate-50 rounded-xl transition-colors"
+            className={cn(
+              "min-h-10 min-w-10 inline-flex items-center justify-center hover:bg-slate-50 rounded-xl transition-colors shrink-0",
+              FOCUS,
+            )}
+            aria-label={expanded ? "Collapse" : "Expand"}
+            aria-expanded={expanded}
           >
             <motion.div
               animate={{ rotate: expanded ? 180 : 0 }}
               transition={{ duration: 0.2 }}
             >
-              <ChevronDown className="w-4 h-4 md:w-5 md:h-5 text-slate-400" />
+              <ChevronDown className="w-4 h-4 md:w-5 md:h-5 text-slate-500" />
             </motion.div>
           </button>
         </div>
 
-        {/* Progress bars */}
-        <div className="mt-4 md:mt-5 space-y-3">
+        <div className="mt-4 space-y-3">
           <div>
             <div className="flex justify-between text-xs font-semibold text-slate-600 mb-1.5">
               <span className="flex items-center gap-1">
@@ -750,10 +906,7 @@ const MedicationCard = ({
                 initial={{ width: 0 }}
                 animate={{ width: `${progress}%` }}
                 transition={{ duration: 0.8, ease: "easeOut" }}
-                className="h-full rounded-full"
-                style={{
-                  backgroundColor: progress === 100 ? "#22c55e" : medColor,
-                }}
+                className="h-full rounded-full bg-emerald-600"
               />
             </div>
           </div>
@@ -776,13 +929,12 @@ const MedicationCard = ({
           </div>
         </div>
 
-        {/* NEXT DOSE TIMER + BUTTON */}
         {!isPast && nextDose && (
-          <div className="mt-4 p-3 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between">
+          <div className="mt-4 p-3 rounded-xl bg-slate-50 border border-slate-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
             <div className="flex items-center gap-3">
-              <Clock className="w-5 h-5 text-slate-400" />
-              <div>
-                <p className="text-xs font-semibold text-slate-700">
+              <Clock className="w-5 h-5 text-slate-500 shrink-0" />
+              <div className="min-w-0">
+                <p className="text-xs font-semibold text-slate-600">
                   Next dose
                 </p>
                 <p className="text-sm font-bold text-slate-900">
@@ -794,12 +946,12 @@ const MedicationCard = ({
               </div>
               <span
                 className={cn(
-                  "text-xs font-bold px-2 py-1 rounded-lg",
+                  "text-xs font-bold px-2 py-1 rounded-lg shrink-0",
                   isNextDoseDue
-                    ? "text-red-600 bg-red-100"
+                    ? "text-rose-700 bg-rose-100"
                     : nextDoseCountdown.includes("h")
-                      ? "text-slate-500"
-                      : "text-amber-600 bg-amber-100",
+                      ? "text-slate-600 bg-slate-100"
+                      : "text-amber-700 bg-amber-100",
                 )}
               >
                 {nextDoseCountdown}
@@ -809,21 +961,27 @@ const MedicationCard = ({
               <div className="flex gap-2">
                 <button
                   onClick={() => onLogDose(nextDose.id, true, "")}
-                  className="px-3 py-1.5 bg-emerald-600 text-white text-xs font-bold rounded-lg hover:bg-emerald-700 shadow-sm"
+                  className={cn(
+                    "inline-flex items-center gap-1 min-h-10 px-3 bg-emerald-600 text-white text-xs font-bold rounded-lg hover:bg-emerald-700 shadow-sm transition-colors",
+                    FOCUS,
+                  )}
                 >
-                  <Check className="w-3 h-3 inline mr-1" />
+                  <Check className="w-3 h-3" />
                   Take
                 </button>
                 <button
                   onClick={() => onReportReaction(nextDose.id)}
-                  className="px-2 py-1.5 bg-amber-50 text-amber-700 text-xs font-bold rounded-lg hover:bg-amber-100 border border-amber-200"
+                  className={cn(
+                    "inline-flex items-center gap-1 min-h-10 px-3 bg-amber-50 text-amber-700 text-xs font-bold rounded-lg hover:bg-amber-100 border border-amber-200 transition-colors",
+                    FOCUS,
+                  )}
                 >
-                  <AlertCircle className="w-3 h-3 inline mr-1" />
+                  <AlertCircle className="w-3 h-3" />
                   Issue
                 </button>
               </div>
             ) : (
-              <span className="text-xs font-medium text-slate-400">
+              <span className="text-xs font-medium text-slate-500">
                 Upcoming
               </span>
             )}
@@ -831,7 +989,7 @@ const MedicationCard = ({
         )}
         {!isPast && !nextDose && (
           <div className="mt-4 p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-center">
-            <p className="text-xs font-medium text-emerald-700">
+            <p className="text-xs font-medium text-emerald-800">
               All scheduled doses completed
             </p>
           </div>
@@ -844,12 +1002,11 @@ const MedicationCard = ({
               animate={{ opacity: 1, height: "auto" }}
               exit={{ opacity: 0, height: 0 }}
               transition={{ duration: 0.3 }}
-              className="mt-4 md:mt-5 space-y-4 md:space-y-5 overflow-hidden"
+              className="mt-4 space-y-4 overflow-hidden"
             >
-              {/* Next 7 Days calendar */}
               <div>
-                <h4 className="text-xs font-semibold text-slate-700 mb-2 md:mb-3 flex items-center gap-1.5 uppercase tracking-wider">
-                  <Calendar className="w-3.5 h-3.5 text-slate-400" />
+                <h4 className="text-xs font-bold text-slate-600 mb-2.5 flex items-center gap-1.5 uppercase tracking-wider">
+                  <Calendar className="w-3.5 h-3.5 text-slate-500" />
                   Next 7 Days
                 </h4>
                 <div className="grid grid-cols-7 gap-1">
@@ -868,24 +1025,22 @@ const MedicationCard = ({
                       <div
                         key={day}
                         className={cn(
-                          "aspect-square rounded-lg md:rounded-xl flex flex-col items-center justify-center text-[10px] p-0.5 transition-all",
+                          "aspect-square rounded-lg flex flex-col items-center justify-center text-xs p-0.5 transition-all",
                           tt > 0
                             ? tk === tt
                               ? "bg-emerald-50 text-emerald-800 border border-emerald-200"
                               : tk > 0
                                 ? "bg-amber-50 text-amber-800 border border-amber-200"
-                                : "bg-slate-50 text-slate-500 border border-slate-100"
-                            : "bg-slate-50 text-slate-300 border border-slate-100",
+                                : "bg-slate-50 text-slate-600 border border-slate-100"
+                            : "bg-slate-50 text-slate-400 border border-slate-100",
                         )}
                       >
-                        <span className="text-[8px] font-medium opacity-60">
+                        <span className="text-[10px] font-medium opacity-70">
                           {dayName}
                         </span>
-                        <span className="font-bold text-xs md:text-sm">
-                          {dayNum}
-                        </span>
+                        <span className="font-bold text-xs">{dayNum}</span>
                         {tt > 0 && (
-                          <span className="text-[8px] font-semibold">
+                          <span className="text-[10px] font-semibold">
                             {tk}/{tt}
                           </span>
                         )}
@@ -898,7 +1053,10 @@ const MedicationCard = ({
               {!isPast && (
                 <button
                   onClick={onStop}
-                  className="w-full py-2.5 md:py-3 text-xs md:text-sm bg-slate-50 text-slate-600 rounded-xl md:rounded-2xl hover:bg-red-50 hover:text-red-600 transition-all font-bold flex items-center justify-center gap-2 border border-slate-200 hover:border-red-200"
+                  className={cn(
+                    "w-full min-h-11 inline-flex items-center justify-center gap-2 text-sm bg-slate-50 text-slate-700 rounded-xl hover:bg-rose-50 hover:text-rose-700 transition-all font-semibold border border-slate-200 hover:border-rose-200",
+                    FOCUS,
+                  )}
                 >
                   <StopCircle className="w-4 h-4" /> Stop / Finish Medication
                 </button>
@@ -932,14 +1090,6 @@ const UpcomingDosePill = ({
         : timeOfDay === "evening"
           ? Sunset
           : Moon;
-  const colorClass =
-    timeOfDay === "morning"
-      ? "bg-amber-50 text-amber-700"
-      : timeOfDay === "afternoon"
-        ? "bg-orange-50 text-orange-700"
-        : timeOfDay === "evening"
-          ? "bg-indigo-50 text-indigo-700"
-          : "bg-slate-100 text-slate-700";
 
   const diff = doseTime.getTime() - now;
   const isDue = diff <= 0;
@@ -956,29 +1106,24 @@ const UpcomingDosePill = ({
     <motion.div
       initial={{ opacity: 0, x: -20 }}
       animate={{ opacity: 1, x: 0 }}
-      transition={{ delay: index * 0.1 }}
+      transition={{ delay: index * 0.05 }}
       className={cn(
-        "flex items-center gap-2 md:gap-3 p-2.5 md:p-3 rounded-xl md:rounded-2xl border transition-all",
+        "flex items-center gap-2.5 p-3 rounded-xl border transition-all",
         isDue
-          ? "bg-red-50 border-red-200"
+          ? "bg-rose-50 border-rose-200"
           : isSoon
             ? "bg-amber-50 border-amber-200"
-            : "bg-white border-slate-200",
+            : "bg-slate-50 border-slate-200",
       )}
     >
-      <div
-        className={cn(
-          "w-8 h-8 md:w-10 md:h-10 rounded-xl flex items-center justify-center",
-          colorClass,
-        )}
-      >
-        <TimeIcon className="w-4 h-4 md:w-5 md:h-5" />
+      <div className="w-9 h-9 rounded-lg bg-white border border-slate-200 flex items-center justify-center shrink-0">
+        <TimeIcon className="w-4 h-4 text-emerald-700" />
       </div>
       <div className="flex-1 min-w-0">
-        <p className="text-xs md:text-sm font-semibold text-slate-900 truncate">
+        <p className="text-sm font-semibold text-slate-900 truncate">
           {dose.medicationName}
         </p>
-        <p className="text-[10px] md:text-xs text-slate-600">
+        <p className="text-xs text-slate-600 truncate">
           {doseTime.toLocaleTimeString([], {
             hour: "2-digit",
             minute: "2-digit",
@@ -988,12 +1133,12 @@ const UpcomingDosePill = ({
       </div>
       <span
         className={cn(
-          "text-[10px] font-bold px-2 py-1 rounded-lg",
+          "text-xs font-bold px-2 py-1 rounded-lg shrink-0",
           isDue
-            ? "text-red-600 bg-red-100"
+            ? "text-rose-700 bg-rose-100"
             : isSoon
-              ? "text-amber-600 bg-amber-100"
-              : "text-slate-500",
+              ? "text-amber-700 bg-amber-100"
+              : "text-slate-600 bg-slate-100",
         )}
       >
         {countdown}
@@ -1002,75 +1147,94 @@ const UpcomingDosePill = ({
   );
 };
 
-// ---------- Camera / Snap Modal (unchanged) ----------
+// ---------- Snap Drug Modal ----------
 const SnapDrugModal = ({ onClose, onSnap }: any) => {
-  // ... (keep the full implementation from your existing file)
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [stream, setStream] = useState<MediaStream | null>(null);
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
   const [extractedText, setExtractedText] = useState("");
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [step, setStep] = useState<"camera" | "result">("camera");
 
-  const stopCamera = useCallback(() => {
-    if (stream) {
-      stream.getTracks().forEach((track) => {
-        track.stop();
-        track.enabled = false;
-      });
-      setStream(null);
-    }
-    if (videoRef.current) {
-      videoRef.current.srcObject = null;
-      videoRef.current.pause();
-    }
-  }, [stream]);
-
   useEffect(() => {
-    if (step === "camera") {
-      navigator.mediaDevices
-        .getUserMedia({ video: { facingMode: "environment" } })
-        .then((mediaStream) => {
-          setStream(mediaStream);
-          if (videoRef.current) {
-            videoRef.current.srcObject = mediaStream;
-            const playPromise = videoRef.current.play();
-            if (playPromise !== undefined) {
-              playPromise.catch((err) =>
-                console.warn("Auto-play prevented:", err),
-              );
-            }
+    if (step !== "camera") return;
+    let mounted = true;
+    let localStream: MediaStream | null = null;
+
+    navigator.mediaDevices
+      .getUserMedia({
+        video: {
+          facingMode: "environment",
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+        },
+      })
+      .then((mediaStream) => {
+        if (!mounted) {
+          mediaStream.getTracks().forEach((t) => t.stop());
+          return;
+        }
+        localStream = mediaStream;
+        if (videoRef.current) {
+          videoRef.current.srcObject = mediaStream;
+          const playPromise = videoRef.current.play();
+          if (playPromise !== undefined) {
+            playPromise.catch((err) => {
+              if (err?.name !== "AbortError") {
+                console.warn("Video play failed:", err);
+              }
+            });
           }
-        })
-        .catch((err) => {
-          setError("Cannot access camera. Please allow camera access.");
-          console.error(err);
-        });
-    }
-    return () => {
-      if (step === "camera") stopCamera();
-    };
-  }, [step, stopCamera]);
+        }
+      })
+      .catch((err) => {
+        if (mounted) {
+          setError(
+            "Cannot access camera. Please allow camera access and try again.",
+          );
+        }
+        console.error("Camera error:", err);
+      });
 
-  useEffect(() => {
-    return () => stopCamera();
-  }, [stopCamera]);
+    return () => {
+      mounted = false;
+      if (localStream) localStream.getTracks().forEach((t) => t.stop());
+      if (videoRef.current) {
+        videoRef.current.srcObject = null;
+        try {
+          videoRef.current.pause();
+        } catch {}
+      }
+    };
+  }, [step]);
 
   const capture = () => {
     if (!videoRef.current || !canvasRef.current) return;
     const video = videoRef.current;
+
+    if (
+      video.videoWidth === 0 ||
+      video.videoHeight === 0 ||
+      video.readyState < 2
+    ) {
+      setError("Camera is still starting. Please wait a moment and try again.");
+      return;
+    }
+
     const canvas = canvasRef.current;
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
     const ctx = canvas.getContext("2d");
-    if (!ctx) return;
+    if (!ctx) {
+      setError("Could not capture image.");
+      return;
+    }
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-    const dataUrl = canvas.toDataURL("image/jpeg");
+    const dataUrl = canvas.toDataURL("image/jpeg", 0.85);
     setCapturedImage(dataUrl);
+    setError(null);
     setStep("result");
-    stopCamera();
     runOCR(dataUrl);
   };
 
@@ -1078,15 +1242,28 @@ const SnapDrugModal = ({ onClose, onSnap }: any) => {
     setIsProcessing(true);
     setError(null);
     try {
+      await new Promise<void>((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => resolve();
+        img.onerror = () => reject(new Error("Invalid image data"));
+        img.src = imageData;
+      });
+
       const {
         data: { text },
-      } = await Tesseract.recognize(imageData, "eng", {
-        logger: (m) => console.log(m),
-      });
-      setExtractedText(text);
+      } = await Tesseract.recognize(imageData, "eng");
+      const cleaned = text.trim().split("\n")[0]?.trim() || "";
+      setExtractedText(cleaned);
+      if (!cleaned) {
+        setError(
+          "No text detected. Retake in better lighting or type the name manually.",
+        );
+      }
     } catch (err) {
-      setError("OCR failed. Please try again or type manually.");
-      console.error(err);
+      console.error("OCR error:", err);
+      setError(
+        "Could not read text from this image. Please type the medication name manually.",
+      );
     } finally {
       setIsProcessing(false);
     }
@@ -1098,7 +1275,7 @@ const SnapDrugModal = ({ onClose, onSnap }: any) => {
       onSnap(name);
       onClose();
     } else {
-      setError("No text found. Please try again.");
+      setError("No text found. Please type a name or retake.");
     }
   };
 
@@ -1109,29 +1286,35 @@ const SnapDrugModal = ({ onClose, onSnap }: any) => {
     setError(null);
   };
 
-  const handleClose = () => {
-    stopCamera();
-    onClose();
-  };
-
   return (
-    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[100] p-4">
-      <div className="bg-white rounded-2xl md:rounded-3xl max-w-lg w-full overflow-hidden shadow-2xl">
+    <div className="fixed inset-0 bg-slate-950/70 backdrop-blur-sm flex items-end sm:items-center justify-center z-[100] sm:p-4">
+      <div className="bg-white rounded-t-3xl sm:rounded-2xl max-w-lg w-full overflow-hidden shadow-2xl max-h-[92vh] overflow-y-auto pb-[max(1rem,env(safe-area-inset-bottom))] sm:pb-0">
+        <div className="sm:hidden flex justify-center pt-3" aria-hidden>
+          <div className="w-10 h-1 rounded-full bg-slate-300" />
+        </div>
         <div className="flex items-center justify-between p-4 border-b border-slate-200">
-          <h3 className="text-base md:text-lg font-semibold text-slate-800">
+          <h3 className="text-base md:text-lg font-bold text-slate-900">
             Snap Drug
           </h3>
           <button
-            onClick={handleClose}
-            className="p-1 hover:bg-slate-100 rounded-full"
+            onClick={onClose}
+            aria-label="Close"
+            className={cn(
+              "min-h-10 min-w-10 inline-flex items-center justify-center hover:bg-slate-100 rounded-xl text-slate-600 transition-colors",
+              FOCUS,
+            )}
           >
             <X className="w-5 h-5" />
           </button>
         </div>
         <div className="p-4">
           {error && (
-            <div className="bg-red-50 border border-red-200 text-red-600 p-3 rounded-xl text-sm mb-3 flex items-center gap-2">
-              <AlertCircle className="w-4 h-4" /> {error}
+            <div
+              role="alert"
+              className="bg-rose-50 border border-rose-200 text-rose-800 p-3 rounded-xl text-xs font-medium mb-3 flex items-start gap-2"
+            >
+              <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+              <span>{error}</span>
             </div>
           )}
           {step === "camera" && (
@@ -1140,12 +1323,17 @@ const SnapDrugModal = ({ onClose, onSnap }: any) => {
                 ref={videoRef}
                 className="w-full h-full object-cover"
                 playsInline
+                muted
                 autoPlay
               />
               <canvas ref={canvasRef} className="hidden" />
               <button
                 onClick={capture}
-                className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-white rounded-full p-3 md:p-4 shadow-lg hover:scale-105 transition-transform"
+                aria-label="Capture photo"
+                className={cn(
+                  "absolute bottom-4 left-1/2 -translate-x-1/2 bg-white rounded-full p-3.5 shadow-lg hover:scale-105 active:scale-95 transition-transform",
+                  FOCUS,
+                )}
               >
                 <Camera className="w-5 h-5 md:w-6 md:h-6 text-slate-900" />
               </button>
@@ -1163,35 +1351,40 @@ const SnapDrugModal = ({ onClose, onSnap }: any) => {
                 )}
               </div>
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Extracted Text (edit if needed)
+                <label className="block text-xs font-bold text-slate-600 mb-1 uppercase tracking-wider">
+                  Extracted name
                 </label>
                 <Textarea
                   value={extractedText}
                   onChange={(e: ChangeEvent<HTMLTextAreaElement>) =>
                     setExtractedText(e.target.value)
                   }
-                  placeholder="OCR result will appear here..."
+                  placeholder="OCR result will appear here…"
                   className="min-h-[80px]"
                 />
                 {isProcessing && (
-                  <div className="flex items-center gap-2 mt-2 text-sm text-slate-500">
-                    <Loader2 className="w-4 h-4 animate-spin" /> Processing
-                    image...
+                  <div className="flex items-center gap-2 mt-2 text-sm text-slate-600 font-medium">
+                    <Loader2 className="w-4 h-4 animate-spin" /> Reading image…
                   </div>
                 )}
               </div>
               <div className="flex gap-3">
                 <button
                   onClick={retake}
-                  className="flex-1 py-2.5 bg-slate-100 text-slate-700 rounded-xl font-medium hover:bg-slate-200 transition"
+                  className={cn(
+                    "flex-1 min-h-12 bg-slate-100 text-slate-800 rounded-xl font-semibold hover:bg-slate-200 transition",
+                    FOCUS,
+                  )}
                 >
                   Retake
                 </button>
                 <button
                   onClick={handleUseName}
                   disabled={!extractedText.trim() || isProcessing}
-                  className="flex-1 py-2.5 bg-teal-600 text-white rounded-xl font-medium hover:bg-teal-700 transition disabled:opacity-50"
+                  className={cn(
+                    "flex-1 min-h-12 bg-emerald-600 text-white rounded-xl font-bold hover:bg-emerald-700 transition disabled:opacity-50 disabled:cursor-not-allowed",
+                    FOCUS,
+                  )}
                 >
                   {isProcessing ? (
                     <Loader2 className="w-4 h-4 animate-spin mx-auto" />
@@ -1213,26 +1406,51 @@ export default function MedicationPanel() {
   const user = useUserContext();
   const { profile } = useProfile();
 
-  // Live clock
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
     const interval = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(interval);
   }, []);
 
-  const [selectedFamilyId, setSelectedFamilyId] = useState("self");
-  const [familyMembers, setFamilyMembers] = useState<FamilyMember[]>([]);
+  // Persisted: selected family member
+  const [selectedFamilyId, setSelectedFamilyId] = useState<string>(() => {
+    return ssGet("med:selectedFamilyId") || "self";
+  });
+  useEffect(() => {
+    ssSet("med:selectedFamilyId", selectedFamilyId);
+  }, [selectedFamilyId]);
+
+  // Persisted: active tab
+  const [activeTab, setActiveTab] = useState<"active" | "past">(() => {
+    const v = ssGet("med:activeTab");
+    return v === "past" ? "past" : "active";
+  });
+  useEffect(() => {
+    ssSet("med:activeTab", activeTab);
+  }, [activeTab]);
+
+  // Persisted: expanded medication
+  const [expandedMedId, setExpandedMedId] = useState<string | null>(() =>
+    ssGet("med:expandedMedId"),
+  );
+  useEffect(() => {
+    if (expandedMedId) ssSet("med:expandedMedId", expandedMedId);
+    else ssRemove("med:expandedMedId");
+  }, [expandedMedId]);
+
+  // Ephemeral state
+  const [familyMembers, setFamilyMembers] = useState<FamilyMember[]>([
+    { id: "self", name: "Myself", relationship: "self" },
+  ]);
   const [showAddMedModal, setShowAddMedModal] = useState(false);
   const [showAddFamilyModal, setShowAddFamilyModal] = useState(false);
   const [showReactionModal, setShowReactionModal] = useState<{
     medicationId: string;
     doseId: string;
   } | null>(null);
-  const [expandedMedId, setExpandedMedId] = useState<string | null>(null);
   const [showHelp, setShowHelp] = useState(false);
   const [helpSlide, setHelpSlide] = useState(0);
   const [stopConfirm, setStopConfirm] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<"active" | "past">("active");
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<
     { name: string; dosage?: string; ailment?: string }[]
@@ -1240,7 +1458,28 @@ export default function MedicationPanel() {
   const [searching, setSearching] = useState(false);
   const [showSnapModal, setShowSnapModal] = useState(false);
 
-  // Help guide
+  // Scroll restoration — always scroll (to saved or 0) so panel
+  // never inherits the previous panel's scroll position
+  const scrollerRef = useRef<HTMLElement | null>(null);
+  const scrollRestoredRef = useRef(false);
+  useEffect(() => {
+    const el =
+      (document.getElementById("dashboard-scroll") as HTMLElement | null) ||
+      (document.querySelector("main") as HTMLElement | null);
+    scrollerRef.current = el;
+    if (!el) return;
+
+    if (!scrollRestoredRef.current) {
+      const saved = ssGet("med:scroll");
+      el.scrollTo({ top: saved ? Number(saved) : 0, behavior: "instant" });
+      scrollRestoredRef.current = true;
+    }
+
+    const onScroll = () => ssSet("med:scroll", String(el.scrollTop));
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => el.removeEventListener("scroll", onScroll);
+  }, []);
+
   useEffect(() => {
     if (!localStorage.getItem("doza_medication_help_v2")) {
       setShowHelp(true);
@@ -1248,10 +1487,11 @@ export default function MedicationPanel() {
     }
   }, []);
 
-  // Family members
+  // ─── Family fetch (with SWR config) ─────────────────────────
   const { data: familyData, mutate: mutateFamily } = useSWR(
     "/api/family",
     authFetcher,
+    SWR_PANEL_CONFIG,
   );
   useEffect(() => {
     if (familyData?.success) {
@@ -1267,18 +1507,17 @@ export default function MedicationPanel() {
     }
   }, [familyData]);
 
-  // Self-added medications
+  // ─── Medications fetch (with SWR config) ───────────────────
   const { data, error, isLoading } = useSWR(
     `/api/medications?memberId=${selectedFamilyId}`,
     authFetcher,
+    SWR_PANEL_CONFIG,
   );
   const selfMedications: Medication[] = data?.success ? data.data : [];
 
-  // Prescribed medications
   const { prescriptions: prescribedMeds, loading: prescribedLoading } =
     usePrescribedMedications();
 
-  // Medication Meta
   const [medicationMeta, setMedicationMeta] = useState<
     Record<
       string,
@@ -1304,27 +1543,22 @@ export default function MedicationPanel() {
     localStorage.setItem("medicationMeta", JSON.stringify(medicationMeta));
   }, [medicationMeta]);
 
-  // Merge self and prescribed
   const allExtended = useMemo<ExtendedMedication[]>(() => {
-    const selfExtended = selfMedications.map((m, i) => {
-      const meta = medicationMeta[m.id];
-      return {
-        ...m,
-        source: "self" as const,
-        color: getMedicationColor(i),
-        status: m.status as "active" | "completed" | "paused" | "pending",
-        prescriptionId: meta?.prescriptionId,
-        centerId: meta?.centerId,
-        sourceType: meta?.sourceType,
-      };
-    });
+    const selfExtended = selfMedications.map((m) => ({
+      ...m,
+      source: "self" as const,
+      status: m.status as "active" | "completed" | "paused" | "pending",
+      prescriptionId: medicationMeta[m.id]?.prescriptionId,
+      centerId: medicationMeta[m.id]?.centerId,
+      sourceType: medicationMeta[m.id]?.sourceType,
+    }));
 
     const startedIds = new Set(
       Object.values(medicationMeta).map((v) => v.prescriptionId),
     );
     const unstarted = prescribedMeds.filter((p) => !startedIds.has(p.id));
 
-    const prescribedExtended = unstarted.map((p, i) => ({
+    const prescribedExtended = unstarted.map((p) => ({
       id: p.id,
       name: p.medication,
       dosage: p.dosage,
@@ -1345,14 +1579,12 @@ export default function MedicationPanel() {
       prescribedBy: p.prescribedBy,
       prescribedAt: p.prescribedAt,
       sourceType: p.source,
-      color: getMedicationColor(selfExtended.length + i),
       prescriptionId: p.id,
     }));
 
     return [...selfExtended, ...prescribedExtended];
   }, [selfMedications, prescribedMeds, medicationMeta]);
 
-  // Filters
   const activeMeds = allExtended.filter(
     (m) => m.status === "active" && m.doses.length > 0,
   );
@@ -1377,7 +1609,7 @@ export default function MedicationPanel() {
       if (!centerMap.has(key)) centerMap.set(key, []);
       centerMap.get(key)!.push(m);
     });
-    for (const [centerId, items] of centerMap) {
+    for (const [, items] of centerMap) {
       const centerName = items[0]?.centerName || "Unknown Center";
       groups.push({ label: centerName, items });
     }
@@ -1396,14 +1628,13 @@ export default function MedicationPanel() {
       if (!centerMap.has(key)) centerMap.set(key, []);
       centerMap.get(key)!.push(m);
     });
-    for (const [centerId, items] of centerMap) {
+    for (const [, items] of centerMap) {
       const centerName = items[0]?.centerName || "Unknown Center";
       groups.push({ label: centerName, items });
     }
     return groups;
   }, [pastMeds]);
 
-  // Stats
   const adherenceScore = getAdherenceScore(allExtended);
   const streak = getStreak(allExtended);
 
@@ -1475,13 +1706,13 @@ export default function MedicationPanel() {
       .filter((d) => d.scheduledTime.startsWith(today)).length;
   }, [allExtended]);
 
-  // ─── Forms ──────────────────────────────────────────────────────────
   const {
     register,
     handleSubmit,
     reset,
     watch,
     setValue,
+    control,
     formState: { errors, isSubmitting },
   } = useForm<MedicationForm>({
     resolver: zodResolver(medicationSchema) as any,
@@ -1489,11 +1720,12 @@ export default function MedicationPanel() {
       frequency: "once",
       assignedTo: selectedFamilyId,
       quantityPerDose: 1,
-      totalQuantity: 0, // 0 means "ongoing"
+      totalQuantity: 0,
       startDate: new Date().toISOString().split("T")[0],
     },
   });
   const frequency = watch("frequency");
+
   useEffect(() => {
     setValue("assignedTo", selectedFamilyId);
   }, [selectedFamilyId, setValue]);
@@ -1504,8 +1736,6 @@ export default function MedicationPanel() {
   const familyForm = useForm<FamilyForm>({
     resolver: zodResolver(familySchema),
   });
-
-  // ─── Handlers ──────────────────────────────────────────────────────
 
   const handleDrugSearch = async (query: string) => {
     if (!query.trim()) {
@@ -1536,10 +1766,9 @@ export default function MedicationPanel() {
   };
 
   const onSubmitNewMed = async (formData: MedicationForm) => {
-    let totalQty = formData.totalQuantity || 0; // 0 = ongoing
+    let totalQty = formData.totalQuantity || 0;
     let durationDays = formData.durationDays;
 
-    // If duration is provided, compute total quantity
     if (durationDays && totalQty === 0) {
       const intakesPerDay = getIntakesPerDay(formData.frequency);
       totalQty = deriveTotalQuantity(
@@ -1549,7 +1778,6 @@ export default function MedicationPanel() {
       );
     }
 
-    // If total quantity is provided, compute duration for display
     if (totalQty > 0 && !durationDays) {
       const intakesPerDay = getIntakesPerDay(formData.frequency);
       durationDays = deriveDuration(
@@ -1559,7 +1787,6 @@ export default function MedicationPanel() {
       );
     }
 
-    // Generate doses
     let timesArray: string[] = [];
     let doses: Dose[] = [];
     let endDateStr: string | undefined;
@@ -1613,8 +1840,6 @@ export default function MedicationPanel() {
 
     const normalizedFreq = normalizeFrequency(prescribed.frequency);
     const startDateTime = new Date().toISOString();
-
-    // Use totalQuantity from prescription, or 0 for ongoing
     const totalQty = prescribed.totalQuantity || 0;
     const doses = generateDosesFromStart(
       startDateTime,
@@ -1645,10 +1870,7 @@ export default function MedicationPanel() {
 
       if (result.success) {
         const newId = result.data?.id ?? result.id;
-        if (!newId) {
-          alert("Created but could not retrieve ID.");
-          return;
-        }
+        if (!newId) return;
         const newMeta = {
           ...medicationMeta,
           [newId]: {
@@ -1658,20 +1880,16 @@ export default function MedicationPanel() {
           },
         };
         setMedicationMeta(newMeta);
-        localStorage.setItem("medicationMeta", JSON.stringify(newMeta));
-
         mutate(`/api/medications?memberId=${selectedFamilyId}`);
-        alert("Medication started! Your doses are now scheduled.");
+        alert("Medication started. Your doses are now scheduled.");
       } else {
         alert("Error: " + result.error);
       }
     } catch (err: any) {
-      console.error(err);
       alert("Failed to start medication: " + (err.message || "Unknown error"));
     }
   };
 
-  // Reschedule doses after a late dose
   const rescheduleDoses = (
     medication: Medication,
     takenDoseIndex: number,
@@ -1790,7 +2008,7 @@ export default function MedicationPanel() {
         alert("Error: " + (result.error || "Failed to log dose"));
         mutate(swrKey);
       }
-    } catch (err) {
+    } catch {
       alert("An error occurred");
       mutate(swrKey);
     }
@@ -1812,41 +2030,25 @@ export default function MedicationPanel() {
     try {
       const getRes = await fetch(
         `/api/centers/${centerId}/patients/${user.id}`,
-        {
-          credentials: "include",
-        },
+        { credentials: "include" },
       );
-      if (!getRes.ok) {
-        console.warn("Could not fetch patient record for sync");
-        return;
-      }
-
+      if (!getRes.ok) return;
       const patientData = await getRes.json();
-      if (!patientData.success) {
-        console.warn("Invalid patient data response");
-        return;
-      }
+      if (!patientData.success) return;
 
       let existingAdmins = patientData.data?.medicationAdministrations || [];
       if (!Array.isArray(existingAdmins)) {
         existingAdmins = Object.values(existingAdmins);
       }
 
-      const putRes = await fetch(
-        `/api/centers/${centerId}/patients/${user.id}`,
-        {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          credentials: "include",
-          body: JSON.stringify({
-            medicationAdministrations: [...existingAdmins, administration],
-          }),
-        },
-      );
-      if (!putRes.ok) {
-        const errorBody = await putRes.text();
-        console.warn(`Sync failed (${putRes.status}):`, errorBody);
-      }
+      await fetch(`/api/centers/${centerId}/patients/${user.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          medicationAdministrations: [...existingAdmins, administration],
+        }),
+      });
     } catch (err) {
       console.warn("Sync to center error", err);
     }
@@ -1901,7 +2103,7 @@ export default function MedicationPanel() {
           applicationServerKey: process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY,
         });
         await authPost("/api/notifications/subscribe", subscription);
-        alert("Notifications enabled!");
+        alert("Notifications enabled.");
       } else alert("Permission denied.");
     } catch {
       alert("Failed to enable notifications.");
@@ -1910,25 +2112,25 @@ export default function MedicationPanel() {
 
   const helpSlides = [
     {
-      icon: <Users className="w-8 h-8 text-teal-600" />,
+      icon: <Users className="w-8 h-8 text-emerald-700" />,
       title: "Add Family",
       description:
         "Tap + next to 'Managing for' to add dependents and track their medications.",
     },
     {
-      icon: <Pill className="w-8 h-8 text-teal-600" />,
+      icon: <Pill className="w-8 h-8 text-emerald-700" />,
       title: "Add Medications",
       description:
         "Enter dosage, stock & frequency. We'll auto-calculate your schedule.",
     },
     {
-      icon: <CheckCircle className="w-8 h-8 text-teal-600" />,
+      icon: <CheckCircle className="w-8 h-8 text-emerald-700" />,
       title: "Log Doses",
       description:
         "Expand a card & mark doses as taken. Report any reactions instantly.",
     },
     {
-      icon: <Bell className="w-8 h-8 text-teal-600" />,
+      icon: <Bell className="w-8 h-8 text-emerald-700" />,
       title: "Smart Reminders",
       description: "Enable push notifications to never miss a dose again.",
     },
@@ -1936,75 +2138,75 @@ export default function MedicationPanel() {
 
   if (error)
     return (
-      <div className="p-6 text-red-600 text-center bg-white rounded-2xl md:rounded-3xl border shadow-sm">
+      <div className="p-6 text-rose-700 text-center bg-white rounded-2xl border shadow-sm">
         Error loading medications.
       </div>
     );
 
+  // Cold start = loading AND no data. Warm cache = no skeleton.
   const isLoadingCombined = isLoading || prescribedLoading;
+  const isColdStart = isLoadingCombined && allExtended.length === 0;
 
-  // ─── Render ──────────────────────────────────────────────────────
   return (
-    <div
+    <motion.div
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.2, ease: "easeOut" }}
       className={cn(
-        "min-h-screen bg-slate-50 pb-24 pt-1 md:pt-6",
+        "min-h-screen bg-slate-50 pb-24 pt-2 md:pt-6",
         poppins.className,
       )}
     >
-      <div className="max-w-7xl mx-auto px-4 md:px-6 space-y-5 md:space-y-8">
-        {/* HEADER */}
-        <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-6 mb-8">
-          <div>
-            <div className="flex items-center gap-3 mb-2">
-              <div className="h-8 w-1 rounded-full bg-gradient-to-b from-emerald-500 to-teal-600" />
-              <span className="text-[11px] font-bold text-emerald-600 uppercase tracking-[0.25em]">
-                Medication Management
-              </span>
-            </div>
-            <h1
-              className={cn(
-                "text-4xl md:text-5xl text-slate-900 leading-[1.1] tracking-tight",
-                bebasNeue.className,
-              )}
-            >
+      <div className="max-w-7xl mx-auto px-4 md:px-6 space-y-5 md:space-y-7">
+        {/* ─── HEADER ──────────────────────────────────────────── */}
+        <header className="flex flex-col md:flex-row md:items-end md:justify-between gap-4 mb-2 md:mb-4">
+          <div className="min-w-0">
+            <h1 className="text-3xl sm:text-4xl md:text-5xl text-slate-900 leading-[1.1] tracking-tight font-bold">
               Medication <span className="text-emerald-600">Tracker</span>
             </h1>
-            <p className="text-sm text-slate-600 mt-2 max-w-md">
+            <p className="text-sm text-slate-600 mt-1.5">
               {streak > 0 ? (
-                <span className="flex items-center gap-1.5 text-amber-600">
-                  <Sparkles className="w-4 h-4" />
-                  <span className="font-semibold">
-                    {streak}-day streak! Keep it up.
+                <span className="inline-flex items-center gap-1.5 flex-wrap">
+                  <Flame className="w-4 h-4 text-amber-600 shrink-0" />
+                  <span className="font-semibold text-amber-700">
+                    {streak}-day streak
                   </span>
+                  <span className="text-slate-400">·</span>
+                  <span>Keep it up</span>
                 </span>
               ) : (
-                "Stay on top of your health regimen."
+                "Stay on top of your daily doses."
               )}
             </p>
           </div>
 
-          {/* Action Buttons */}
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 shrink-0">
             <button
               onClick={requestNotificationPermission}
-              className="flex items-center gap-2 px-5 py-3 bg-slate-800 text-white rounded-xl font-medium hover:bg-slate-700 transition shadow-sm"
+              className={cn(
+                "inline-flex items-center gap-2 min-h-12 px-4 bg-white text-slate-800 border border-slate-200 rounded-xl font-semibold hover:bg-slate-50 transition shadow-sm",
+                FOCUS,
+              )}
             >
               <Bell size={16} />
               <span className="hidden sm:inline">Reminders</span>
             </button>
             <button
               onClick={() => setShowAddMedModal(true)}
-              className="flex items-center gap-2 px-5 py-3 bg-emerald-600 text-white rounded-xl font-medium hover:bg-emerald-700 transition shadow-sm shadow-emerald-200"
+              className={cn(
+                "inline-flex items-center gap-2 min-h-12 px-4 bg-emerald-600 text-white rounded-xl font-semibold hover:bg-emerald-700 transition shadow-sm",
+                FOCUS,
+              )}
             >
               <Plus size={16} />
               <span className="hidden sm:inline">Add Med</span>
             </button>
           </div>
-        </div>
+        </header>
 
-        {/* STATS GRID */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 md:gap-5">
-          {isLoadingCombined ? (
+        {/* ─── STATS ─────────────────────────────────────────── */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
+          {isColdStart ? (
             <>
               <SkeletonStatCard />
               <SkeletonStatCard />
@@ -2013,38 +2215,45 @@ export default function MedicationPanel() {
             </>
           ) : (
             <>
-              <BentoTile className="lg:col-span-1 col-span-1 sm:col-span-2">
-                <div className="flex items-center justify-between mb-3">
-                  <h3
-                    className={cn(
-                      "text-sm font-semibold text-slate-800 flex items-center gap-2",
-                      bebasNeue.className,
-                    )}
-                  >
-                    <Users className="text-teal-600" size={18} /> Managing For
-                  </h3>
-                  <button
-                    onClick={() => setShowAddFamilyModal(true)}
-                    className="p-2 rounded-xl hover:bg-slate-50 transition-colors"
-                  >
-                    <UserPlus size={16} className="text-slate-400" />
-                  </button>
-                </div>
+              <BentoTile className="p-5">
+                <SectionHeader
+                  icon={Users}
+                  label="Managing For"
+                  right={
+                    <button
+                      onClick={() => setShowAddFamilyModal(true)}
+                      aria-label="Add family member"
+                      className={cn(
+                        "min-h-9 min-w-9 inline-flex items-center justify-center rounded-lg hover:bg-slate-100 transition-colors shrink-0",
+                        FOCUS,
+                      )}
+                    >
+                      <UserPlus size={16} className="text-slate-500" />
+                    </button>
+                  }
+                />
                 <div className="flex flex-wrap gap-1.5">
                   {familyMembers.map((m) => (
                     <button
                       key={m.id}
                       onClick={() => setSelectedFamilyId(m.id)}
                       className={cn(
-                        "flex-1 min-w-[56px] text-center px-2 py-1.5 rounded-xl text-xs font-medium transition-all",
+                        "min-w-[64px] px-2.5 py-2 rounded-xl text-xs font-semibold transition-all",
                         selectedFamilyId === m.id
-                          ? "bg-teal-50 text-teal-800 border border-teal-200"
-                          : "text-slate-600 hover:bg-slate-50",
+                          ? "bg-emerald-600 text-white shadow-sm"
+                          : "bg-slate-50 text-slate-700 hover:bg-slate-100",
                       )}
                     >
-                      <div className="truncate text-xs">{m.name}</div>
+                      <div className="truncate">{m.name}</div>
                       {m.relationship !== "self" && (
-                        <div className="text-[8px] text-slate-400">
+                        <div
+                          className={cn(
+                            "text-[10px] font-medium",
+                            selectedFamilyId === m.id
+                              ? "text-emerald-100"
+                              : "text-slate-500",
+                          )}
+                        >
                           {m.relationship}
                         </div>
                       )}
@@ -2053,172 +2262,119 @@ export default function MedicationPanel() {
                 </div>
               </BentoTile>
 
-              <BentoTile
-                gradient
-                className="bg-gradient-to-br from-teal-600 to-teal-800 text-white relative"
-              >
-                <div className="absolute top-0 right-0 p-3 opacity-10">
-                  <Pill size={48} />
+              <BentoTile hero className="p-5">
+                <SectionHeader icon={Calendar} label="Today's Doses" light />
+                <div className="flex items-baseline gap-1.5 mb-1">
+                  <span className="text-4xl font-bold text-white leading-none">
+                    {todayDosesRemaining}
+                  </span>
+                  <span className="text-base text-emerald-100 font-medium">
+                    / {todayDosesTotal}
+                  </span>
                 </div>
-                <div className="relative z-10">
-                  <div className="flex items-center gap-1.5 mb-1">
-                    <Calendar size={14} className="text-teal-200" />
-                    <h3
-                      className={cn(
-                        "text-xs font-semibold text-teal-100",
-                        bebasNeue.className,
-                      )}
-                    >
-                      Today's Doses
-                    </h3>
-                  </div>
-                  <div className="flex items-baseline gap-1">
-                    <p className="text-3xl md:text-5xl font-bold text-white">
-                      {todayDosesRemaining}
+                <p className="text-xs text-emerald-100">
+                  {todayDosesRemaining === 0
+                    ? "All done for today"
+                    : "remaining today"}
+                </p>
+                <div className="mt-3 w-full bg-white/20 h-1.5 rounded-full overflow-hidden">
+                  <motion.div
+                    initial={{ width: 0 }}
+                    animate={{
+                      width: `${
+                        todayDosesTotal > 0
+                          ? ((todayDosesTotal - todayDosesRemaining) /
+                              todayDosesTotal) *
+                            100
+                          : 0
+                      }%`,
+                    }}
+                    className="h-full bg-white rounded-full"
+                  />
+                </div>
+              </BentoTile>
+
+              <BentoTile className="p-5">
+                <SectionHeader icon={Clock} label="Next Dose" />
+                {nextDose ? (
+                  <>
+                    <p className="text-sm font-semibold text-slate-900 truncate mb-1">
+                      {nextDose.medicationName}
                     </p>
-                    <span className="text-sm text-teal-200 font-medium">
-                      /{todayDosesTotal}
+                    <p className="text-3xl font-bold text-slate-900 leading-none mb-1">
+                      {timeRemaining}
+                    </p>
+                    <p className="text-xs text-slate-500 mt-1">
+                      {new Date(nextDose.scheduledTime).toLocaleTimeString([], {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}{" "}
+                      · {nextDose.assignedToName}
+                    </p>
+                  </>
+                ) : (
+                  <div className="flex items-center gap-2 py-6">
+                    <CheckCircle className="w-5 h-5 text-emerald-600 shrink-0" />
+                    <span className="text-sm font-medium text-slate-700">
+                      All done for now
                     </span>
                   </div>
-                  <p className="text-xs text-teal-100 mt-0.5">
-                    {todayDosesRemaining === 0
-                      ? "All done for today"
-                      : "remaining today"}
-                  </p>
-                  <div className="mt-2 w-full bg-white/20 h-1.5 rounded-full overflow-hidden">
-                    <motion.div
-                      initial={{ width: 0 }}
-                      animate={{
-                        width: `${todayDosesTotal > 0 ? ((todayDosesTotal - todayDosesRemaining) / todayDosesTotal) * 100 : 0}%`,
-                      }}
-                      className="h-full bg-white rounded-full"
-                    />
-                  </div>
-                </div>
+                )}
               </BentoTile>
 
-              <BentoTile
-                gradient
-                className="bg-gradient-to-br from-blue-600 to-blue-800 text-white relative"
-              >
-                <div className="absolute top-0 right-0 p-3 opacity-10">
-                  <Clock size={48} />
-                </div>
-                <div className="relative z-10">
-                  <div className="flex items-center gap-1.5 mb-1">
-                    <Clock size={14} className="text-blue-200" />
-                    <h3
-                      className={cn(
-                        "text-xs font-semibold text-blue-100",
-                        bebasNeue.className,
-                      )}
-                    >
-                      Next Dose
-                    </h3>
-                  </div>
-                  {nextDose ? (
-                    <>
-                      <p className="text-sm md:text-lg font-semibold text-white truncate">
-                        {nextDose.medicationName}
-                      </p>
-                      <p className="text-2xl md:text-3xl font-bold text-white mt-0.5">
-                        {timeRemaining}
-                      </p>
-                      <p className="text-[10px] text-blue-100 mt-0.5">
-                        {new Date(nextDose.scheduledTime).toLocaleTimeString(
-                          [],
-                          {
-                            hour: "2-digit",
-                            minute: "2-digit",
-                          },
-                        )}{" "}
-                        · {nextDose.assignedToName}
-                      </p>
-                    </>
-                  ) : (
-                    <div className="flex items-center gap-2 text-white">
-                      <CheckCircle size={20} />
-                      <span className="font-medium">All done for now</span>
-                    </div>
-                  )}
-                </div>
-              </BentoTile>
-
-              <BentoTile
-                gradient
-                className="bg-gradient-to-br from-violet-600 to-violet-800 text-white relative"
-              >
-                <div className="absolute top-0 right-0 p-3 opacity-10">
-                  <Shield size={48} />
-                </div>
-                <div className="relative z-10">
-                  <div className="flex items-center gap-1.5 mb-1">
-                    <TrendingUp size={14} className="text-violet-200" />
-                    <h3
-                      className={cn(
-                        "text-xs font-semibold text-violet-100",
-                        bebasNeue.className,
-                      )}
-                    >
-                      Adherence Score
-                    </h3>
-                  </div>
-                  <div className="flex items-baseline gap-2">
-                    <p className="text-3xl md:text-5xl font-bold text-white">
-                      {adherenceScore}%
-                    </p>
-                    <span
-                      className={cn(
-                        "px-2 py-0.5 rounded-lg text-[10px] font-bold",
-                        adherenceScore >= 90
-                          ? "bg-emerald-400/30 text-emerald-100"
-                          : adherenceScore >= 70
-                            ? "bg-amber-400/30 text-amber-100"
-                            : "bg-red-400/30 text-red-100",
-                      )}
-                    >
-                      {adherenceScore >= 90
-                        ? "Excellent"
+              <BentoTile className="p-5">
+                <SectionHeader icon={TrendingUp} label="Adherence" />
+                <div className="flex items-baseline gap-2 flex-wrap mb-1">
+                  <span className="text-3xl font-bold text-slate-900 leading-none">
+                    {adherenceScore}%
+                  </span>
+                  <span
+                    className={cn(
+                      "text-xs font-bold px-2 py-0.5 rounded-md",
+                      adherenceScore >= 90
+                        ? "bg-emerald-50 text-emerald-700"
                         : adherenceScore >= 70
-                          ? "Good"
-                          : "Needs Work"}
-                    </span>
-                  </div>
-                  <p className="text-[10px] text-violet-100 mt-0.5">
+                          ? "bg-amber-50 text-amber-700"
+                          : "bg-rose-50 text-rose-700",
+                    )}
+                  >
                     {adherenceScore >= 90
-                      ? "Outstanding consistency"
+                      ? "Excellent"
                       : adherenceScore >= 70
-                        ? "You're doing well"
-                        : "Let's get back on track"}
-                  </p>
+                        ? "Good"
+                        : "Needs work"}
+                  </span>
                 </div>
+                <p className="text-xs text-slate-500 mt-1">
+                  {adherenceScore >= 90
+                    ? "Outstanding consistency"
+                    : adherenceScore >= 70
+                      ? "You're doing well"
+                      : "Let's get back on track"}
+                </p>
               </BentoTile>
             </>
           )}
         </div>
 
-        {/* UPCOMING DOSES + CHART */}
-        {!isLoadingCombined && allExtended.length > 0 && (
+        {/* ─── UPCOMING + CHART ────────────────────────────── */}
+        {!isColdStart && allExtended.length > 0 && (
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 md:gap-5">
-            <BentoTile className="lg:col-span-1">
-              <div className="flex items-center justify-between mb-3">
-                <h3
-                  className={cn(
-                    "text-sm font-semibold text-slate-800 flex items-center gap-2",
-                    bebasNeue.className,
-                  )}
-                >
-                  <Clock className="text-teal-600" size={18} /> Upcoming
-                </h3>
-                <span className="text-xs font-semibold text-slate-500 bg-slate-100 px-2 py-1 rounded-lg">
-                  {upcomingDoses.length} doses
-                </span>
-              </div>
+            <BentoTile className="lg:col-span-1 p-5">
+              <SectionHeader
+                icon={Clock}
+                label="Upcoming"
+                right={
+                  <span className="text-xs font-semibold text-slate-600 bg-slate-100 px-2 py-1 rounded-lg shrink-0">
+                    {upcomingDoses.length} doses
+                  </span>
+                }
+              />
               <div className="space-y-2">
                 {upcomingDoses.length === 0 ? (
-                  <div className="text-center py-6">
-                    <CheckCircle className="w-10 h-10 text-emerald-400 mx-auto mb-2" />
-                    <p className="text-sm font-medium text-slate-500">
+                  <div className="text-center py-8">
+                    <CheckCircle className="w-10 h-10 text-emerald-500 mx-auto mb-2" />
+                    <p className="text-sm font-medium text-slate-600">
                       No upcoming doses
                     </p>
                   </div>
@@ -2235,29 +2391,23 @@ export default function MedicationPanel() {
               </div>
             </BentoTile>
 
-            <BentoTile className="lg:col-span-2">
-              <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center gap-2">
-                  <BarChart3 className="text-teal-600" size={18} />
-                  <h3
-                    className={cn(
-                      "text-sm font-semibold text-slate-800",
-                      bebasNeue.className,
-                    )}
-                  >
-                    Adherence (14 Days)
-                  </h3>
-                </div>
-                <div className="flex gap-3">
-                  <div className="flex items-center gap-1 text-xs text-slate-600">
-                    <div className="w-2 h-2 rounded-full bg-teal-500" /> Taken
+            <BentoTile className="lg:col-span-2 p-5">
+              <SectionHeader
+                icon={BarChart3}
+                label="Adherence (14 Days)"
+                right={
+                  <div className="flex gap-3 shrink-0">
+                    <div className="flex items-center gap-1 text-xs text-slate-600">
+                      <div className="w-2 h-2 rounded-full bg-emerald-600" />{" "}
+                      Taken
+                    </div>
+                    <div className="flex items-center gap-1 text-xs text-slate-600">
+                      <div className="w-2 h-2 rounded-full bg-slate-300" />{" "}
+                      Scheduled
+                    </div>
                   </div>
-                  <div className="flex items-center gap-1 text-xs text-slate-600">
-                    <div className="w-2 h-2 rounded-full bg-slate-300" />{" "}
-                    Scheduled
-                  </div>
-                </div>
-              </div>
+                }
+              />
               <div className="h-[200px] md:h-[260px] w-full">
                 <ResponsiveContainer>
                   <AreaChart
@@ -2274,12 +2424,12 @@ export default function MedicationPanel() {
                       >
                         <stop
                           offset="5%"
-                          stopColor="#0d9488"
+                          stopColor={EMERALD}
                           stopOpacity={0.3}
                         />
                         <stop
                           offset="95%"
-                          stopColor="#0d9488"
+                          stopColor={EMERALD}
                           stopOpacity={0}
                         />
                       </linearGradient>
@@ -2291,12 +2441,20 @@ export default function MedicationPanel() {
                     />
                     <XAxis
                       dataKey="date"
-                      tick={{ fontSize: 10, fill: "#64748b" }}
+                      tick={{
+                        fontSize: 11,
+                        fill: "#64748b",
+                        fontFamily: "Poppins",
+                      }}
                       axisLine={{ stroke: "#cbd5e1" }}
                       tickLine={false}
                     />
                     <YAxis
-                      tick={{ fontSize: 10, fill: "#64748b" }}
+                      tick={{
+                        fontSize: 11,
+                        fill: "#64748b",
+                        fontFamily: "Poppins",
+                      }}
                       axisLine={false}
                       tickLine={false}
                       width={30}
@@ -2306,13 +2464,13 @@ export default function MedicationPanel() {
                     <Area
                       type="monotone"
                       dataKey="taken"
-                      stroke="#0d9488"
+                      stroke={EMERALD}
                       strokeWidth={2.5}
                       fill="url(#takenGradient)"
                       dot={{
                         r: 3,
                         fill: "white",
-                        stroke: "#0d9488",
+                        stroke: EMERALD,
                         strokeWidth: 2,
                       }}
                       activeDot={{ r: 5, strokeWidth: 0 }}
@@ -2332,28 +2490,31 @@ export default function MedicationPanel() {
           </div>
         )}
 
-        {/* MEDICATION LIST – GROUPED */}
-        {isLoadingCombined ? (
+        {/* ─── MEDICATION LIST ──────────────────────────────── */}
+        {isColdStart ? (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-5">
             {[...Array(4)].map((_, i) => (
               <SkeletonCard key={i} />
             ))}
           </div>
         ) : allExtended.length === 0 ? (
-          <div className="bg-white rounded-2xl md:rounded-3xl p-8 md:p-12 text-center border border-slate-200 shadow-sm">
-            <div className="w-16 h-16 md:w-20 md:h-20 bg-teal-50 rounded-3xl flex items-center justify-center mx-auto mb-4">
-              <Pill className="w-8 h-8 md:w-10 md:h-10 text-teal-600" />
+          <div className="bg-white rounded-2xl p-8 md:p-12 text-center border border-slate-200 shadow-sm">
+            <div className="w-16 h-16 md:w-20 md:h-20 bg-emerald-50 rounded-3xl flex items-center justify-center mx-auto mb-4">
+              <Pill className="w-8 h-8 md:w-10 md:h-10 text-emerald-700" />
             </div>
             <p className="text-lg md:text-xl font-semibold text-slate-800 mb-2">
               No medications yet
             </p>
-            <p className="text-sm text-slate-500 mb-6 max-w-md mx-auto">
+            <p className="text-sm text-slate-600 mb-6 max-w-md mx-auto">
               Add your first medication to start tracking, or visit a linked
               center to get a prescription.
             </p>
             <button
               onClick={() => setShowAddMedModal(true)}
-              className="inline-flex items-center gap-2 px-6 py-3 bg-teal-600 text-white rounded-2xl font-semibold text-xs uppercase tracking-wider hover:bg-teal-700 transition shadow-md"
+              className={cn(
+                "inline-flex items-center gap-2 min-h-12 px-6 bg-emerald-600 text-white rounded-xl font-semibold text-sm hover:bg-emerald-700 transition shadow-md",
+                FOCUS,
+              )}
             >
               <Plus className="w-4 h-4" /> Add Medication
             </button>
@@ -2364,9 +2525,9 @@ export default function MedicationPanel() {
               <button
                 onClick={() => setActiveTab("active")}
                 className={cn(
-                  "px-4 py-2 rounded-xl text-xs font-semibold transition-all",
+                  "min-h-10 px-4 rounded-xl text-xs font-semibold transition-all",
                   activeTab === "active"
-                    ? "bg-teal-600 text-white"
+                    ? "bg-emerald-600 text-white"
                     : "text-slate-600 hover:text-slate-800",
                 )}
               >
@@ -2375,7 +2536,7 @@ export default function MedicationPanel() {
               <button
                 onClick={() => setActiveTab("past")}
                 className={cn(
-                  "px-4 py-2 rounded-xl text-xs font-semibold transition-all",
+                  "min-h-10 px-4 rounded-xl text-xs font-semibold transition-all",
                   activeTab === "past"
                     ? "bg-slate-800 text-white"
                     : "text-slate-600 hover:text-slate-800",
@@ -2398,21 +2559,20 @@ export default function MedicationPanel() {
                     <div key={group.label}>
                       <h3 className="text-sm font-semibold text-slate-700 mb-3 flex items-center gap-2">
                         {group.label === "My Medications" ? (
-                          <Pill className="w-4 h-4 text-teal-600" />
+                          <Pill className="w-4 h-4 text-emerald-700" />
                         ) : (
-                          <Building className="w-4 h-4 text-blue-600" />
+                          <Building className="w-4 h-4 text-emerald-700" />
                         )}
                         {group.label}
-                        <span className="text-xs font-normal text-slate-400">
+                        <span className="text-xs font-normal text-slate-500">
                           ({group.items.length})
                         </span>
                       </h3>
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-5">
-                        {group.items.map((med, i) => (
+                        {group.items.map((med) => (
                           <MedicationCard
                             key={med.id}
                             medication={med}
-                            colorIndex={i}
                             expanded={expandedMedId === med.id}
                             onToggleExpand={() =>
                               setExpandedMedId(
@@ -2451,21 +2611,20 @@ export default function MedicationPanel() {
                     <div key={group.label}>
                       <h3 className="text-sm font-semibold text-slate-700 mb-3 flex items-center gap-2">
                         {group.label === "My Medications" ? (
-                          <Pill className="w-4 h-4 text-teal-600" />
+                          <Pill className="w-4 h-4 text-emerald-700" />
                         ) : (
-                          <Building className="w-4 h-4 text-blue-600" />
+                          <Building className="w-4 h-4 text-emerald-700" />
                         )}
                         {group.label}
-                        <span className="text-xs font-normal text-slate-400">
+                        <span className="text-xs font-normal text-slate-500">
                           ({group.items.length})
                         </span>
                       </h3>
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-5">
-                        {group.items.map((med, i) => (
+                        {group.items.map((med) => (
                           <MedicationCard
                             key={med.id}
                             medication={med}
-                            colorIndex={i}
                             expanded={expandedMedId === med.id}
                             onToggleExpand={() =>
                               setExpandedMedId(
@@ -2486,47 +2645,74 @@ export default function MedicationPanel() {
               )}
             </AnimatePresence>
 
-            {/* Unstarted prescribed medications */}
             {unstartedMeds.length > 0 && activeTab === "active" && (
               <div className="mt-8 border-t border-slate-200 pt-6">
-                <h3 className="text-sm font-semibold text-slate-700 mb-3 flex items-center gap-2">
-                  <Building className="w-4 h-4 text-blue-600" />
-                  Prescriptions from Centers (not started)
-                </h3>
+                <div className="flex items-center gap-2.5 mb-4">
+                  <div className="w-8 h-8 rounded-lg bg-emerald-50 flex items-center justify-center shrink-0">
+                    <Building className="w-4 h-4 text-emerald-700" />
+                  </div>
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500">
+                    Prescriptions from Centers
+                  </h3>
+                  <span className="text-xs font-semibold text-slate-600 bg-slate-100 px-2 py-0.5 rounded-full">
+                    {unstartedMeds.length} pending
+                  </span>
+                </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-5">
                   {unstartedMeds.map((p) => (
                     <div
                       key={p.id}
-                      className="bg-white border border-slate-200 rounded-2xl md:rounded-3xl p-4 md:p-6 shadow-sm hover:shadow-md transition-shadow"
+                      className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm"
                     >
-                      <div className="flex items-start justify-between">
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <Pill className="w-4 h-4 text-emerald-600" />
-                            <h4 className="font-semibold text-slate-900">
-                              {p.name}
-                            </h4>
-                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-100">
-                              {p.sourceType === "hospital"
-                                ? "Hospital"
-                                : "External"}
-                            </span>
+                      <div className="h-1 w-full bg-emerald-600" />
+                      <div className="p-5">
+                        <div className="flex items-start gap-3 mb-3">
+                          <div className="w-11 h-11 rounded-xl bg-emerald-50 flex items-center justify-center shrink-0">
+                            <Pill className="w-5 h-5 text-emerald-700" />
                           </div>
-                          <p className="text-sm text-slate-600 mt-1">
-                            {p.dosage} · {p.frequency}
-                          </p>
-                          <p className="text-xs text-slate-500">
-                            from {p.centerName} · by {p.prescribedBy}
-                          </p>
-                          <p className="text-xs text-slate-400 mt-1">
-                            {p.totalQuantity || "Ongoing"} doses total
-                          </p>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap mb-1">
+                              <h4 className="font-semibold text-slate-900 text-base truncate">
+                                {p.name}
+                              </h4>
+                              <span className="text-xs font-bold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-100 shrink-0">
+                                {p.sourceType === "hospital"
+                                  ? "Hospital"
+                                  : "External"}
+                              </span>
+                            </div>
+                            <p className="text-sm text-slate-600 font-medium">
+                              {p.dosage} · {p.frequency}
+                            </p>
+                            <p className="text-xs text-slate-500 mt-0.5 truncate">
+                              From {p.centerName}
+                              {p.prescribedBy && ` · ${p.prescribedBy}`}
+                            </p>
+                          </div>
                         </div>
+
+                        <div className="flex items-center gap-2 flex-wrap mb-4">
+                          <span className="inline-flex items-center gap-1 bg-slate-50 px-2 py-1 rounded-md text-xs text-slate-700 font-medium">
+                            <Pill className="w-3 h-3 text-slate-500" />
+                            {p.totalQuantity || "Ongoing"} doses
+                          </span>
+                          {p.durationDays && (
+                            <span className="inline-flex items-center gap-1 bg-slate-50 px-2 py-1 rounded-md text-xs text-slate-700 font-medium">
+                              <Calendar className="w-3 h-3 text-slate-500" />
+                              {p.durationDays} days
+                            </span>
+                          )}
+                        </div>
+
                         <button
                           onClick={() => startPrescribedMedication(p)}
-                          className="px-4 py-2 bg-teal-600 text-white rounded-xl text-sm font-medium hover:bg-teal-700 transition-colors shadow-sm flex items-center gap-2"
+                          className={cn(
+                            "w-full min-h-11 inline-flex items-center justify-center gap-2 bg-emerald-600 text-white rounded-xl font-semibold text-sm hover:bg-emerald-700 transition-colors shadow-sm",
+                            FOCUS,
+                          )}
                         >
-                          <Play className="w-4 h-4" /> Start
+                          <Play className="w-4 h-4" />
+                          Start this medication
                         </button>
                       </div>
                     </div>
@@ -2538,7 +2724,7 @@ export default function MedicationPanel() {
         )}
       </div>
 
-      {/* MODALS */}
+      {/* HELP MODAL */}
       <AnimatePresence>
         {showHelp && (
           <Modal
@@ -2555,7 +2741,7 @@ export default function MedicationPanel() {
                   exit={{ opacity: 0, x: -50 }}
                   className="flex flex-col items-center text-center p-4"
                 >
-                  <div className="w-16 h-16 bg-teal-50 rounded-full flex items-center justify-center mb-4">
+                  <div className="w-16 h-16 bg-emerald-50 rounded-full flex items-center justify-center mb-4">
                     {helpSlides[helpSlide].icon}
                   </div>
                   <h3 className="text-lg font-semibold text-slate-800 mb-2">
@@ -2571,9 +2757,12 @@ export default function MedicationPanel() {
                   <button
                     key={i}
                     onClick={() => setHelpSlide(i)}
+                    aria-label={`Go to slide ${i + 1}`}
                     className={cn(
-                      "w-2 h-2 rounded-full transition-all",
-                      i === helpSlide ? "bg-teal-600 w-4" : "bg-slate-300",
+                      "h-2 rounded-full transition-all",
+                      i === helpSlide
+                        ? "bg-emerald-600 w-4"
+                        : "bg-slate-300 w-2",
                     )}
                   />
                 ))}
@@ -2582,7 +2771,11 @@ export default function MedicationPanel() {
                 onClick={() =>
                   setHelpSlide((p) => (p === 0 ? helpSlides.length - 1 : p - 1))
                 }
-                className="absolute left-0 top-1/2 -translate-y-1/2 p-2 bg-white rounded-full shadow-md border"
+                aria-label="Previous slide"
+                className={cn(
+                  "absolute left-0 top-1/2 -translate-y-1/2 min-h-10 min-w-10 inline-flex items-center justify-center bg-white rounded-full shadow-md border border-slate-200",
+                  FOCUS,
+                )}
               >
                 <ChevronLeft size={16} />
               </button>
@@ -2590,14 +2783,21 @@ export default function MedicationPanel() {
                 onClick={() =>
                   setHelpSlide((p) => (p === helpSlides.length - 1 ? 0 : p + 1))
                 }
-                className="absolute right-0 top-1/2 -translate-y-1/2 p-2 bg-white rounded-full shadow-md border"
+                aria-label="Next slide"
+                className={cn(
+                  "absolute right-0 top-1/2 -translate-y-1/2 min-h-10 min-w-10 inline-flex items-center justify-center bg-white rounded-full shadow-md border border-slate-200",
+                  FOCUS,
+                )}
               >
                 <ChevronRight size={16} />
               </button>
             </div>
             <button
               onClick={() => setShowHelp(false)}
-              className="mt-6 w-full py-3 bg-teal-600 text-white rounded-2xl font-semibold hover:bg-teal-700 transition"
+              className={cn(
+                "mt-6 w-full min-h-12 bg-emerald-600 text-white rounded-xl font-semibold hover:bg-emerald-700 transition",
+                FOCUS,
+              )}
             >
               Got it
             </button>
@@ -2605,6 +2805,7 @@ export default function MedicationPanel() {
         )}
       </AnimatePresence>
 
+      {/* ADD MED MODAL */}
       <AnimatePresence>
         {showAddMedModal && (
           <Modal
@@ -2618,25 +2819,31 @@ export default function MedicationPanel() {
             >
               <div className="flex items-center gap-2">
                 <div className="flex-1 relative">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
                   <input
                     type="text"
-                    placeholder="Search for drug..."
+                    placeholder="Search for drug…"
                     value={searchQuery}
                     onChange={(e) => {
                       setSearchQuery(e.target.value);
                       handleDrugSearch(e.target.value);
                     }}
-                    className="w-full pl-9 pr-4 py-2.5 text-sm bg-white border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500 text-slate-800 placeholder:text-slate-400"
+                    className={cn(
+                      "w-full min-h-12 pl-9 pr-4 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:bg-white focus:border-emerald-600 focus:ring-2 focus:ring-emerald-600/20 text-slate-900 placeholder:text-slate-500",
+                      FOCUS,
+                    )}
                   />
                   {searching && (
-                    <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 animate-spin text-teal-500" />
+                    <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 animate-spin text-emerald-600" />
                   )}
                 </div>
                 <button
                   type="button"
                   onClick={() => setShowSnapModal(true)}
-                  className="px-4 py-2.5 bg-slate-800 text-white rounded-xl text-sm font-medium hover:bg-slate-700 transition-colors flex items-center gap-1.5"
+                  className={cn(
+                    "inline-flex items-center gap-1.5 min-h-12 px-4 bg-slate-800 text-white rounded-xl text-sm font-semibold hover:bg-slate-700 transition-colors",
+                    FOCUS,
+                  )}
                 >
                   <Camera className="w-4 h-4" /> Snap
                 </button>
@@ -2649,24 +2856,19 @@ export default function MedicationPanel() {
                       key={idx}
                       type="button"
                       onClick={() => selectDrug(drug)}
-                      className="w-full text-left px-4 py-2.5 hover:bg-slate-100 transition-colors flex justify-between items-start"
+                      className="w-full text-left px-4 py-2.5 hover:bg-slate-100 transition-colors flex justify-between items-start gap-3"
                     >
-                      <div>
-                        <p className="text-sm font-medium text-slate-800">
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-slate-800 truncate">
                           {drug.name}
                         </p>
                         {drug.dosage && (
-                          <span className="text-xs text-slate-500">
+                          <span className="text-xs text-slate-600">
                             {drug.dosage}
                           </span>
                         )}
-                        {drug.ailment && (
-                          <p className="text-xs text-slate-400 truncate max-w-xs">
-                            {drug.ailment}
-                          </p>
-                        )}
                       </div>
-                      <span className="text-xs text-teal-600 font-medium">
+                      <span className="text-xs text-emerald-700 font-semibold shrink-0">
                         Select
                       </span>
                     </button>
@@ -2690,12 +2892,14 @@ export default function MedicationPanel() {
                 <Input
                   type="number"
                   step="0.1"
+                  inputMode="decimal"
                   {...register("quantityPerDose")}
                   label="Qty per dose *"
                   error={errors.quantityPerDose?.message}
                 />
                 <Input
                   type="number"
+                  inputMode="numeric"
                   {...register("totalQuantity")}
                   label="Total quantity (0 = ongoing)"
                   error={errors.totalQuantity?.message}
@@ -2703,12 +2907,13 @@ export default function MedicationPanel() {
                 <Input
                   type="number"
                   step="1"
+                  inputMode="numeric"
                   {...register("durationDays")}
-                  label="Duration (days) – optional"
+                  label="Duration (days) — optional"
                   placeholder="e.g., 7"
                   error={errors.durationDays?.message}
                 />
-                <div className="text-xs text-slate-400 -mt-2 col-span-2">
+                <div className="text-xs text-slate-500 -mt-2 col-span-2">
                   * Leave both blank for "ongoing" (no fixed end date)
                 </div>
                 <Input
@@ -2716,29 +2921,49 @@ export default function MedicationPanel() {
                   label="Ailment"
                   placeholder="Infection"
                 />
-                <Select
-                  {...register("frequency")}
-                  label="Frequency *"
-                  error={errors.frequency?.message}
-                >
-                  <option value="once">Once daily</option>
-                  <option value="twice">Twice daily</option>
-                  <option value="thrice">Thrice daily</option>
-                  <option value="custom">Custom</option>
-                </Select>
-                <Select
-                  {...register("assignedTo")}
-                  label="Assigned to *"
-                  error={errors.assignedTo?.message}
-                >
-                  {familyMembers.map((m) => (
-                    <option key={m.id} value={m.id}>
-                      {m.name}
-                      {m.relationship !== "self" ? ` (${m.relationship})` : ""}
-                    </option>
-                  ))}
-                </Select>
-                {watch("frequency") === "custom" && (
+
+                <Controller
+                  control={control}
+                  name="frequency"
+                  render={({ field }) => (
+                    <SelectDropdown
+                      label="Frequency *"
+                      value={field.value}
+                      onChange={(v) =>
+                        field.onChange(v as MedicationForm["frequency"])
+                      }
+                      options={[
+                        { value: "once", label: "Once daily" },
+                        { value: "twice", label: "Twice daily" },
+                        { value: "thrice", label: "Thrice daily" },
+                        { value: "custom", label: "Custom" },
+                      ]}
+                      error={errors.frequency?.message}
+                    />
+                  )}
+                />
+
+                <Controller
+                  control={control}
+                  name="assignedTo"
+                  render={({ field }) => (
+                    <SelectDropdown
+                      label="Assigned to *"
+                      value={field.value}
+                      onChange={field.onChange}
+                      options={familyMembers.map((m) => ({
+                        value: m.id,
+                        label:
+                          m.relationship !== "self"
+                            ? `${m.name} (${m.relationship})`
+                            : m.name,
+                      }))}
+                      error={errors.assignedTo?.message}
+                    />
+                  )}
+                />
+
+                {frequency === "custom" && (
                   <Input
                     {...register("times")}
                     label="Times (comma separated) *"
@@ -2747,12 +2972,30 @@ export default function MedicationPanel() {
                     className="sm:col-span-2"
                   />
                 )}
-                <Input
-                  type="date"
-                  {...register("startDate")}
-                  label="Start Date *"
-                  error={errors.startDate?.message}
-                />
+
+                <div className="space-y-1.5 sm:col-span-2">
+                  <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider">
+                    Start Date *
+                  </label>
+                  <Controller
+                    control={control}
+                    name="startDate"
+                    render={({ field }) => (
+                      <DatePicker
+                        value={field.value ?? ""}
+                        onChange={(iso: string) => field.onChange(iso)}
+                        placeholder="Select start date"
+                        maxDate={new Date()}
+                      />
+                    )}
+                  />
+                  {errors.startDate?.message && (
+                    <p className="text-xs text-rose-700 font-semibold">
+                      {errors.startDate.message}
+                    </p>
+                  )}
+                </div>
+
                 <Input
                   {...register("instructions")}
                   label="Instructions"
@@ -2765,16 +3008,22 @@ export default function MedicationPanel() {
                 <button
                   type="button"
                   onClick={() => setShowAddMedModal(false)}
-                  className="px-5 py-2 text-sm bg-slate-100 text-slate-700 rounded-xl hover:bg-slate-200"
+                  className={cn(
+                    "min-h-11 px-5 text-sm bg-slate-100 text-slate-700 rounded-xl hover:bg-slate-200 font-semibold",
+                    FOCUS,
+                  )}
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={isSubmitting}
-                  className="flex items-center gap-2 px-5 py-2 text-sm bg-teal-600 text-white rounded-xl hover:bg-teal-700 disabled:opacity-50 shadow-sm"
+                  className={cn(
+                    "inline-flex items-center gap-2 min-h-11 px-5 text-sm bg-emerald-600 text-white rounded-xl hover:bg-emerald-700 disabled:opacity-50 shadow-sm font-semibold",
+                    FOCUS,
+                  )}
                 >
-                  {isSubmitting && <Loader2 className="w-4 h-4 animate-spin" />}{" "}
+                  {isSubmitting && <Loader2 className="w-4 h-4 animate-spin" />}
                   Save
                 </button>
               </div>
@@ -2783,6 +3032,7 @@ export default function MedicationPanel() {
         )}
       </AnimatePresence>
 
+      {/* ADD FAMILY MODAL */}
       <AnimatePresence>
         {showAddFamilyModal && (
           <Modal
@@ -2816,18 +3066,24 @@ export default function MedicationPanel() {
                 <button
                   type="button"
                   onClick={() => setShowAddFamilyModal(false)}
-                  className="px-5 py-2 text-sm bg-slate-100 text-slate-700 rounded-xl hover:bg-slate-200"
+                  className={cn(
+                    "min-h-11 px-5 text-sm bg-slate-100 text-slate-700 rounded-xl hover:bg-slate-200 font-semibold",
+                    FOCUS,
+                  )}
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={familyForm.formState.isSubmitting}
-                  className="flex items-center gap-2 px-5 py-2 text-sm bg-teal-600 text-white rounded-xl hover:bg-teal-700 disabled:opacity-50 shadow-sm"
+                  className={cn(
+                    "inline-flex items-center gap-2 min-h-11 px-5 text-sm bg-emerald-600 text-white rounded-xl hover:bg-emerald-700 disabled:opacity-50 shadow-sm font-semibold",
+                    FOCUS,
+                  )}
                 >
                   {familyForm.formState.isSubmitting && (
                     <Loader2 className="w-4 h-4 animate-spin" />
-                  )}{" "}
+                  )}
                   Add
                 </button>
               </div>
@@ -2836,6 +3092,7 @@ export default function MedicationPanel() {
         )}
       </AnimatePresence>
 
+      {/* REACTION MODAL */}
       <AnimatePresence>
         {showReactionModal && (
           <Modal
@@ -2858,37 +3115,35 @@ export default function MedicationPanel() {
               })}
               className="space-y-4 mt-2"
             >
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  How did you feel? *
-                </label>
-                <Textarea
-                  {...reactionForm.register("reaction")}
-                  placeholder="Describe any side effects..."
-                  className="min-h-[80px]"
-                />
-                {reactionForm.formState.errors.reaction && (
-                  <p className="text-red-500 text-xs mt-1">
-                    {reactionForm.formState.errors.reaction.message}
-                  </p>
-                )}
-              </div>
+              <Textarea
+                {...reactionForm.register("reaction")}
+                label="How did you feel? *"
+                placeholder="Describe any side effects…"
+                className="min-h-[80px]"
+                error={reactionForm.formState.errors.reaction?.message}
+              />
               <div className="flex justify-end gap-3">
                 <button
                   type="button"
                   onClick={() => setShowReactionModal(null)}
-                  className="px-5 py-2 text-sm bg-slate-100 text-slate-700 rounded-xl hover:bg-slate-200"
+                  className={cn(
+                    "min-h-11 px-5 text-sm bg-slate-100 text-slate-700 rounded-xl hover:bg-slate-200 font-semibold",
+                    FOCUS,
+                  )}
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={reactionForm.formState.isSubmitting}
-                  className="flex items-center gap-2 px-5 py-2 text-sm bg-teal-600 text-white rounded-xl hover:bg-teal-700 disabled:opacity-50 shadow-sm"
+                  className={cn(
+                    "inline-flex items-center gap-2 min-h-11 px-5 text-sm bg-emerald-600 text-white rounded-xl hover:bg-emerald-700 disabled:opacity-50 shadow-sm font-semibold",
+                    FOCUS,
+                  )}
                 >
                   {reactionForm.formState.isSubmitting && (
                     <Loader2 className="w-4 h-4 animate-spin" />
-                  )}{" "}
+                  )}
                   Submit
                 </button>
               </div>
@@ -2897,6 +3152,7 @@ export default function MedicationPanel() {
         )}
       </AnimatePresence>
 
+      {/* STOP CONFIRM */}
       <AnimatePresence>
         {stopConfirm && (
           <Modal
@@ -2906,7 +3162,7 @@ export default function MedicationPanel() {
           >
             <div className="text-center space-y-4">
               <div className="mx-auto w-16 h-16 bg-amber-100 rounded-full flex items-center justify-center">
-                <StopCircle className="w-8 h-8 text-amber-600" />
+                <StopCircle className="w-8 h-8 text-amber-700" />
               </div>
               <p className="text-sm text-slate-600">
                 This will mark it as finished and move it to Past.
@@ -2914,13 +3170,19 @@ export default function MedicationPanel() {
               <div className="flex justify-center gap-3 pt-2">
                 <button
                   onClick={() => setStopConfirm(null)}
-                  className="px-5 py-2 text-sm bg-slate-100 text-slate-700 rounded-xl hover:bg-slate-200"
+                  className={cn(
+                    "min-h-11 px-5 text-sm bg-slate-100 text-slate-700 rounded-xl hover:bg-slate-200 font-semibold",
+                    FOCUS,
+                  )}
                 >
                   Cancel
                 </button>
                 <button
                   onClick={() => stopConfirm && stopMedication(stopConfirm)}
-                  className="px-5 py-2 text-sm bg-amber-600 text-white rounded-xl hover:bg-amber-700 shadow-sm"
+                  className={cn(
+                    "min-h-11 px-5 text-sm bg-amber-600 text-white rounded-xl hover:bg-amber-700 shadow-sm font-semibold",
+                    FOCUS,
+                  )}
                 >
                   Finish
                 </button>
@@ -2930,6 +3192,7 @@ export default function MedicationPanel() {
         )}
       </AnimatePresence>
 
+      {/* SNAP MODAL */}
       <AnimatePresence>
         {showSnapModal && (
           <SnapDrugModal
@@ -2941,6 +3204,6 @@ export default function MedicationPanel() {
           />
         )}
       </AnimatePresence>
-    </div>
+    </motion.div>
   );
 }

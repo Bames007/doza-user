@@ -12,12 +12,11 @@ export interface SavedItem {
   savedAt: number;
 }
 
-// Simple authenticated POST helper (you can move it to client-auth.ts)
 async function authPost(url: string, body: any) {
   const res = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    credentials: "include", // sends the __session cookie automatically
+    credentials: "include",
     body: JSON.stringify(body),
   });
   return res.json();
@@ -30,8 +29,11 @@ export const useSavedItems = () => {
     success: boolean;
     data: SavedItem[];
   }>(user ? "/api/store/saved-items" : null, authFetcher, {
-    dedupingInterval: 300_000, // 5 minutes
     revalidateOnFocus: false,
+    revalidateOnReconnect: true,
+    dedupingInterval: 300_000,
+    keepPreviousData: true,
+    revalidateIfStale: false,
   });
 
   const savedItems = data?.success ? data.data : [];

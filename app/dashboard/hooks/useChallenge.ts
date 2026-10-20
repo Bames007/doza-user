@@ -7,14 +7,64 @@ import { badges } from "@/app/types/challengeConstant";
 import type { Challenge } from "@/app/types/challengetype";
 import type { UserInfo } from "@/app/dashboard/hooks/useProfile";
 
+// ─── sessionStorage helpers ─────────────────────────────
+function ssGet(key: string): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    return sessionStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+function ssSet(key: string, value: string) {
+  if (typeof window === "undefined") return;
+  try {
+    sessionStorage.setItem(key, value);
+  } catch {}
+}
+
+const SWR_CHALLENGE_CONFIG = {
+  revalidateOnFocus: false,
+  revalidateOnReconnect: true,
+  dedupingInterval: 60_000,
+  keepPreviousData: true,
+  revalidateIfStale: false,
+  errorRetryCount: 1,
+} as const;
+
+type ChallengeTab = "my" | "discover" | "requests";
+const VALID_TABS: ChallengeTab[] = ["my", "discover", "requests"];
+
 export function useChallenges(user: UserInfo | null) {
-  const [activeTab, setActiveTab] = useState<"my" | "discover" | "requests">(
-    "discover",
+  // ─── Persisted: activeTab ─────────────────────────────
+  const [activeTab, setActiveTab] = useState<ChallengeTab>(() => {
+    const v = ssGet("challenges:activeTab");
+    return VALID_TABS.includes(v as ChallengeTab)
+      ? (v as ChallengeTab)
+      : "discover";
+  });
+  useEffect(() => {
+    ssSet("challenges:activeTab", activeTab);
+  }, [activeTab]);
+
+  // ─── Persisted: selectedActivity ──────────────────────
+  const [selectedActivity, setSelectedActivity] = useState<string>(
+    () => ssGet("challenges:activity") || "",
   );
+  useEffect(() => {
+    ssSet("challenges:activity", selectedActivity);
+  }, [selectedActivity]);
+
+  // ─── Persisted: monthFilter ───────────────────────────
+  const [monthFilter, setMonthFilter] = useState<string>(
+    () => ssGet("challenges:month") || "all",
+  );
+  useEffect(() => {
+    ssSet("challenges:month", monthFilter);
+  }, [monthFilter]);
+
+  // ─── Ephemeral ────────────────────────────────────────
   const [search, setSearch] = useState("");
-  const [debouncedSearch, setDebouncedSearch] = useState("");
-  const [selectedActivity, setSelectedActivity] = useState("");
-  const [monthFilter, setMonthFilter] = useState("all");
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showJoinCodeModal, setShowJoinCodeModal] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
@@ -22,38 +72,28 @@ export function useChallenges(user: UserInfo | null) {
     null,
   );
 
-  // Debounce search
-  useEffect(() => {
-    const timer = setTimeout(() => setDebouncedSearch(search), 400);
-    return () => clearTimeout(timer);
-  }, [search]);
+  // NOTE: debounce was removed. The panel input debounces; adding a second
+  // debounce here created 650ms latency. Use `search` directly.
 
-  useEffect(() => {
-    if (!search) setDebouncedSearch("");
-  }, [search]);
-
-  // ALWAYS fetch my challenges
   const { data: myChallengesData, isLoading: myLoading } = useSWR(
     "/api/challenges?type=my",
     authFetcher,
-    { revalidateOnFocus: false, errorRetryCount: 1 },
+    SWR_CHALLENGE_CONFIG,
   );
 
-  // ALWAYS fetch discover challenges
   const { data: discoverFilteredData, isLoading: discoverLoading } = useSWR(
-    `/api/challenges?search=${encodeURIComponent(debouncedSearch)}&activity=${selectedActivity}&visibility=public`,
+    `/api/challenges?search=${encodeURIComponent(search)}&activity=${selectedActivity}&visibility=public`,
     authFetcher,
-    { revalidateOnFocus: false, errorRetryCount: 1, keepPreviousData: true },
+    SWR_CHALLENGE_CONFIG,
   );
 
-  // ALWAYS fetch requests (lightweight — only fires if user has created challenges)
   const { data: requestsData, isLoading: requestsLoading } = useSWR(
     "/api/challenges/requests",
     authFetcher,
-    { revalidateOnFocus: false, errorRetryCount: 1 },
+    SWR_CHALLENGE_CONFIG,
   );
 
-  // My challenges (where user is creator OR participant)
+  // ─── Derived data ─────────────────────────────────────
   const myChallenges: Challenge[] = myChallengesData?.success
     ? myChallengesData.data.filter(
         (c: Challenge) =>
@@ -62,34 +102,29 @@ export function useChallenges(user: UserInfo | null) {
       )
     : [];
 
-  // All discover challenges
   const discoverChallenges: Challenge[] = discoverFilteredData?.success
     ? discoverFilteredData.data
     : [];
 
-  // Pending requests (for inbox)
   const pendingRequests: any[] = requestsData?.success ? requestsData.data : [];
 
-  const now = new Date();
+  // Stable `now` — computed once per mount. Ongoing/ended classification
+  // only needs to be correct when the panel opens.
+  const now = useMemo(() => new Date(), []);
 
-  // FILTERED CHALLENGES — what shows in the grid based on active tab
   const filteredChallenges = useMemo(() => {
     let source: Challenge[] = [];
 
     if (activeTab === "discover") {
-      // Show ALL public challenges
       source = discoverChallenges;
     } else if (activeTab === "my") {
-      // Show user's challenges
       source = myChallenges;
     } else {
-      // Inbox — no challenge grid
       return { ongoing: [], ended: [] };
     }
 
     let filtered = [...source];
 
-    // Month filter (applies to both discover and my)
     if (monthFilter !== "all") {
       const year = now.getFullYear();
       const month = parseInt(monthFilter);
@@ -113,7 +148,6 @@ export function useChallenges(user: UserInfo | null) {
     return { ongoing, ended };
   }, [activeTab, myChallenges, discoverChallenges, monthFilter, now]);
 
-  // USER STATS — always from myChallenges
   const userStats = useMemo(() => {
     if (!user)
       return {
@@ -146,7 +180,6 @@ export function useChallenges(user: UserInfo | null) {
     return { joined, created, ongoing, points, badges: earnedBadges };
   }, [myChallenges, user, now]);
 
-  // LEADERBOARD — from all discover + my challenges
   const leaderboard = useMemo(() => {
     const userMap = new Map<
       string,

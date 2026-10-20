@@ -3,11 +3,16 @@
 
 import { useState, useMemo, useRef, useEffect } from "react";
 import useSWR from "swr";
-import { Download, FileSpreadsheet, Plus, Stethoscope } from "lucide-react";
+import {
+  Download,
+  FileSpreadsheet,
+  Plus,
+  Stethoscope,
+  Activity,
+} from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 import html2canvas from "html2canvas";
 import jsPDF from "jspdf";
-import Image from "next/image";
 
 import { authFetcher } from "@/app/utils/client-auth";
 import { useUser } from "../../hooks/useProfile";
@@ -21,12 +26,51 @@ import {
   ChartDataPoint,
 } from "@/app/types/healthtracker";
 
-// Subcomponents
 import { MetricSelector } from "../subcomponents/healthtracker/MetricSelector";
 import { MetricStatsCards } from "../subcomponents/healthtracker/MetricStatsCard";
 import { TelemetryChart } from "../subcomponents/healthtracker/Telemetry";
 import { DataEntryModal } from "../subcomponents/healthtracker/DataEntryModal";
 
+// ─── Constants ──────────────────────────────────────────────
+const FOCUS =
+  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:ring-offset-2";
+
+const SKELETON_BARS = [45, 70, 35, 80, 55, 65, 40];
+
+const VALID_METRICS: MetricType[] = [
+  "heartRate",
+  "bloodPressure",
+  "steps",
+  "weight",
+];
+
+// Shared SWR config — warm cache, no focus refetch, no skeleton flash
+const SWR_PANEL_CONFIG = {
+  revalidateOnFocus: false,
+  revalidateOnReconnect: true,
+  dedupingInterval: 60_000,
+  keepPreviousData: true,
+  revalidateIfStale: false,
+} as const;
+
+// ─── sessionStorage helpers ────────────────────────────────
+function ssGet(key: string): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    return sessionStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function ssSet(key: string, value: string) {
+  if (typeof window === "undefined") return;
+  try {
+    sessionStorage.setItem(key, value);
+  } catch {}
+}
+
+// ─── Utility exports (unchanged) ───────────────────────────
 const generateSecureReportID = (): string => {
   if (typeof window !== "undefined" && window.crypto) {
     if (window.crypto.randomUUID)
@@ -63,26 +107,61 @@ export const formatDisplayValue = (record: HealthRecord): string => {
   return String(record.value ?? 0);
 };
 
+// ─── Main component ────────────────────────────────────────
 export default function HealthTracker() {
-  const [selectedType, setSelectedType] = useState<MetricType>("heartRate");
+  // Persisted: selected metric
+  const [selectedType, setSelectedType] = useState<MetricType>(() => {
+    const stored = ssGet("health:selectedType");
+    if (stored && VALID_METRICS.includes(stored as MetricType)) {
+      return stored as MetricType;
+    }
+    return "heartRate";
+  });
+  useEffect(() => {
+    ssSet("health:selectedType", selectedType);
+  }, [selectedType]);
+
+  // Ephemeral UI
   const [showForm, setShowForm] = useState(false);
-  const [mounted, setMounted] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
+
+  // Stable report ID — post-hydration only (fixes hydration mismatch)
+  const [uniqueReportId, setUniqueReportId] = useState<string>("DOZA-PENDING");
+  useEffect(() => {
+    setUniqueReportId(generateSecureReportID());
+  }, []);
 
   const chartRef = useRef<HTMLDivElement>(null);
   const pdfTemplateRef = useRef<HTMLDivElement>(null);
 
   const { user } = useUser();
-  const uniqueReportId = useMemo(() => generateSecureReportID(), []);
 
-  useEffect(() => {
-    setMounted(true);
-  }, []);
-
+  // Health records — warm cache, no focus refetch
   const { data, mutate, isLoading } = useSWR<{
     success: boolean;
     data: HealthRecord[];
-  }>("/api/health-records", authFetcher);
+  }>("/api/health-records", authFetcher, SWR_PANEL_CONFIG);
+
+  // Scroll restoration
+  const scrollerRef = useRef<HTMLElement | null>(null);
+  const scrollRestoredRef = useRef(false);
+  useEffect(() => {
+    const el =
+      (document.getElementById("dashboard-scroll") as HTMLElement | null) ||
+      (document.querySelector("main") as HTMLElement | null);
+    scrollerRef.current = el;
+    if (!el) return;
+
+    if (!scrollRestoredRef.current) {
+      const saved = ssGet("health:scroll");
+      el.scrollTo({ top: saved ? Number(saved) : 0, behavior: "instant" });
+      scrollRestoredRef.current = true;
+    }
+
+    const onScroll = () => ssSet("health:scroll", String(el.scrollTop));
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => el.removeEventListener("scroll", onScroll);
+  }, []);
 
   const records = useMemo(() => (data?.success ? data.data : []), [data]);
 
@@ -153,7 +232,9 @@ export default function HealthTracker() {
     const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
     const link = document.createElement("a");
     link.href = URL.createObjectURL(blob);
-    link.download = `Health_Data_${selectedType}_${new Date().toISOString().split("T")[0]}.csv`;
+    link.download = `Health_Data_${selectedType}_${
+      new Date().toISOString().split("T")[0]
+    }.csv`;
     link.click();
     URL.revokeObjectURL(link.href);
   };
@@ -196,7 +277,9 @@ export default function HealthTracker() {
 
       pdf.addImage(imgData, "PNG", 0, 0, pdfWidth, pdfHeight);
       pdf.save(
-        `Health_Report_${selectedType.toUpperCase()}_${new Date().toISOString().split("T")[0]}.pdf`,
+        `Health_Report_${selectedType.toUpperCase()}_${
+          new Date().toISOString().split("T")[0]
+        }.pdf`,
       );
     } catch (err) {
       console.error("PDF generation block error:", err);
@@ -212,11 +295,10 @@ export default function HealthTracker() {
     setShowForm(false);
   };
 
-  if (!mounted) return null;
-
-  if (isLoading) {
-    return <HealthTrackerSkeleton />;
-  }
+  // ─── Loading gate — cold start only ─────────────────────
+  // `isLoading` in SWR v2 is true only when there's no cached data.
+  // Combined with `!data` for defense in depth.
+  if (isLoading && !data) return <HealthTrackerSkeleton />;
 
   const isBP = selectedType === "bloodPressure";
   const renderPdfValue = (val: any) => {
@@ -226,20 +308,27 @@ export default function HealthTracker() {
     return String(val);
   };
 
+  const hasAnyData = records.length > 0;
+
   return (
-    <div className="min-h-screen bg-[#f8fafc] text-slate-900 selection:bg-emerald-100 antialiased">
+    <motion.div
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.2, ease: "easeOut" }}
+      className="min-h-screen bg-[#F8FAFC] text-slate-900 selection:bg-emerald-100 antialiased"
+    >
       {/* Hidden PDF Engine */}
       <div style={{ position: "absolute", left: "-9999px", top: "-9999px" }}>
         <div
           ref={pdfTemplateRef}
-          className="w-[210mm] min-h-[297mm] p-[15mm] bg-white hidden font-poppins"
+          className="hidden w-[210mm] min-h-[297mm] bg-white p-[15mm] font-poppins"
         >
-          <div className="flex justify-between items-center border-b border-slate-100 pb-4 mb-6">
+          <div className="mb-6 flex items-center justify-between border-b border-slate-100 pb-4">
             <div>
-              <h1 className="text-xl font-black uppercase tracking-tight text-slate-900 leading-none">
+              <h1 className="text-xl font-black uppercase leading-none tracking-tight text-slate-900">
                 DOZA<span className="text-emerald-500">.</span>
               </h1>
-              <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mt-1">
+              <p className="mt-1 text-[8px] font-black uppercase tracking-widest text-slate-400">
                 Official Medical Data Report
               </p>
             </div>
@@ -248,13 +337,13 @@ export default function HealthTracker() {
                 {user?.fullName || "Account Patient"}
               </p>
               <p className="text-slate-500">{user?.email || ""}</p>
-              <p className="text-[8px] text-slate-400 font-mono mt-0.5">
+              <p className="mt-0.5 font-mono text-[8px] text-slate-400">
                 ID: {uniqueReportId}
               </p>
             </div>
           </div>
 
-          <div className="grid grid-cols-3 gap-3 mb-6 text-center">
+          <div className="mb-6 grid grid-cols-3 gap-3 text-center">
             {[
               { label: "Activity Average", val: stats.avg },
               { label: "Lowest Value", val: stats.min },
@@ -262,9 +351,9 @@ export default function HealthTracker() {
             ].map((s, idx) => (
               <div
                 key={idx}
-                className="bg-slate-50 border border-slate-100 rounded-xl p-3 shadow-2xs"
+                className="rounded-xl border border-slate-100 bg-slate-50 p-3 shadow-2xs"
               >
-                <p className="text-[8px] font-bold text-slate-400 tracking-wider uppercase mb-0.5">
+                <p className="mb-0.5 text-[8px] font-bold uppercase tracking-wider text-slate-400">
                   {s.label}
                 </p>
                 <p className="text-base font-black text-slate-900">
@@ -278,22 +367,22 @@ export default function HealthTracker() {
           </div>
 
           <div className="mb-6">
-            <p className="text-center text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">
+            <p className="mb-2 text-center text-[10px] font-bold uppercase tracking-wider text-slate-400">
               Historical Timeline Log ({metricConfig[selectedType].label})
             </p>
-            <div className="w-full h-[220px] border border-slate-100 rounded-xl p-3 flex items-center justify-center bg-white shadow-2xs">
+            <div className="flex h-[220px] w-full items-center justify-center rounded-xl border border-slate-100 bg-white p-3 shadow-2xs">
               <img
                 id="captured-chart"
                 alt="Health Data Curve Chart"
-                className="max-w-full max-h-full object-contain"
+                className="max-h-full max-w-full object-contain"
               />
             </div>
           </div>
 
           <div>
-            <table className="w-full text-left text-[10px] border-collapse">
+            <table className="w-full border-collapse text-left text-[10px]">
               <thead>
-                <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 font-bold">
+                <tr className="border-b border-slate-200 bg-slate-50 font-bold text-slate-500">
                   <th className="p-2">Log Entry Date</th>
                   <th className="p-2 text-center">Recorded Measurement</th>
                   <th className="p-2 text-center">Standard Range</th>
@@ -320,7 +409,7 @@ export default function HealthTracker() {
                     return (
                       <tr
                         key={i}
-                        className="border-b border-slate-100 text-slate-700 font-medium"
+                        className="border-b border-slate-100 font-medium text-slate-700"
                       >
                         <td className="p-2 font-semibold">{r.date}</td>
                         <td className="p-2 text-center font-bold">
@@ -332,7 +421,7 @@ export default function HealthTracker() {
                           {metricConfig[selectedType].criticalMax}
                         </td>
                         <td
-                          className={`p-2 text-right font-bold text-[9px] ${color}`}
+                          className={`p-2 text-right text-[9px] font-bold ${color}`}
                         >
                           {status}
                         </td>
@@ -345,123 +434,182 @@ export default function HealthTracker() {
         </div>
       </div>
 
-      {/* Main View */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 pt-4 sm:pt-6 pb-24 sm:pb-8 space-y-6">
-        {/* Header – Doza styled */}
-
-        <div
-          className={cn(
-            "space-y-8 p-3 md:p-6 max-w-7xl mx-auto",
-            poppins.className,
-          )}
-        >
-          <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-6 pb-6 border-b border-slate-100">
-            <div>
-              <div className="flex items-center gap-3 mb-2">
-                <div className="h-8 w-1 rounded-full bg-gradient-to-b from-emerald-500 to-teal-600" />
-                <span className="text-[11px] font-bold text-emerald-600 uppercase tracking-[0.25em]">
-                  Vitals Monitoring
-                </span>
-              </div>
-              <h1
-                className={cn(
-                  "text-4xl md:text-5xl text-slate-900 leading-[1.05] tracking-tight pt-1",
-                  bebasNeue.className,
-                )}
-              >
-                Health <span className="text-emerald-600">Tracker</span>
-              </h1>
-              <p className="text-xs md:text-sm text-slate-500 max-w-lg font-medium leading-relaxed mt-1">
-                Monitor your heart rate, blood pressure, and other vital metrics
-                seamlessly with advanced telemetry.
-              </p>
+      {/* Main view */}
+      <main
+        className={cn(
+          "mx-auto max-w-7xl px-4 pt-5 pb-20 sm:px-6 sm:pt-6 sm:pb-10",
+          poppins.className,
+        )}
+      >
+        <div className="space-y-6">
+          {/* Header */}
+          <header className="space-y-4">
+            {/* Eyebrow */}
+            <div className="flex items-center gap-3">
+              <span
+                aria-hidden="true"
+                className="h-5 w-1 rounded-full bg-gradient-to-b from-emerald-500 to-teal-600"
+              />
+              <span className="text-xs font-bold uppercase tracking-[0.22em] text-emerald-700">
+                Vitals Monitoring
+              </span>
             </div>
 
-            {/* Action buttons with micro‑interactions */}
-            <div className="flex items-center gap-3 shrink-0">
-              <motion.div
-                whileHover={{ scale: 1.01 }}
-                whileTap={{ scale: 0.98 }}
-                className="flex items-center bg-white rounded-2xl p-1 border border-slate-200/80 shadow-xs"
-              >
+            {/* Heading + actions */}
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+              <div className="min-w-0 flex-1">
+                <h1
+                  className={cn(
+                    "text-[clamp(2.25rem,7.5vw,3.5rem)] leading-[1] tracking-tight text-slate-900",
+                    bebasNeue.className,
+                  )}
+                >
+                  Health <span className="text-emerald-600">Tracker</span>
+                </h1>
+                <p className="mt-2 max-w-md text-[clamp(0.8125rem,2.2vw,0.9375rem)] font-medium leading-relaxed text-slate-600">
+                  Track your vitals over time. Export reports for your doctor
+                  anytime.
+                </p>
+              </div>
+
+              {/* Export icons + desktop Add entry */}
+              <div className="flex items-center gap-2 shrink-0">
                 <button
+                  type="button"
                   onClick={handleExportCSV}
+                  disabled={filteredRecords.length === 0}
+                  aria-label="Export data as CSV"
                   title="Export CSV"
-                  className="p-2.5 text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 rounded-xl transition-all duration-200"
+                  className={cn(
+                    "flex h-11 w-11 items-center justify-center rounded-xl border border-slate-200/80 bg-white text-slate-600 shadow-xs transition-all duration-150 hover:bg-emerald-50 hover:text-emerald-700 hover:border-emerald-200 active:scale-[0.97] disabled:opacity-50 disabled:cursor-not-allowed",
+                    FOCUS,
+                  )}
                 >
-                  <FileSpreadsheet size={16} />
+                  <FileSpreadsheet size={18} aria-hidden="true" />
                 </button>
-                <div className="w-px h-5 bg-slate-200/80 mx-0.5" />
                 <button
+                  type="button"
                   onClick={handleExportPDF}
-                  disabled={isExporting}
+                  disabled={isExporting || filteredRecords.length === 0}
+                  aria-label="Export data as PDF"
                   title="Export PDF"
-                  className="p-2.5 text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 rounded-xl transition-all duration-200 disabled:opacity-50"
+                  className={cn(
+                    "flex h-11 w-11 items-center justify-center rounded-xl border border-slate-200/80 bg-white text-slate-600 shadow-xs transition-all duration-150 hover:bg-emerald-50 hover:text-emerald-700 hover:border-emerald-200 active:scale-[0.97] disabled:opacity-50 disabled:cursor-not-allowed",
+                    FOCUS,
+                  )}
                 >
-                  <Download size={16} />
+                  {isExporting ? (
+                    <span
+                      className="h-4 w-4 rounded-full border-2 border-slate-400 border-t-transparent animate-spin"
+                      aria-hidden
+                    />
+                  ) : (
+                    <Download size={18} aria-hidden="true" />
+                  )}
                 </button>
-              </motion.div>
 
-              <motion.button
-                whileHover={{ y: -1, scale: 1.01 }}
-                whileTap={{ scale: 0.97 }}
-                onClick={() => setShowForm(true)}
-                className="flex items-center gap-2 px-5 py-3 bg-emerald-600 text-white rounded-2xl font-bold text-xs shadow-md shadow-emerald-600/25 hover:bg-emerald-700 transition-all duration-300"
-              >
-                <Plus size={16} />
-                <span>Add Entry</span>
-              </motion.button>
-            </div>
-          </div>
-        </div>
-
-        {/* Metric Stats Cards */}
-        <MetricStatsCards stats={stats} currentMetric={selectedType} />
-
-        {/* Telemetry & Metric Selector */}
-        <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-          <aside className="w-full flex flex-col gap-4">
-            <MetricSelector
-              selectedType={selectedType}
-              onSelectMetric={setSelectedType}
-            />
-            {/* Health Tip Card – hidden on mobile */}
-            <motion.div
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.2 }}
-              className="hidden lg:block bg-gradient-to-br from-slate-900 to-slate-800 p-5 rounded-2xl text-white shadow-md shadow-slate-950/10 border border-slate-800 relative overflow-hidden group"
-            >
-              <div className="absolute top-0 right-0 w-24 h-24 bg-emerald-500/10 rounded-full blur-2xl group-hover:bg-emerald-500/25 transition-all duration-500" />
-              <div className="flex items-center gap-2 mb-2">
-                <Stethoscope className="w-3.5 h-3.5 text-emerald-400" />
-                <span className="text-[10px] font-extrabold uppercase tracking-widest text-emerald-400">
-                  Clinical Insight
-                </span>
+                <button
+                  type="button"
+                  onClick={() => setShowForm(true)}
+                  className={cn(
+                    "hidden h-11 items-center gap-2 rounded-xl bg-emerald-600 px-4 text-xs font-bold text-white shadow-sm shadow-emerald-600/25 transition-all duration-150 hover:bg-emerald-700 active:scale-[0.97] sm:inline-flex",
+                    FOCUS,
+                  )}
+                >
+                  <Plus size={16} aria-hidden="true" />
+                  <span>Add entry</span>
+                </button>
               </div>
-              <p className="text-xs font-medium text-slate-300 leading-relaxed">
-                {metricConfig[selectedType].tip}
-              </p>
-            </motion.div>
-          </aside>
+            </div>
 
-          {/* Chart Card with hover lift */}
-          <motion.div
-            ref={chartRef}
-            whileHover={{ y: -2 }}
-            transition={{ type: "spring", stiffness: 400, damping: 25 }}
-            className="lg:col-span-3 bg-white p-5 sm:p-6 rounded-2xl border border-slate-200/80 shadow-xs hover:shadow-md transition-all duration-300 flex flex-col justify-between"
-          >
-            <TelemetryChart
-              chartData={chartData}
-              currentMetric={selectedType}
-              filteredRecords={filteredRecords}
-            />
-          </motion.div>
+            {/* Mobile-only full-width primary CTA */}
+            <button
+              type="button"
+              onClick={() => setShowForm(true)}
+              className={cn(
+                "sm:hidden w-full min-h-12 inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 text-sm font-bold text-white shadow-sm shadow-emerald-600/25 transition-all duration-150 hover:bg-emerald-700 active:scale-[0.98]",
+                FOCUS,
+              )}
+            >
+              <Plus size={18} aria-hidden="true" />
+              <span>Add entry</span>
+            </button>
+          </header>
+
+          {/* Empty state OR full content */}
+          {!hasAnyData ? (
+            <HealthTrackerEmpty onAdd={() => setShowForm(true)} />
+          ) : (
+            <>
+              <div className="lg:hidden">
+                <MetricSelector
+                  variant="chips"
+                  selectedType={selectedType}
+                  onSelectMetric={setSelectedType}
+                />
+              </div>
+
+              <MetricStatsCards stats={stats} currentMetric={selectedType} />
+
+              <div className="grid grid-cols-1 gap-4 lg:grid-cols-4 lg:gap-6">
+                <aside className="hidden flex-col gap-4 lg:flex">
+                  <MetricSelector
+                    variant="list"
+                    selectedType={selectedType}
+                    onSelectMetric={setSelectedType}
+                  />
+
+                  <div className="group relative overflow-hidden rounded-2xl border border-slate-800 bg-gradient-to-br from-slate-900 to-slate-800 p-5 text-white shadow-md shadow-slate-950/10">
+                    <div className="absolute right-0 top-0 h-24 w-24 rounded-full bg-emerald-500/10 blur-2xl transition-all duration-500 group-hover:bg-emerald-500/25" />
+                    <div className="mb-2 flex items-center gap-2">
+                      <Stethoscope
+                        className="h-3.5 w-3.5 text-emerald-400"
+                        aria-hidden="true"
+                      />
+                      <span className="text-[10px] font-extrabold uppercase tracking-widest text-emerald-400">
+                        Clinical Insight
+                      </span>
+                    </div>
+                    <p className="text-xs font-medium leading-relaxed text-slate-300">
+                      {metricConfig[selectedType].tip}
+                    </p>
+                  </div>
+                </aside>
+
+                <div
+                  ref={chartRef}
+                  className="flex flex-col justify-between rounded-2xl border border-slate-200/80 bg-white p-4 shadow-xs transition-shadow duration-300 sm:p-5 lg:col-span-3 lg:hover:shadow-md"
+                >
+                  <TelemetryChart
+                    chartData={chartData}
+                    currentMetric={selectedType}
+                    filteredRecords={filteredRecords}
+                  />
+                </div>
+              </div>
+
+              <div className="lg:hidden">
+                <div className="relative overflow-hidden rounded-2xl border border-slate-800 bg-gradient-to-br from-slate-900 to-slate-800 p-4 text-white shadow-md">
+                  <div className="absolute right-0 top-0 h-20 w-20 rounded-full bg-emerald-500/10 blur-2xl" />
+                  <div className="mb-1.5 flex items-center gap-2">
+                    <Stethoscope
+                      className="h-3.5 w-3.5 text-emerald-400"
+                      aria-hidden="true"
+                    />
+                    <span className="text-[10px] font-extrabold uppercase tracking-widest text-emerald-400">
+                      Clinical Insight
+                    </span>
+                  </div>
+                  <p className="text-xs font-medium leading-relaxed text-slate-300">
+                    {metricConfig[selectedType].tip}
+                  </p>
+                </div>
+              </div>
+            </>
+          )}
         </div>
       </main>
 
-      {/* Data Entry Modal */}
       <AnimatePresence>
         {showForm && (
           <DataEntryModal
@@ -471,76 +619,109 @@ export default function HealthTracker() {
           />
         )}
       </AnimatePresence>
+    </motion.div>
+  );
+}
+
+// ─── Empty State ──────────────────────────────────────────
+function HealthTrackerEmpty({ onAdd }: { onAdd: () => void }) {
+  return (
+    <div className="bg-white rounded-2xl border border-slate-200/80 p-8 sm:p-12 text-center shadow-xs">
+      <div className="w-16 h-16 rounded-2xl bg-emerald-50 inline-flex items-center justify-center mb-4 mx-auto">
+        <Activity size={28} className="text-emerald-700" />
+      </div>
+      <h2 className="text-lg sm:text-xl font-bold text-slate-900 mb-2 tracking-tight">
+        Start tracking your vitals
+      </h2>
+      <p className="text-sm text-slate-600 max-w-sm mx-auto mb-6 leading-relaxed">
+        Add your first reading to see trends, insights, and share reports with
+        your doctor.
+      </p>
+      <button
+        onClick={onAdd}
+        className={cn(
+          "inline-flex items-center justify-center gap-2 h-12 px-6 rounded-xl bg-emerald-600 text-white font-bold text-sm shadow-sm shadow-emerald-600/25 hover:bg-emerald-700 active:scale-[0.97] transition-all",
+          FOCUS,
+        )}
+      >
+        <Plus size={18} aria-hidden="true" />
+        Add your first entry
+      </button>
     </div>
   );
 }
 
-/* --- Skeleton – styled to match the new design language --- */
+// ─── Skeleton ─────────────────────────────────────────────
 function HealthTrackerSkeleton() {
   return (
-    <div className="min-h-screen bg-[#f8fafc] max-w-7xl mx-auto px-4 sm:px-6 pt-4 sm:pt-6 pb-24 sm:pb-8 animate-pulse space-y-6">
-      {/* Header Skeleton */}
-      <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-6 pb-6 border-b border-slate-100">
-        <div className="flex-1 space-y-2">
-          <div className="flex items-center gap-3">
-            <div className="h-8 w-1 rounded-full bg-slate-200" />
-            <div className="h-3 w-32 bg-slate-200 rounded-full" />
-          </div>
-          <div className="h-10 w-64 md:w-80 bg-slate-200 rounded-xl" />
-          <div className="h-3.5 w-48 bg-slate-200 rounded-lg" />
-        </div>
+    <div className="mx-auto min-h-screen max-w-7xl animate-pulse space-y-6 px-4 pt-5 pb-20 sm:px-6 sm:pt-6 sm:pb-10">
+      <div className="space-y-4">
         <div className="flex items-center gap-3">
-          <div className="flex items-center gap-1 bg-white p-1 rounded-2xl border border-slate-200/80 shadow-xs">
-            <div className="w-10 h-10 bg-slate-200 rounded-xl" />
-            <div className="w-px h-5 bg-slate-200" />
-            <div className="w-10 h-10 bg-slate-200 rounded-xl" />
-          </div>
-          <div className="w-24 h-11 bg-slate-200 rounded-2xl" />
+          <div className="h-5 w-1 rounded-full bg-slate-200" />
+          <div className="h-3 w-32 rounded-full bg-slate-200" />
         </div>
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div className="flex-1 space-y-2">
+            <div className="h-11 w-64 rounded-xl bg-slate-200 md:w-80" />
+            <div className="h-3.5 w-56 rounded-lg bg-slate-200" />
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="h-11 w-11 rounded-xl bg-slate-200" />
+            <div className="h-11 w-11 rounded-xl bg-slate-200" />
+            <div className="hidden h-11 w-24 rounded-xl bg-slate-200 sm:block" />
+          </div>
+        </div>
+        <div className="sm:hidden h-12 w-full rounded-xl bg-slate-200" />
       </div>
 
-      {/* Stats Row Skeleton */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        {Array.from({ length: 3 }).map((_, idx) => (
+      <div className="-mx-4 flex gap-2 overflow-hidden px-4 lg:hidden">
+        {Array.from({ length: 4 }).map((_, i) => (
+          <div key={i} className="h-11 w-32 shrink-0 rounded-xl bg-slate-200" />
+        ))}
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+        {Array.from({ length: 3 }).map((_, i) => (
           <div
-            key={idx}
-            className="h-24 bg-white rounded-2xl border border-slate-200/80 shadow-xs p-4 space-y-3"
+            key={i}
+            className="h-24 space-y-3 rounded-2xl border border-slate-200/80 bg-white p-4 shadow-xs"
           >
-            <div className="h-3 bg-slate-200 rounded-full w-1/3" />
-            <div className="h-6 bg-slate-200 rounded-lg w-1/2" />
+            <div className="h-3 w-1/3 rounded-full bg-slate-200" />
+            <div className="h-6 w-1/2 rounded-lg bg-slate-200" />
           </div>
         ))}
       </div>
 
-      {/* Main Area Skeleton */}
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-        <div className="space-y-3">
-          {Array.from({ length: 5 }).map((_, idx) => (
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-4 lg:gap-6">
+        <div className="hidden space-y-2 lg:block">
+          {Array.from({ length: 5 }).map((_, i) => (
             <div
-              key={idx}
-              className="h-14 bg-white rounded-2xl border border-slate-200/80 shadow-xs"
+              key={i}
+              className="h-12 rounded-2xl border border-slate-200/80 bg-white shadow-xs"
             />
           ))}
-          <div className="h-24 bg-slate-900 rounded-2xl hidden lg:block" />
+          <div className="h-24 rounded-2xl bg-slate-900/90" />
         </div>
 
-        <div className="lg:col-span-3 h-[380px] bg-white rounded-2xl border border-slate-200/80 shadow-xs p-6 flex flex-col justify-between">
-          <div className="flex justify-between items-center">
-            <div className="h-4 bg-slate-200 rounded-lg w-1/4" />
-            <div className="h-4 bg-slate-200 rounded-lg w-12" />
+        <div className="flex h-[380px] flex-col justify-between rounded-2xl border border-slate-200/80 bg-white p-4 shadow-xs sm:p-5 lg:col-span-3">
+          <div className="flex items-center justify-between">
+            <div className="h-4 w-1/4 rounded-lg bg-slate-200" />
+            <div className="h-4 w-12 rounded-lg bg-slate-200" />
           </div>
-          <div className="w-full h-48 bg-slate-50 rounded-xl flex items-end justify-between p-4 space-x-2">
-            {Array.from({ length: 7 }).map((_, i) => (
+          <div className="flex h-48 w-full items-end justify-between gap-2 rounded-xl bg-slate-50 p-4">
+            {SKELETON_BARS.map((h, i) => (
               <div
                 key={i}
-                className="w-full bg-slate-200/60 rounded-lg"
-                style={{ height: `${20 + Math.random() * 60}%` }}
+                className="w-full rounded-lg bg-slate-200/60"
+                style={{ height: `${h}%` }}
               />
             ))}
           </div>
-          <div className="h-3 bg-slate-200 rounded-lg w-1/2 mx-auto" />
+          <div className="mx-auto h-3 w-1/2 rounded-lg bg-slate-200" />
         </div>
       </div>
+
+      <div className="h-28 rounded-2xl bg-slate-900/90 lg:hidden" />
     </div>
   );
 }

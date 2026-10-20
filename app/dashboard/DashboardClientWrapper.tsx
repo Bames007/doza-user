@@ -26,7 +26,6 @@ export default function DashboardClientWrapper({
     return () => window.removeEventListener("resize", checkMobile);
   }, []);
 
-  // Bubble state
   const [showBubble, setShowBubble] = useState(false);
   const [bubblePhase, setBubblePhase] = useState<"closing" | "opening">(
     "closing",
@@ -39,7 +38,6 @@ export default function DashboardClientWrapper({
       setShowBubble(false);
       return;
     }
-    // Start the intro animation after a tiny paint delay
     const timer = setTimeout(() => {
       setShowBubble(true);
       setBubblePhase("closing");
@@ -58,7 +56,6 @@ export default function DashboardClientWrapper({
   return (
     <UserProvider user={user}>
       <DashboardProvider>
-        {/* Bubble transition overlay */}
         <AnimatePresence>
           {showBubble && (
             <BubbleTransition
@@ -69,7 +66,6 @@ export default function DashboardClientWrapper({
           )}
         </AnimatePresence>
 
-        {/* Main dashboard – hidden while bubble is visible */}
         <div
           className={cn(
             "flex h-screen overflow-hidden bg-slate-50 transition-opacity duration-500",
@@ -78,6 +74,7 @@ export default function DashboardClientWrapper({
         >
           <UserDashboardSidebar isMobile={isMobile} />
           <main
+            id="dashboard-scroll"
             className={cn(
               "flex-1 overflow-y-auto bg-slate-50",
               isMobile && "pt-14 pb-24",

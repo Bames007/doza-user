@@ -7,8 +7,11 @@ export function useFavorites() {
     "/api/user/favorites",
     authFetcher,
     {
-      dedupingInterval: 120_000, // 2 minutes
       revalidateOnFocus: false,
+      revalidateOnReconnect: true,
+      dedupingInterval: 120_000,
+      keepPreviousData: true,
+      revalidateIfStale: false,
     },
   );
 

@@ -25,7 +25,10 @@ export const useMedicalOrders = () => {
     data: Record<string, Order>;
   }>(user ? "/api/medical-store/orders" : null, authFetcher, {
     revalidateOnFocus: false,
+    revalidateOnReconnect: true,
     dedupingInterval: 120_000,
+    keepPreviousData: true,
+    revalidateIfStale: false,
   });
 
   const orders = data?.success ? data.data : {};

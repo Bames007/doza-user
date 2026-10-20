@@ -1,6 +1,7 @@
 // app/dashboard/hooks/usePrescribedMedications.ts
 
-import { useState, useEffect } from "react";
+import { useMemo } from "react";
+import useSWR from "swr";
 import { useLinkedCenters } from "./useLinkedCenters";
 import { useUserContext } from "../UserContext";
 
@@ -26,38 +27,54 @@ export interface PrescribedMedication {
   dispensedTotal: number;
 }
 
+// Minimal shape we need from a linked center.
+// useLinkedCenters may return more fields — we only need these two.
+interface LinkedCenter {
+  centerId: string;
+  centerName: string;
+}
+
 export function usePrescribedMedications() {
   const user = useUserContext();
   const { centers, loading: centersLoading } = useLinkedCenters(user?.id);
-  const [prescriptions, setPrescriptions] = useState<PrescribedMedication[]>(
-    [],
+
+  // Cast once, type everything downstream from here.
+  const typedCenters = useMemo<LinkedCenter[]>(() => {
+    if (!Array.isArray(centers)) return [];
+    return centers as LinkedCenter[];
+  }, [centers]);
+
+  // Stable string key so SWR only refetches when the actual set changes
+  const centerKey = useMemo(
+    () =>
+      typedCenters
+        .map((c) => c.centerId) // c is now LinkedCenter — no error
+        .sort()
+        .join(","),
+    [typedCenters],
   );
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<Error | null>(null);
 
-  useEffect(() => {
-    if (!centers.length || !user?.id) {
-      setLoading(false);
-      return;
-    }
+  const { data, isLoading, error } = useSWR<PrescribedMedication[]>(
+    user?.id && typedCenters.length > 0
+      ? ["prescribed-medications", user.id, centerKey]
+      : null,
+    async () => {
+      if (!user?.id) return [];
 
-    const fetchAll = async () => {
-      setLoading(true);
-      setError(null);
-      const allRx: PrescribedMedication[] = [];
+      // Parallel fetch — all centers in flight simultaneously
+      const results = await Promise.all(
+        typedCenters.map(async (center): Promise<PrescribedMedication[]> => {
+          // center is LinkedCenter — no error
+          try {
+            const res = await fetch(
+              `/api/centers/${center.centerId}/patients/${user.id}`,
+              { credentials: "include" },
+            );
+            if (!res.ok) return [];
+            const data = await res.json();
+            if (!data.success || !data.data?.prescriptions) return [];
 
-      for (const center of centers) {
-        try {
-          const res = await fetch(
-            `/api/centers/${center.centerId}/patients/${user.id}`,
-            { credentials: "include" },
-          );
-          if (!res.ok) continue;
-          const data = await res.json();
-          if (!data.success || !data.data?.prescriptions) continue;
-
-          const rxList = data.data.prescriptions.map(
-            (rx: any, idx: number) => ({
+            return data.data.prescriptions.map((rx: any, idx: number) => ({
               id: `${center.centerId}-${idx}`,
               centerId: center.centerId,
               centerName: center.centerName,
@@ -75,23 +92,31 @@ export function usePrescribedMedications() {
               source: rx.source || "hospital",
               totalQuantity: rx.totalQuantity || 1,
               dispensedTotal: rx.dispensedTotal || 0,
-            }),
-          );
-          allRx.push(...rxList);
-        } catch (e) {
-          console.warn(
-            `Failed to fetch prescriptions for center ${center.centerId}`,
-            e,
-          );
-        }
-      }
+            })) as PrescribedMedication[];
+          } catch (e) {
+            console.warn(
+              `Failed to fetch prescriptions for center ${center.centerId}`,
+              e,
+            );
+            return [];
+          }
+        }),
+      );
 
-      setPrescriptions(allRx);
-      setLoading(false);
-    };
+      return results.flat();
+    },
+    {
+      revalidateOnFocus: false,
+      revalidateOnReconnect: true,
+      dedupingInterval: 60_000,
+      keepPreviousData: true,
+      revalidateIfStale: false,
+    },
+  );
 
-    fetchAll();
-  }, [centers, user?.id]);
-
-  return { prescriptions, loading, error };
+  return {
+    prescriptions: data ?? [],
+    loading: isLoading,
+    error: error ?? null,
+  };
 }

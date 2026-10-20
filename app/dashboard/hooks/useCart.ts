@@ -11,23 +11,56 @@ export interface CartItem {
   quantity: number;
 }
 
-export const useCart = () => {
-  const [cartItems, setCartItems] = useState<CartItem[]>([]);
+// Module-level store — shared across ALL useCart() calls in this page
+let cartStore: CartItem[] | null = null;
+const listeners = new Set<() => void>();
 
-  useEffect(() => {
+function notify() {
+  listeners.forEach((fn) => fn());
+}
+
+function readFromStorage(): CartItem[] {
+  if (typeof window === "undefined") return [];
+  try {
     const stored = localStorage.getItem("doza_cart");
-    if (stored) {
-      try {
-        setCartItems(JSON.parse(stored));
-      } catch {
-        // silently ignore corrupted cart
-      }
-    }
+    if (!stored) return [];
+    const parsed = JSON.parse(stored);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeToStorage(items: CartItem[]) {
+  try {
+    localStorage.setItem("doza_cart", JSON.stringify(items));
+  } catch {}
+}
+
+export const useCart = () => {
+  const [cartItems, setCartItems] = useState<CartItem[]>(() => {
+    if (cartStore !== null) return cartStore;
+    cartStore = readFromStorage();
+    return cartStore;
+  });
+
+  // Sync this instance with the module store
+  useEffect(() => {
+    const listener = () => setCartItems(cartStore || []);
+    listeners.add(listener);
+    // Sync immediately in case another instance updated before we mounted
+    if (cartStore !== null) setCartItems(cartStore);
+    return () => {
+      listeners.delete(listener);
+    };
   }, []);
 
-  useEffect(() => {
-    localStorage.setItem("doza_cart", JSON.stringify(cartItems));
-  }, [cartItems]);
+  const updateCart = (next: CartItem[]) => {
+    cartStore = next;
+    writeToStorage(next);
+    setCartItems(next);
+    notify();
+  };
 
   const addToCart = (
     product: any,
@@ -46,7 +79,7 @@ export const useCart = () => {
       color,
       quantity,
     };
-    setCartItems((prev) => [...prev, newItem]);
+    updateCart([...(cartStore || []), newItem]);
   };
 
   const updateQuantity = (cartItemId: string, newQuantity: number) => {
@@ -54,8 +87,8 @@ export const useCart = () => {
       removeFromCart(cartItemId);
       return;
     }
-    setCartItems((prev) =>
-      prev.map((item) =>
+    updateCart(
+      (cartStore || []).map((item) =>
         item.cartItemId === cartItemId
           ? { ...item, quantity: newQuantity }
           : item,
@@ -64,13 +97,13 @@ export const useCart = () => {
   };
 
   const removeFromCart = (cartItemId: string) => {
-    setCartItems((prev) =>
-      prev.filter((item) => item.cartItemId !== cartItemId),
+    updateCart(
+      (cartStore || []).filter((item) => item.cartItemId !== cartItemId),
     );
   };
 
   const clearCart = () => {
-    setCartItems([]);
+    updateCart([]);
   };
 
   const subtotal = cartItems.reduce(

@@ -23,11 +23,24 @@ export async function GET(request: NextRequest) {
 
   try {
     const familyRef = adminDb.ref(`doza/users/${uid}/familyFriends`);
-    const snapshot = await familyRef.once("value");
-    const family = snapshot.val() || [];
+    const snapshot = await familyRef.get(); // ✅ modern API
+    const raw = snapshot.val();
+
+    // Normalize: Firebase returns object for push-keyed nodes,
+    // array for integer-keyed nodes, null for empty. Always return array.
+    const family: any[] = !raw
+      ? []
+      : Array.isArray(raw)
+        ? raw
+        : Object.entries(raw).map(([id, data]) => ({ id, ...(data as any) }));
+
     return NextResponse.json({ success: true, data: family });
   } catch (error) {
-    logger.error({ uid, message: "GET family contacts failed", error });
+    logger.error({
+      uid,
+      message: "GET family contacts failed",
+      error: error instanceof Error ? error.message : String(error),
+    });
     return NextResponse.json(
       { success: false, error: "Unable to load family contacts" },
       { status: 500 },
@@ -63,20 +76,19 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const newContact = {
-      id: Date.now().toString() + Math.random().toString(36).substr(2, 5),
-      ...parseResult.data,
-    };
-
     const familyRef = adminDb.ref(`doza/users/${uid}/familyFriends`);
-    const snapshot = await familyRef.once("value");
-    const family = snapshot.val() || [];
-    family.push(newContact);
-    await familyRef.set(family);
+    const newContactRef = familyRef.push(); // ✅ Firebase generates key
+    const id = newContactRef.key!;
+    const newContact = {
+      ...parseResult.data,
+      id,
+      createdAt: Date.now(),
+    };
+    await newContactRef.set(newContact); // ✅ only writes the new child
 
     logger.info({
       uid,
-      contactId: newContact.id,
+      contactId: id,
       message: "Family contact added",
     });
     return NextResponse.json(
@@ -84,7 +96,11 @@ export async function POST(request: NextRequest) {
       { status: 201 },
     );
   } catch (error) {
-    logger.error({ uid, message: "POST family contact failed", error });
+    logger.error({
+      uid,
+      message: "POST family contact failed",
+      error: error instanceof Error ? error.message : String(error),
+    });
     return NextResponse.json(
       { success: false, error: "Unable to add contact" },
       { status: 500 },

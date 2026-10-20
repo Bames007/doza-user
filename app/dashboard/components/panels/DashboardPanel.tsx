@@ -1,6 +1,12 @@
 "use client";
 
-import React, { useMemo, useState, useEffect, useRef } from "react";
+import React, {
+  useMemo,
+  useState,
+  useEffect,
+  useRef,
+  useCallback,
+} from "react";
 import { useUserContext } from "../../UserContext";
 import useSWR from "swr";
 import { motion, AnimatePresence, Transition } from "framer-motion";
@@ -27,11 +33,13 @@ import {
   ChevronDown,
   ChevronUp,
   Pill,
-  Microscope,
   Star,
   Edit3,
   Send,
   Dumbbell,
+  MessageCircle,
+  Plus,
+  Smile,
 } from "lucide-react";
 import { useDashboard } from "../../DashboardContext";
 import { authFetcher } from "@/app/utils/client-auth";
@@ -41,7 +49,7 @@ import { useActiveSession } from "@/app/dashboard/hooks/useSession";
 import { usePendingLinkRequests } from "../../hooks/usePendingLinkRequest";
 import { useNotifications } from "../../hooks/useNotification";
 
-// ─── SessionRating Component (duplicated for self‑containment) ──
+// ─── SessionRating (unchanged) ────────────────────────────────
 const SessionRating = ({
   sessionId,
   centerId,
@@ -61,11 +69,6 @@ const SessionRating = ({
   const [submitting, setSubmitting] = useState(false);
   const [showComment, setShowComment] = useState(false);
   const userId = useUserContext()?.id;
-
-  const handleRate = async (value: number) => {
-    setRating(value);
-    setShowComment(true);
-  };
 
   const handleSubmit = async () => {
     if (!userId) return;
@@ -107,13 +110,17 @@ const SessionRating = ({
             <button
               key={star}
               type="button"
-              onClick={() => handleRate(star)}
+              onClick={() => {
+                setRating(star);
+                setShowComment(true);
+              }}
               onMouseEnter={() => setHover(star)}
               onMouseLeave={() => setHover(0)}
-              className="focus:outline-none transition-transform active:scale-90"
+              className="focus:outline-none transition-transform active:scale-90 min-h-11 min-w-11 inline-flex items-center justify-center rounded-lg"
+              aria-label={`${star} star${star > 1 ? "s" : ""}`}
             >
               <Star
-                size={28}
+                size={26}
                 className={cn(
                   "fill-current transition-colors",
                   (hover || rating) >= star
@@ -137,13 +144,13 @@ const SessionRating = ({
             value={comment}
             onChange={(e) => setComment(e.target.value)}
             placeholder="Share your thoughts (optional)"
-            className="w-full px-4 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm text-slate-800 placeholder:text-slate-400 focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition resize-none min-h-[60px]"
+            className="w-full px-4 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm text-slate-800 placeholder:text-slate-500 focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition resize-none min-h-[60px]"
             rows={2}
           />
           <button
             onClick={handleSubmit}
             disabled={submitting}
-            className="flex items-center gap-2 px-5 py-2.5 bg-emerald-600 text-white rounded-xl font-medium hover:bg-emerald-700 transition disabled:opacity-50"
+            className="flex items-center gap-2 px-5 py-2.5 bg-emerald-600 text-white rounded-xl font-medium hover:bg-emerald-700 transition disabled:opacity-50 min-h-11"
           >
             {submitting ? (
               <Loader2 className="w-4 h-4 animate-spin" />
@@ -161,13 +168,13 @@ const SessionRating = ({
             Rated: {initialRating}/5
           </span>
           {initialComment && (
-            <span className="text-xs text-slate-400 italic">
-              “{initialComment}”
+            <span className="text-xs text-slate-500 italic">
+              "{initialComment}"
             </span>
           )}
           <button
             onClick={() => setShowComment(true)}
-            className="text-xs text-emerald-600 hover:text-emerald-800 font-medium flex items-center gap-1"
+            className="text-xs text-emerald-700 hover:text-emerald-800 font-medium flex items-center gap-1 min-h-11 px-2 rounded-lg"
           >
             <Edit3 className="w-3 h-3" /> Edit
           </button>
@@ -177,12 +184,18 @@ const SessionRating = ({
   );
 };
 
-// ─── Hook: fetch session history with deduplication ────────────
+// ─── useSessionHistory ────────────────────────────────────────
 function useSessionHistory(userId?: string) {
-  const { data, error } = useSWR(
+  const { data, error, isLoading } = useSWR(
     userId ? `/api/user/${userId}/sessions` : null,
     authFetcher,
-    { revalidateOnFocus: true },
+    {
+      revalidateOnFocus: false,
+      revalidateOnReconnect: true,
+      dedupingInterval: 60_000,
+      keepPreviousData: true,
+      revalidateIfStale: false,
+    },
   );
   const uniqueSessions = useMemo(() => {
     if (!data?.data) return [];
@@ -195,7 +208,7 @@ function useSessionHistory(userId?: string) {
   }, [data]);
   return {
     sessions: uniqueSessions,
-    loading: !data && !error,
+    loading: isLoading && uniqueSessions.length === 0,
     error,
   };
 }
@@ -206,8 +219,7 @@ const spring: Transition = {
   damping: 25,
 };
 
-// ─── Helpers ──────────────────────────────────────────────────────
-
+// ─── Helpers ──────────────────────────────────────────────────
 const translateMedicalType = (type: string): string => {
   switch (type) {
     case "heartRate":
@@ -245,8 +257,76 @@ const getUnitLabel = (type: string): string => {
   }
 };
 
-// ─── Main Component ──────────────────────────────────────────────
+const MOODS = [
+  {
+    score: 1,
+    emoji: "😞",
+    label: "Very low",
+    ring: "ring-rose-400",
+    bg: "bg-rose-500",
+  },
+  {
+    score: 2,
+    emoji: "😟",
+    label: "Low",
+    ring: "ring-orange-400",
+    bg: "bg-orange-500",
+  },
+  {
+    score: 3,
+    emoji: "😐",
+    label: "Okay",
+    ring: "ring-amber-400",
+    bg: "bg-amber-500",
+  },
+  {
+    score: 4,
+    emoji: "🙂",
+    label: "Good",
+    ring: "ring-lime-400",
+    bg: "bg-lime-500",
+  },
+  {
+    score: 5,
+    emoji: "😊",
+    label: "Happy",
+    ring: "ring-emerald-400",
+    bg: "bg-emerald-500",
+  },
+  {
+    score: 6,
+    emoji: "😄",
+    label: "Great",
+    ring: "ring-teal-400",
+    bg: "bg-teal-500",
+  },
+];
 
+// ─── SessionStorage helpers (defensive) ───────────────────────
+function ssGet(key: string): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    return sessionStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function ssSet(key: string, value: string) {
+  if (typeof window === "undefined") return;
+  try {
+    sessionStorage.setItem(key, value);
+  } catch {}
+}
+
+function ssRemove(key: string) {
+  if (typeof window === "undefined") return;
+  try {
+    sessionStorage.removeItem(key);
+  } catch {}
+}
+
+// ─── Main Component ───────────────────────────────────────────
 export default function DashboardPanel() {
   const user = useUserContext();
   const userId = user?.id;
@@ -255,34 +335,66 @@ export default function DashboardPanel() {
     showPendingRequestPopup,
     setShowPendingRequestPopup,
   } = useDashboard();
-  const [tipIndex, setTipIndex] = useState(0);
+
+  // Persisted UI state (sessionStorage-backed)
+  const [tipIndex, setTipIndex] = useState<number>(() => {
+    const v = ssGet("dashboard:tipIndex");
+    return v ? Number(v) : 0;
+  });
   const [expandedSessionId, setExpandedSessionId] = useState<string | null>(
-    null,
+    () => ssGet("dashboard:expandedSession"),
   );
+  const [showLogsMobile, setShowLogsMobile] = useState<boolean>(() => {
+    return ssGet("dashboard:showLogs") === "true";
+  });
+
+  // Mood state (ephemeral — not persisted across sessions)
+  const [moodValue, setMoodValue] = useState(4);
+  const [moodComment, setMoodComment] = useState("");
+  const [moodSubmitting, setMoodSubmitting] = useState(false);
+  const [moodSaved, setMoodSaved] = useState(false);
+  const [showTherapyPrompt, setShowTherapyPrompt] = useState(false);
 
   const { markAsRead } = useNotifications();
 
-  // ─── Active session ─────────────────────────────────────────────
+  // Persist UI state changes
+  useEffect(() => {
+    if (expandedSessionId)
+      ssSet("dashboard:expandedSession", expandedSessionId);
+    else ssRemove("dashboard:expandedSession");
+  }, [expandedSessionId]);
+
+  useEffect(() => {
+    ssSet("dashboard:showLogs", String(showLogsMobile));
+  }, [showLogsMobile]);
+
+  useEffect(() => {
+    ssSet("dashboard:tipIndex", String(tipIndex));
+  }, [tipIndex]);
+
+  // ─── Active session ─────────────────────────────────────────
   const { sessions: allSessions } = useActiveSession(userId);
   const activeSession = allSessions.length > 0 ? allSessions[0] : null;
 
-  // ─── Session history ────────────────────────────────────────────
+  // ─── Session history ────────────────────────────────────────
   const { sessions: sessionHistory, loading: historyLoading } =
     useSessionHistory(userId);
 
-  // ─── Dashboard data ─────────────────────────────────────────────
+  // ─── Dashboard data (warm cache, no refetch on focus) ──────
   const { data: dashboardData, isLoading: dataLoading } = useSWR(
     userId ? "/api/dashboard/summary" : null,
     authFetcher,
     {
       revalidateOnFocus: false,
+      revalidateOnReconnect: true,
       dedupingInterval: 60_000,
+      keepPreviousData: true,
+      revalidateIfStale: false,
     },
   );
 
   const notifications: any[] = dashboardData?.data?.notifications ?? [];
   const healthRecords = dashboardData?.data?.healthRecords ?? {};
-  const upcomingAppointments = dashboardData?.data?.appointments ?? [];
 
   const displayStats = {
     heartRate: healthRecords.heartRate || "—",
@@ -292,16 +404,6 @@ export default function DashboardPanel() {
   };
 
   const recentEntries = healthRecords.recentEntries || [];
-
-  const sortedAppointments = useMemo(() => {
-    if (!upcomingAppointments || upcomingAppointments.length === 0) return [];
-    return [...upcomingAppointments].sort((a, b) => {
-      return (
-        new Date(`${a.date}T${a.time}`).getTime() -
-        new Date(`${b.date}T${b.time}`).getTime()
-      );
-    });
-  }, [upcomingAppointments]);
 
   const healthTips = useMemo(() => {
     if (notifications.length === 0) {
@@ -313,7 +415,63 @@ export default function DashboardPanel() {
     return notifications.map((n: any) => n.message).slice(0, 5);
   }, [notifications]);
 
-  // ─── Pending link requests ──────────────────────────────────────
+  // ─── Mood fetch ─────────────────────────────────────────────
+  const today = useMemo(() => new Date().toISOString().split("T")[0], []);
+  const { data: moodData, mutate: mutateMood } = useSWR(
+    userId ? `/api/mood-records` : null,
+    authFetcher,
+    {
+      revalidateOnFocus: false,
+      revalidateOnReconnect: true,
+      dedupingInterval: 60_000,
+      keepPreviousData: true,
+      revalidateIfStale: false,
+    },
+  );
+  const todayMood = useMemo(
+    () => (moodData?.data || []).find((m: any) => m.date === today),
+    [moodData, today],
+  );
+
+  useEffect(() => {
+    if (todayMood) {
+      setMoodValue(todayMood.moodScore);
+      setMoodComment(todayMood.comment || "");
+      setMoodSaved(true);
+    }
+  }, [todayMood]);
+
+  const handleSaveMood = async () => {
+    if (!userId) return;
+    setMoodSubmitting(true);
+    try {
+      const res = await fetch("/api/mood-records", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          date: today,
+          moodScore: moodValue,
+          comment: moodComment.trim(),
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setMoodSaved(true);
+        mutateMood();
+        setShowTherapyPrompt(true);
+      } else {
+        alert("Could not save your mood. Please try again.");
+      }
+    } catch (e) {
+      console.error("Mood save failed", e);
+      alert("Network error. Please try again.");
+    } finally {
+      setMoodSubmitting(false);
+    }
+  };
+
+  // ─── Pending link requests ─────────────────────────────────
   const { pendingRequests } = usePendingLinkRequests(userId);
   const [activeRequest, setActiveRequest] = useState<any | null>(null);
   const [copied, setCopied] = useState(false);
@@ -390,19 +548,43 @@ export default function DashboardPanel() {
     return parts.join(" ");
   };
 
-  // ─── Loading State ──────────────────────────────────────────────
-  if (!user) return <LoadingState />;
-  if (dataLoading) return <LoadingState />;
+  // ─── Scroll restoration ────────────────────────────────────
+  const scrollerRef = useRef<HTMLElement | null>(null);
+  const scrollRestoredRef = useRef(false);
 
-  // ─── Render ──────────────────────────────────────────────────────
+  useEffect(() => {
+    const el =
+      (document.getElementById("dashboard-scroll") as HTMLElement | null) ||
+      (document.querySelector("main") as HTMLElement | null);
+    scrollerRef.current = el;
+    if (!el) return;
+
+    // Restore once on mount
+    if (!scrollRestoredRef.current) {
+      const saved = ssGet("dashboard:scroll");
+      if (saved) el.scrollTo({ top: Number(saved), behavior: "instant" });
+      scrollRestoredRef.current = true;
+    }
+
+    // Save on scroll
+    const onScroll = () => ssSet("dashboard:scroll", String(el.scrollTop));
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => el.removeEventListener("scroll", onScroll);
+  }, []);
+
+  // ─── Loading gate — only on truly cold start ──────────────
+  if (!user) return <LoadingState />;
+  if (dataLoading && !dashboardData) return <LoadingState />;
+
+  // ─── Render ─────────────────────────────────────────────────
   return (
-    <div
-      className={cn(
-        "min-h-screen bg-[#F8FAFC] pb-28 pt-3 md:pt-8",
-        poppins.className,
-      )}
+    <motion.div
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.2, ease: "easeOut" }}
+      className={cn("min-h-screen bg-[#F8FAFC] pb-28 pt-2", poppins.className)}
     >
-      {/* ─── Active Session Banner ────────────────────────────────── */}
+      {/* Active Session Banner */}
       {activeSession && (
         <motion.div
           initial={{ opacity: 0, y: -20 }}
@@ -417,545 +599,443 @@ export default function DashboardPanel() {
                 {activeSession.centerName || "Healthcare Center"}
               </span>
             </span>
-            <span className="text-[11px] opacity-80 hidden xs:inline font-mono">
-              (
-              {new Date(activeSession.startTime).toLocaleTimeString([], {
-                hour: "2-digit",
-                minute: "2-digit",
-              })}
-              )
-            </span>
           </div>
           <button
             onClick={() => setActivePanel("doza-panel")}
-            className="bg-white/15 hover:bg-white/25 active:scale-95 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all shrink-0 backdrop-blur-xs"
+            className="bg-white/15 hover:bg-white/25 active:scale-95 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all shrink-0 backdrop-blur-xs min-h-9"
           >
             View Details
           </button>
         </motion.div>
       )}
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-6 md:space-y-8">
-        {/* ─── NEW HEADER WITH TOP NAV ────────────── */}
-        <header className="bg-white rounded-2xl md:rounded-3xl border border-slate-200/70 shadow-2xs overflow-hidden">
-          {/* Top Navigation Links */}
-          <div className="flex items-center justify-between px-4 sm:px-6 py-3 bg-slate-50/70 border-b border-slate-200/50 overflow-x-auto scrollbar-none">
-            <div className="flex items-center gap-2 shrink-0">
-              <button
-                onClick={() => setActivePanel("dashboard")}
-                className="px-3 py-1.5 text-xs font-semibold text-emerald-700 bg-emerald-50 rounded-lg border border-emerald-200/60 shadow-2xs"
-              >
-                Home
-              </button>
-              <span className="text-slate-300 font-light">/</span>
-              <button
-                onClick={() => setActivePanel("appointment")}
-                className="px-3 py-1.5 text-xs font-medium text-slate-600 hover:text-emerald-600 transition-colors flex items-center gap-1.5 rounded-lg hover:bg-slate-100/50"
-              >
-                <Calendar size={14} /> Appointments
-              </button>
-              <button
-                onClick={() => setActivePanel("doza-medical-shop")}
-                className="px-3 py-1.5 text-xs font-medium text-slate-600 hover:text-emerald-600 transition-colors flex items-center gap-1.5 rounded-lg hover:bg-slate-100/50"
-              >
-                <Pill size={14} /> Medical Shop
-              </button>
-              <button
-                onClick={() => setActivePanel("doza-sport-shop")}
-                className="px-3 py-1.5 text-xs font-medium text-slate-600 hover:text-emerald-600 transition-colors flex items-center gap-1.5 rounded-lg hover:bg-slate-100/50"
-              >
-                <Dumbbell size={14} /> Sport Shop
-              </button>
-            </div>
-            <button
-              onClick={() => setActivePanel("notifications")}
-              className="relative p-2 rounded-xl hover:bg-slate-100/80 transition-colors shrink-0 ml-2"
-            >
-              <Bell size={18} className="text-slate-600" />
-              {notifications.filter((n) => !n.read).length > 0 && (
-                <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-rose-500 rounded-full ring-2 ring-white" />
-              )}
-            </button>
-          </div>
-
-          {/* Main Header Content */}
-          <div className="p-5 sm:p-8">
-            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-5">
-              <div>
-                <div className="flex items-center gap-2.5 mb-1.5">
-                  <div className="h-5 w-1 rounded-full bg-emerald-500" />
-                  <span className="text-[11px] font-bold text-emerald-600 uppercase tracking-widest">
-                    Connected & Up to Date
-                  </span>
-                </div>
-                {/* Responsive hidden logic: Hide 'Welcome Sarah' on mobile since sidebar handles it, show on md+ */}
-                <h1
-                  className={cn(
-                    "hidden md:block text-4xl lg:text-5xl text-slate-900 tracking-tight font-bold",
-                    bebasNeue.className,
-                  )}
-                >
-                  Welcome,{" "}
-                  <span className="text-emerald-600">
-                    {user?.fullName?.split(" ")[0] || "User"}
-                  </span>
-                </h1>
-                {/* Mobile clean compact header heading */}
-                <h1 className="md:hidden text-2xl font-bold text-slate-900 tracking-tight">
-                  Dashboard Overview
-                </h1>
-                <p className="text-xs sm:text-sm text-slate-500 mt-1">
-                  {activeSession
-                    ? "You have an active session in progress"
-                    : "All systems nominal and secure"}
-                </p>
-              </div>
-              <button
-                onClick={() => setActivePanel("health-tracker")}
-                className="w-full md:w-auto flex items-center justify-center gap-2 px-5 py-3 bg-slate-900 text-white rounded-xl text-xs font-semibold tracking-wide active:scale-95 hover:bg-slate-800 transition-all shadow-sm"
-              >
-                <History size={15} /> View Full History
-              </button>
-            </div>
-          </div>
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-3 space-y-4 lg:space-y-6">
+        {/* Page heading */}
+        <header className="pt-1 lg:pt-2">
+          <h1 className="text-2xl sm:text-3xl lg:text-4xl font-bold text-slate-900 tracking-tight leading-tight">
+            Dashboard Overview
+          </h1>
+          <p className="text-xs sm:text-sm text-slate-500 mt-1">
+            {new Date().toLocaleDateString(undefined, {
+              weekday: "long",
+              month: "long",
+              day: "numeric",
+            })}
+          </p>
         </header>
 
-        {/* ─── RESPONSIVE DASHBOARD CONTENT GRID ──────────────────── */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-          {/* ─── LEFT MAIN COLUMN (8 Cols on Desktop) ─────────────── */}
-          <div className="lg:col-span-8 space-y-6">
-            {/* LATEST READINGS SUMMARY */}
-            <BentoTile className="bg-white p-5 sm:p-6 md:p-8 rounded-2xl md:rounded-3xl border border-slate-200/70 shadow-2xs">
-              <div className="flex justify-between items-center mb-5">
-                <h3 className="text-sm sm:text-base font-bold text-slate-900 flex items-center gap-2 tracking-tight">
-                  <TrendingUp className="text-emerald-500 shrink-0" size={18} />{" "}
-                  Your Health Summary
-                </h3>
-                <button
-                  onClick={() => setActivePanel("health-tracker")}
-                  className="text-xs font-semibold text-emerald-600 hover:text-emerald-700 transition-colors"
-                >
-                  See Changes
-                </button>
-              </div>
+        {/* Badges row */}
+        <div className="flex items-center gap-2 overflow-x-auto -mx-4 px-4 pb-1 sm:-mx-6 sm:px-6 lg:mx-0 lg:px-0 lg:flex-wrap scrollbar-none [&::-webkit-scrollbar]:hidden">
+          <Chip
+            icon={Calendar}
+            label="Appointments"
+            onClick={() => setActivePanel("appointment")}
+          />
+          <Chip
+            icon={Pill}
+            label="Medical Shop"
+            onClick={() => setActivePanel("doza-medical-shop")}
+          />
+          <Chip
+            icon={Dumbbell}
+            label="Sport Shop"
+            onClick={() => setActivePanel("doza-sport-shop")}
+          />
+        </div>
 
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
-                <StatCard
-                  icon={HeartPulse}
-                  label="Heart Rate"
-                  val={displayStats.heartRate}
-                  unit="bpm"
-                  color="text-rose-500"
-                  bg="bg-rose-50/50"
-                  hasChart
-                />
-                <StatCard
-                  icon={Activity}
-                  label="Blood Pressure"
-                  val={
-                    typeof displayStats.bloodPressure === "object"
-                      ? `${displayStats.bloodPressure.systolic}/${displayStats.bloodPressure.diastolic}`
-                      : displayStats.bloodPressure
-                  }
-                  unit="mmHg"
-                  color="text-amber-500"
-                  bg="bg-amber-50/50"
-                  hasChart
-                />
-                <StatCard
-                  icon={Droplets}
-                  label="Body Weight"
-                  val={displayStats.weight}
-                  unit="kg"
-                  color="text-emerald-500"
-                  bg="bg-emerald-50/50"
-                  hasChart
-                />
-                <StatCard
-                  icon={Footprints}
-                  label="Steps Today"
-                  val={displayStats.steps}
-                  unit="steps"
-                  color="text-blue-500"
-                  bg="bg-blue-50/50"
-                />
-              </div>
-            </BentoTile>
-
-            {/* ─── ONGOING SESSION CARD (IF ACTIVE) ─────────────── */}
-            {activeSession && (
-              <BentoTile className="bg-white p-5 sm:p-6 md:p-8 rounded-2xl md:rounded-3xl border-l-4 border-emerald-500 border border-slate-200/70 shadow-2xs">
-                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-                  <div className="space-y-1.5">
-                    <div className="flex items-center gap-2 text-emerald-600">
-                      <Activity className="w-4 h-4 animate-pulse" />
-                      <span className="text-[10px] font-bold uppercase tracking-wider">
-                        Ongoing Session
-                      </span>
-                    </div>
-                    <h3 className="text-base sm:text-lg font-bold text-slate-900 tracking-tight">
-                      {activeSession.centerName || "Healthcare Center"}
-                    </h3>
-                    <p className="text-xs text-slate-500">
-                      Started{" "}
-                      {new Date(activeSession.startTime).toLocaleString([], {
-                        dateStyle: "medium",
-                        timeStyle: "short",
-                      })}
-                    </p>
-                    <div className="inline-flex items-center gap-1.5 bg-emerald-50 text-emerald-700 px-3 py-1 rounded-lg text-xs font-medium mt-1">
-                      <Clock className="w-3.5 h-3.5" />
-                      <span>
-                        Duration: {formatDuration(activeSession.startTime)}
-                      </span>
-                    </div>
-                  </div>
-                  <button
-                    onClick={() => setActivePanel("doza-panel")}
-                    className="w-full sm:w-auto px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs sm:text-sm font-semibold transition active:scale-95 shadow-2xs"
-                  >
-                    View Details
-                  </button>
-                </div>
-              </BentoTile>
-            )}
-
-            {/* ─── SESSION HISTORY ────────────────────────────────── */}
-            {!historyLoading && sessionHistory.length > 0 && (
-              <BentoTile className="bg-white p-5 sm:p-6 md:p-8 rounded-2xl md:rounded-3xl border border-slate-200/70 shadow-2xs">
-                <div className="flex items-center gap-2 mb-5">
-                  <History className="w-4 h-4 sm:w-5 sm:h-5 text-emerald-500" />
-                  <h3 className="text-sm sm:text-base font-bold text-slate-900 tracking-tight">
-                    Session History
-                  </h3>
-                  <span className="ml-auto text-xs text-slate-500 bg-slate-100 px-2.5 py-0.5 rounded-full font-medium">
-                    {sessionHistory.length} sessions
-                  </span>
-                </div>
-
-                <div className="divide-y divide-slate-100">
-                  {sessionHistory
-                    .slice(0, 10)
-                    .map((session: any, index: number) => {
-                      const isExpanded =
-                        expandedSessionId === session.sessionId;
-                      const uniqueKey = `${session.sessionId}-${session.startTime}-${index}`;
-                      return (
-                        <div
-                          key={uniqueKey}
-                          className="py-4 first:pt-0 last:pb-0"
-                        >
-                          <button
-                            onClick={() =>
-                              setExpandedSessionId(
-                                isExpanded ? null : session.sessionId,
-                              )
-                            }
-                            className="w-full flex items-center justify-between text-left group"
-                          >
-                            <div className="min-w-0 pr-3">
-                              <p className="font-semibold text-xs sm:text-sm text-slate-800 truncate group-hover:text-emerald-600 transition-colors">
-                                {session.centerName}
-                              </p>
-                              <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500 mt-1">
-                                <span>
-                                  {new Date(
-                                    session.startTime,
-                                  ).toLocaleDateString(undefined, {
-                                    dateStyle: "medium",
-                                  })}
-                                </span>
-                                <span>•</span>
-                                <span className="flex items-center gap-1">
-                                  <Clock className="w-3 h-3 text-slate-400" />
-                                  {formatDuration(
-                                    session.startTime,
-                                    session.endTime,
-                                  )}
-                                </span>
-                                {session.rating && (
-                                  <span className="flex items-center gap-1 text-amber-500 font-medium">
-                                    <Star className="w-3 h-3 fill-current" />
-                                    {session.rating}/5
-                                  </span>
-                                )}
-                              </div>
-                            </div>
-                            <div className="flex items-center gap-2.5 shrink-0">
-                              <span
-                                className={cn(
-                                  "text-[10px] font-semibold px-2.5 py-1 rounded-md uppercase tracking-wider",
-                                  session.status === "ended"
-                                    ? "bg-slate-100 text-slate-600"
-                                    : "bg-emerald-50 text-emerald-700 border border-emerald-200/60",
-                                )}
-                              >
-                                {session.status || "ended"}
-                              </span>
-                              <div className="p-1.5 rounded-lg bg-slate-50 group-hover:bg-slate-100 transition-colors">
-                                {isExpanded ? (
-                                  <ChevronUp className="w-4 h-4 text-slate-500" />
-                                ) : (
-                                  <ChevronDown className="w-4 h-4 text-slate-500" />
-                                )}
-                              </div>
-                            </div>
-                          </button>
-
-                          {isExpanded && (
-                            <motion.div
-                              initial={{ opacity: 0, height: 0 }}
-                              animate={{ opacity: 1, height: "auto" }}
-                              exit={{ opacity: 0, height: 0 }}
-                              className="mt-4 pl-4 border-l-2 border-emerald-200 space-y-3 overflow-hidden text-xs"
-                            >
-                              <div className="grid grid-cols-2 gap-3 text-slate-700 bg-slate-50 p-3.5 rounded-xl border border-slate-200/50">
-                                <div>
-                                  <span className="text-[10px] text-slate-400 block uppercase font-bold tracking-wider">
-                                    Started
-                                  </span>
-                                  <span className="font-semibold text-slate-800">
-                                    {new Date(
-                                      session.startTime,
-                                    ).toLocaleTimeString([], {
-                                      hour: "2-digit",
-                                      minute: "2-digit",
-                                    })}
-                                  </span>
-                                </div>
-                                <div>
-                                  <span className="text-[10px] text-slate-400 block uppercase font-bold tracking-wider">
-                                    Ended
-                                  </span>
-                                  <span className="font-semibold text-slate-800">
-                                    {session.endTime
-                                      ? new Date(
-                                          session.endTime,
-                                        ).toLocaleTimeString([], {
-                                          hour: "2-digit",
-                                          minute: "2-digit",
-                                        })
-                                      : "—"}
-                                  </span>
-                                </div>
-                              </div>
-
-                              <SessionRating
-                                sessionId={session.sessionId}
-                                centerId={session.centerId}
-                                initialRating={session.rating}
-                                initialComment={session.comment}
-                                onRated={(rating, comment) => {
-                                  console.log("Rated", rating, comment);
-                                }}
-                              />
-                            </motion.div>
-                          )}
-                        </div>
-                      );
-                    })}
-                </div>
-              </BentoTile>
-            )}
-
-            {/* HISTORICAL ENTRIES LIST */}
-            <BentoTile className="bg-white p-5 sm:p-6 md:p-8 rounded-2xl md:rounded-3xl border border-slate-200/70 shadow-2xs">
-              <div className="flex justify-between items-center mb-5">
-                <h3 className="text-sm sm:text-base font-bold text-slate-900 flex items-center gap-2 tracking-tight">
-                  <ClipboardList
-                    className="text-emerald-500 shrink-0"
-                    size={18}
-                  />{" "}
-                  Recent Health Logs
-                </h3>
-              </div>
-              <div className="space-y-3">
-                {recentEntries.map((entry: any, idx: number) => (
-                  <div
-                    key={entry.id || idx}
-                    className="flex justify-between items-center p-4 bg-slate-50/70 rounded-2xl border border-slate-200/50 transition-all hover:bg-slate-50"
-                  >
-                    <div>
-                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-                        {new Date(entry.date).toLocaleDateString(undefined, {
-                          dateStyle: "medium",
-                        })}
-                      </p>
-                      <p className="text-base font-bold text-slate-900 mt-0.5">
-                        {formatHealthValue(entry)}{" "}
-                        <span className="text-xs text-slate-400 font-normal">
-                          {getUnitLabel(entry.type)}
-                        </span>
-                      </p>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-xs font-bold text-slate-800 tracking-tight">
-                        {translateMedicalType(entry.type)}
-                      </p>
-                      <div className="inline-block px-2.5 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200/60 text-[10px] font-semibold rounded-full uppercase mt-1">
-                        Saved
-                      </div>
-                    </div>
-                  </div>
-                ))}
-                {recentEntries.length === 0 && (
-                  <p className="text-slate-400 text-xs sm:text-sm text-center py-6">
-                    No logs recorded yet. Use the tool above to add your
-                    metrics.
-                  </p>
-                )}
-              </div>
-            </BentoTile>
+        {/* ─── Bento grid ─────────────────────────────────────── */}
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 lg:gap-6">
+          {/* Moodboard */}
+          <div className="lg:col-span-7 order-1">
+            <MoodBoard
+              moodValue={moodValue}
+              moodComment={moodComment}
+              submitting={moodSubmitting}
+              saved={moodSaved}
+              onMoodChange={setMoodValue}
+              onCommentChange={setMoodComment}
+              onSave={handleSaveMood}
+              onViewHistory={() => setActivePanel("moodboard-history")}
+            />
           </div>
 
-          {/* ─── RIGHT SIDEBAR COLUMN (4 Cols on Desktop) ─────────── */}
-          <div className="lg:col-span-4 space-y-6">
-            {/* APPOINTMENTS SECTION */}
-            {sortedAppointments.length > 0 ? (
-              <div className="space-y-4">
-                <div className="bg-slate-900 rounded-2xl md:rounded-3xl p-6 md:p-8 text-white relative overflow-hidden shadow-lg">
-                  <div className="relative z-10">
-                    <div className="flex items-center gap-2 mb-5">
-                      <Calendar size={16} className="text-emerald-400" />
-                      <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">
-                        Your Next Appointment
-                      </span>
-                    </div>
-                    <AppointmentCountdown
-                      targetDate={`${sortedAppointments[0].date}T${sortedAppointments[0].time}`}
-                    />
-                    <div className="mt-5 space-y-1.5">
-                      <h4 className="text-lg sm:text-xl font-bold tracking-tight text-white">
-                        {sortedAppointments[0].medicName ||
-                          "General Care Practitioner"}
-                      </h4>
-                      <p className="text-xs text-slate-400 flex items-center gap-2">
-                        <Clock
-                          size={13}
-                          className="text-emerald-400 shrink-0"
-                        />
-                        {sortedAppointments[0].date} at{" "}
-                        {sortedAppointments[0].time}
-                      </p>
-                      {sortedAppointments[0].reason && (
-                        <p className="text-xs text-slate-300 mt-3 bg-white/5 p-3.5 rounded-xl border border-white/10 backdrop-blur-xs">
-                          <span className="text-[10px] block text-emerald-400 font-bold uppercase tracking-wider mb-1">
-                            Reason for visit:
-                          </span>
-                          {sortedAppointments[0].reason}
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                </div>
+          {/* Health Summary */}
+          <BentoTile className="bg-white p-5 sm:p-6 rounded-2xl border border-slate-200/70 shadow-2xs order-2 lg:order-4 lg:col-span-7">
+            <div className="flex justify-between items-center mb-5">
+              <h3 className="text-sm sm:text-base font-bold text-slate-900 flex items-center gap-2 tracking-tight">
+                <TrendingUp className="text-emerald-500 shrink-0" size={18} />{" "}
+                Your Health Summary
+              </h3>
+              <button
+                onClick={() => setActivePanel("health-tracker")}
+                className="text-xs font-semibold text-emerald-600 hover:text-emerald-700 transition-colors min-h-9 px-2"
+              >
+                See Changes
+              </button>
+            </div>
 
-                {sortedAppointments.length > 1 && (
-                  <div className="space-y-3">
-                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">
-                      Later Appointments
-                    </p>
-                    {sortedAppointments.slice(1, 4).map((apt: any) => (
-                      <button
-                        key={apt.id}
-                        onClick={() => setActivePanel("appointment")}
-                        className="w-full bg-white rounded-2xl p-4 border border-slate-200/70 shadow-2xs hover:shadow-sm transition-all text-left group"
-                      >
-                        <div className="flex items-center justify-between gap-3">
-                          <div className="min-w-0">
-                            <p className="text-xs sm:text-sm font-semibold text-slate-900 group-hover:text-emerald-600 transition-colors truncate">
-                              {apt.medicName || "Care Provider"}
-                            </p>
-                            <p className="text-xs text-slate-500 flex items-center gap-1.5 mt-1">
-                              <Clock size={12} className="text-slate-400" />{" "}
-                              {apt.date} at {apt.time}
-                            </p>
-                          </div>
-                          <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200/60 px-2.5 py-1 rounded-lg shrink-0">
-                            In{" "}
-                            {Math.ceil(
-                              (new Date(`${apt.date}T${apt.time}`).getTime() -
-                                Date.now()) /
-                                (1000 * 60 * 60 * 24),
-                            )}
-                            d
-                          </span>
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div className="bg-white rounded-2xl md:rounded-3xl p-6 md:p-8 border border-slate-200/70 shadow-2xs text-center">
-                <Calendar
-                  size={32}
-                  className="text-slate-300 mx-auto mb-3 stroke-[1.5]"
-                />
-                <p className="text-sm font-bold text-slate-900 mb-1">
-                  No Scheduled Appointments
-                </p>
-                <p className="text-xs text-slate-500 leading-relaxed mb-5">
-                  Need a checkup? Book a direct session with our team.
-                </p>
-                <button
-                  onClick={() => setActivePanel("appointment")}
-                  className="w-full py-3 bg-slate-900 text-white rounded-xl font-semibold text-xs tracking-wide hover:bg-slate-800 transition-all active:scale-95 shadow-sm"
-                >
-                  Find a Doctor
-                </button>
-              </div>
-            )}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
+              <StatCard
+                icon={HeartPulse}
+                label="Heart Rate"
+                val={displayStats.heartRate}
+                unit="bpm"
+                color="text-rose-500"
+                bg="bg-rose-50/50"
+                hasChart
+              />
+              <StatCard
+                icon={Activity}
+                label="Blood Pressure"
+                val={
+                  typeof displayStats.bloodPressure === "object"
+                    ? `${displayStats.bloodPressure.systolic}/${displayStats.bloodPressure.diastolic}`
+                    : displayStats.bloodPressure
+                }
+                unit="mmHg"
+                color="text-amber-500"
+                bg="bg-amber-50/50"
+                hasChart
+              />
+              <StatCard
+                icon={Droplets}
+                label="Body Weight"
+                val={displayStats.weight}
+                unit="kg"
+                color="text-emerald-500"
+                bg="bg-emerald-50/50"
+                hasChart
+              />
+              <StatCard
+                icon={Footprints}
+                label="Steps Today"
+                val={displayStats.steps}
+                unit="steps"
+                color="text-blue-500"
+                bg="bg-blue-50/50"
+              />
+            </div>
+          </BentoTile>
 
-            {/* HEALTH TIPS CAROUSEL */}
-            <div className="bg-emerald-600 rounded-2xl md:rounded-3xl p-6 text-white relative overflow-hidden min-h-[200px] shadow-sm">
-              <ThreeBackground />
-              <div className="relative z-10 flex flex-col h-full justify-between gap-6">
-                <div>
-                  <div className="flex items-center gap-2 mb-3">
-                    <Lightbulb size={16} className="text-emerald-200" />
-                    <span className="text-[10px] font-bold uppercase tracking-widest text-emerald-100">
-                      Daily Health Tip
+          {/* Active Session card */}
+          {activeSession && (
+            <BentoTile className="bg-white p-5 sm:p-6 rounded-2xl border-l-4 border-emerald-500 border border-slate-200/70 shadow-2xs order-3 lg:col-span-12">
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                <div className="space-y-1.5">
+                  <div className="flex items-center gap-2 text-emerald-600">
+                    <Activity className="w-4 h-4 animate-pulse" />
+                    <span className="text-[10px] font-bold uppercase tracking-wider">
+                      Ongoing Session
                     </span>
                   </div>
-                  <AnimatePresence mode="wait">
-                    <motion.p
-                      key={tipIndex}
-                      initial={{ opacity: 0 }}
-                      animate={{ opacity: 1 }}
-                      exit={{ opacity: 0 }}
-                      className="text-sm sm:text-base font-medium leading-relaxed italic text-white/95"
-                    >
-                      &ldquo;{healthTips[tipIndex]}&rdquo;
-                    </motion.p>
-                  </AnimatePresence>
+                  <h3 className="text-base sm:text-lg font-bold text-slate-900 tracking-tight">
+                    {activeSession.centerName || "Healthcare Center"}
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    Started{" "}
+                    {new Date(activeSession.startTime).toLocaleString([], {
+                      dateStyle: "medium",
+                      timeStyle: "short",
+                    })}
+                  </p>
+                  <div className="inline-flex items-center gap-1.5 bg-emerald-50 text-emerald-700 px-3 py-1 rounded-lg text-xs font-medium mt-1">
+                    <Clock className="w-3.5 h-3.5" />
+                    <span>
+                      Duration: {formatDuration(activeSession.startTime)}
+                    </span>
+                  </div>
                 </div>
-                <div className="flex gap-2">
-                  <button
-                    onClick={() =>
-                      setTipIndex((p) =>
-                        p === 0 ? healthTips.length - 1 : p - 1,
-                      )
-                    }
-                    className="p-2 bg-white/15 rounded-xl text-white hover:bg-white/25 active:scale-95 transition-all backdrop-blur-xs"
-                  >
-                    <ChevronLeft size={14} />
-                  </button>
-                  <button
-                    onClick={() =>
-                      setTipIndex((p) => (p + 1) % healthTips.length)
-                    }
-                    className="p-2 bg-white/15 rounded-xl text-white hover:bg-white/25 active:scale-95 transition-all backdrop-blur-xs"
-                  >
-                    <ChevronRight size={14} />
-                  </button>
+                <button
+                  onClick={() => setActivePanel("doza-panel")}
+                  className="w-full sm:w-auto px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs sm:text-sm font-semibold transition active:scale-95 shadow-2xs min-h-11"
+                >
+                  View Details
+                </button>
+              </div>
+            </BentoTile>
+          )}
+
+          {/* Session History */}
+          {!historyLoading && sessionHistory.length > 0 && (
+            <BentoTile className="bg-white p-5 sm:p-6 rounded-2xl border border-slate-200/70 shadow-2xs order-4 lg:order-6 lg:col-span-12">
+              <div className="flex items-center gap-2 mb-5">
+                <History className="w-4 h-4 sm:w-5 sm:h-5 text-emerald-500" />
+                <h3 className="text-sm sm:text-base font-bold text-slate-900 tracking-tight">
+                  Session History
+                </h3>
+                <span className="ml-auto text-xs text-slate-500 bg-slate-100 px-2.5 py-0.5 rounded-full font-medium">
+                  {sessionHistory.length} sessions
+                </span>
+              </div>
+
+              <div className="divide-y divide-slate-100">
+                {sessionHistory
+                  .slice(0, 10)
+                  .map((session: any, index: number) => {
+                    const isExpanded = expandedSessionId === session.sessionId;
+                    const uniqueKey = `${session.sessionId}-${session.startTime}-${index}`;
+                    return (
+                      <div
+                        key={uniqueKey}
+                        className="py-4 first:pt-0 last:pb-0"
+                      >
+                        <button
+                          onClick={() =>
+                            setExpandedSessionId(
+                              isExpanded ? null : session.sessionId,
+                            )
+                          }
+                          className="w-full flex items-center justify-between text-left group min-h-11"
+                          aria-expanded={isExpanded}
+                        >
+                          <div className="min-w-0 pr-3">
+                            <p className="font-semibold text-xs sm:text-sm text-slate-800 truncate group-hover:text-emerald-600 transition-colors">
+                              {session.centerName}
+                            </p>
+                            <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500 mt-1">
+                              <span>
+                                {new Date(session.startTime).toLocaleDateString(
+                                  undefined,
+                                  { dateStyle: "medium" },
+                                )}
+                              </span>
+                              <span>•</span>
+                              <span className="flex items-center gap-1">
+                                <Clock className="w-3 h-3 text-slate-400" />
+                                {formatDuration(
+                                  session.startTime,
+                                  session.endTime,
+                                )}
+                              </span>
+                              {session.rating && (
+                                <span className="flex items-center gap-1 text-amber-500 font-medium">
+                                  <Star className="w-3 h-3 fill-current" />
+                                  {session.rating}/5
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2.5 shrink-0">
+                            <span
+                              className={cn(
+                                "text-[10px] font-semibold px-2.5 py-1 rounded-md uppercase tracking-wider",
+                                session.status === "ended"
+                                  ? "bg-slate-100 text-slate-600"
+                                  : "bg-emerald-50 text-emerald-700 border border-emerald-200/60",
+                              )}
+                            >
+                              {session.status || "ended"}
+                            </span>
+                            <div className="p-1.5 rounded-lg bg-slate-50 group-hover:bg-slate-100 transition-colors">
+                              {isExpanded ? (
+                                <ChevronUp className="w-4 h-4 text-slate-500" />
+                              ) : (
+                                <ChevronDown className="w-4 h-4 text-slate-500" />
+                              )}
+                            </div>
+                          </div>
+                        </button>
+
+                        {isExpanded && (
+                          <motion.div
+                            initial={{ opacity: 0, height: 0 }}
+                            animate={{ opacity: 1, height: "auto" }}
+                            exit={{ opacity: 0, height: 0 }}
+                            className="mt-4 pl-4 border-l-2 border-emerald-200 space-y-3 overflow-hidden text-xs"
+                          >
+                            <div className="grid grid-cols-2 gap-3 text-slate-700 bg-slate-50 p-3.5 rounded-xl border border-slate-200/50">
+                              <div>
+                                <span className="text-[10px] text-slate-400 block uppercase font-bold tracking-wider">
+                                  Started
+                                </span>
+                                <span className="font-semibold text-slate-800">
+                                  {new Date(
+                                    session.startTime,
+                                  ).toLocaleTimeString([], {
+                                    hour: "2-digit",
+                                    minute: "2-digit",
+                                  })}
+                                </span>
+                              </div>
+                              <div>
+                                <span className="text-[10px] text-slate-400 block uppercase font-bold tracking-wider">
+                                  Ended
+                                </span>
+                                <span className="font-semibold text-slate-800">
+                                  {session.endTime
+                                    ? new Date(
+                                        session.endTime,
+                                      ).toLocaleTimeString([], {
+                                        hour: "2-digit",
+                                        minute: "2-digit",
+                                      })
+                                    : "—"}
+                                </span>
+                              </div>
+                            </div>
+
+                            <SessionRating
+                              sessionId={session.sessionId}
+                              centerId={session.centerId}
+                              initialRating={session.rating}
+                              initialComment={session.comment}
+                              onRated={(rating, comment) => {
+                                console.log("Rated", rating, comment);
+                              }}
+                            />
+                          </motion.div>
+                        )}
+                      </div>
+                    );
+                  })}
+              </div>
+            </BentoTile>
+          )}
+
+          {/* Recent Logs */}
+          <BentoTile className="bg-white p-5 sm:p-6 rounded-2xl border border-slate-200/70 shadow-2xs order-5 lg:col-span-5">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-sm sm:text-base font-bold text-slate-900 flex items-center gap-2 tracking-tight">
+                <ClipboardList
+                  className="text-emerald-500 shrink-0"
+                  size={18}
+                />{" "}
+                Recent Health Logs
+              </h3>
+              <button
+                onClick={() => setShowLogsMobile(!showLogsMobile)}
+                aria-expanded={showLogsMobile}
+                aria-controls="recent-logs-body"
+                className="lg:hidden inline-flex items-center gap-1 text-xs font-semibold text-emerald-600 hover:text-emerald-700 transition-colors p-1 -m-1 min-h-9"
+              >
+                {showLogsMobile ? (
+                  <>
+                    Hide <ChevronUp className="w-4 h-4" />
+                  </>
+                ) : (
+                  <>
+                    Show <ChevronDown className="w-4 h-4" />
+                  </>
+                )}
+              </button>
+            </div>
+            <div
+              id="recent-logs-body"
+              className={cn(
+                "space-y-3",
+                showLogsMobile ? "block" : "hidden lg:block",
+              )}
+            >
+              {recentEntries.slice(0, 2).map((entry: any, idx: number) => (
+                <div
+                  key={entry.id || idx}
+                  className="flex justify-between items-center p-4 bg-slate-50/70 rounded-2xl border border-slate-200/50 transition-all hover:bg-slate-50"
+                >
+                  <div>
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                      {new Date(entry.date).toLocaleDateString(undefined, {
+                        dateStyle: "medium",
+                      })}
+                    </p>
+                    <p className="text-base font-bold text-slate-900 mt-0.5">
+                      {formatHealthValue(entry)}{" "}
+                      <span className="text-xs text-slate-400 font-normal">
+                        {getUnitLabel(entry.type)}
+                      </span>
+                    </p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-xs font-bold text-slate-800 tracking-tight">
+                      {translateMedicalType(entry.type)}
+                    </p>
+                    <div className="inline-block px-2.5 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200/60 text-[10px] font-semibold rounded-full uppercase mt-1">
+                      Saved
+                    </div>
+                  </div>
                 </div>
+              ))}
+              {recentEntries.length === 0 && (
+                <p className="text-slate-400 text-xs sm:text-sm text-center py-6">
+                  No logs recorded yet. Use the tool above to add your metrics.
+                </p>
+              )}
+            </div>
+          </BentoTile>
+
+          {/* Health Tips */}
+          <div className="bg-emerald-600 rounded-2xl p-6 text-white relative overflow-hidden min-h-[180px] shadow-sm order-6 lg:order-2 lg:col-span-5">
+            <ThreeBackground />
+            <div className="relative z-10 flex flex-col h-full justify-between gap-6">
+              <div>
+                <div className="flex items-center gap-2 mb-3">
+                  <Lightbulb size={16} className="text-emerald-200" />
+                  <span className="text-[10px] font-bold uppercase tracking-widest text-emerald-100">
+                    Daily Health Tip
+                  </span>
+                </div>
+                <AnimatePresence mode="wait">
+                  <motion.p
+                    key={tipIndex}
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    className="text-sm sm:text-base font-medium leading-relaxed italic text-white/95"
+                  >
+                    "{healthTips[tipIndex] ?? healthTips[0]}"
+                  </motion.p>
+                </AnimatePresence>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={() =>
+                    setTipIndex((p) =>
+                      p === 0 ? healthTips.length - 1 : p - 1,
+                    )
+                  }
+                  className="p-2 bg-white/15 rounded-xl text-white hover:bg-white/25 active:scale-95 transition-all backdrop-blur-xs min-h-10 min-w-10 inline-flex items-center justify-center"
+                  aria-label="Previous tip"
+                >
+                  <ChevronLeft size={14} />
+                </button>
+                <button
+                  onClick={() =>
+                    setTipIndex((p) => (p + 1) % healthTips.length)
+                  }
+                  className="p-2 bg-white/15 rounded-xl text-white hover:bg-white/25 active:scale-95 transition-all backdrop-blur-xs min-h-10 min-w-10 inline-flex items-center justify-center"
+                  aria-label="Next tip"
+                >
+                  <ChevronRight size={14} />
+                </button>
               </div>
             </div>
           </div>
         </div>
       </div>
 
-      {/* ─── PENDING LINK REQUEST POPUP ────────────────────────────── */}
+      {/* Therapy Prompt */}
+      <TherapyPrompt
+        open={showTherapyPrompt}
+        onClose={() => setShowTherapyPrompt(false)}
+        onAccept={() => {
+          setShowTherapyPrompt(false);
+          fetch("/api/mood-records", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            body: JSON.stringify({
+              date: today,
+              moodScore: moodValue,
+              comment: moodComment.trim(),
+              talkedToMedic: true,
+            }),
+          })
+            .then(() => mutateMood())
+            .catch((e) => console.error("Failed to update mood:", e));
+          setActivePanel("doza-therapist");
+        }}
+      />
+
+      {/* Pending Link Request Popup */}
       <AnimatePresence>
         {showPendingRequestPopup && activeRequest && userId && (
           <motion.div
@@ -965,7 +1045,6 @@ export default function DashboardPanel() {
             className="fixed bottom-4 right-4 left-4 sm:left-auto sm:top-4 sm:bottom-auto z-50 w-auto sm:max-w-md"
           >
             <div className="bg-white rounded-2xl shadow-xl border border-slate-200/80 overflow-hidden">
-              {/* Header */}
               <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 bg-gradient-to-r from-emerald-50/60 to-teal-50/60">
                 <div className="flex items-center gap-3">
                   <div className="p-2 bg-emerald-100 rounded-xl">
@@ -982,13 +1061,13 @@ export default function DashboardPanel() {
                 </div>
                 <button
                   onClick={handleDismissPopup}
-                  className="p-1.5 hover:bg-slate-100 rounded-lg transition-colors"
+                  className="p-1.5 hover:bg-slate-100 rounded-lg transition-colors min-h-9 min-w-9 inline-flex items-center justify-center"
+                  aria-label="Dismiss"
                 >
                   <X className="w-4 h-4 text-slate-500" />
                 </button>
               </div>
 
-              {/* Body */}
               <div className="p-5 space-y-4">
                 <p className="text-xs sm:text-sm text-slate-700 leading-relaxed">
                   <span className="font-semibold text-slate-900">
@@ -1032,7 +1111,7 @@ export default function DashboardPanel() {
                   </div>
                   <button
                     onClick={() => handleCopy(activeRequest.otp || "")}
-                    className="mt-3 text-xs text-emerald-600 font-semibold flex items-center gap-1.5 mx-auto hover:underline transition-colors"
+                    className="mt-3 text-xs text-emerald-600 font-semibold flex items-center gap-1.5 mx-auto hover:underline transition-colors min-h-9 px-2"
                   >
                     {copied ? (
                       <>
@@ -1058,26 +1137,321 @@ export default function DashboardPanel() {
           </motion.div>
         )}
       </AnimatePresence>
-    </div>
+    </motion.div>
   );
 }
 
-// ─── Subcomponents ──────────────────────────────────────────────────
+// ─── Subcomponents ───────────────────────────────────────────
 
+function Chip({
+  icon: Icon,
+  label,
+  onClick,
+}: {
+  icon: any;
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className="min-h-11 inline-flex items-center gap-1.5 px-3.5 py-2 bg-white border border-slate-200 rounded-full text-xs font-semibold text-slate-700 whitespace-nowrap shrink-0 hover:bg-slate-50 hover:border-slate-300 active:scale-[0.97] transition-all shadow-2xs"
+    >
+      <Icon size={14} className="text-slate-500 shrink-0" />
+      <span>{label}</span>
+    </button>
+  );
+}
+
+// ─── Moodboard ──────────────────────────────────────────────
+function MoodBoard({
+  moodValue,
+  moodComment,
+  submitting,
+  saved,
+  onMoodChange,
+  onCommentChange,
+  onSave,
+  onViewHistory,
+}: {
+  moodValue: number;
+  moodComment: string;
+  submitting: boolean;
+  saved: boolean;
+  onMoodChange: (v: number) => void;
+  onCommentChange: (v: string) => void;
+  onSave: () => void;
+  onViewHistory: () => void;
+}) {
+  const [showComment, setShowComment] = useState(moodComment.length > 0);
+  useEffect(() => {
+    if (moodComment.length > 0) setShowComment(true);
+  }, [moodComment]);
+
+  const currentMood = MOODS[moodValue - 1] ?? MOODS[3];
+
+  return (
+    <section
+      className="relative bg-gradient-to-br from-emerald-600 to-emerald-700 rounded-3xl p-5 sm:p-6 text-white overflow-hidden shadow-lg h-full"
+      aria-label="Moodboard"
+    >
+      <div
+        className="absolute -right-20 -top-20 w-56 h-56 rounded-full bg-white/10 blur-3xl pointer-events-none"
+        aria-hidden
+      />
+      <div
+        className="absolute -left-20 -bottom-20 w-56 h-56 rounded-full bg-emerald-400/20 blur-3xl pointer-events-none"
+        aria-hidden
+      />
+
+      <div className="relative flex flex-col h-full">
+        <div className="flex items-center justify-between mb-4 gap-2">
+          <div className="flex items-center gap-2 min-w-0">
+            <Smile size={16} className="text-emerald-200 shrink-0" />
+            <span className="text-[10px] font-bold uppercase tracking-widest text-emerald-100 truncate">
+              Moodboard
+            </span>
+            {saved && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-white/15 rounded-full text-[10px] font-bold uppercase tracking-wider text-emerald-50 border border-white/10 shrink-0">
+                <Check size={10} strokeWidth={3} /> Logged
+              </span>
+            )}
+          </div>
+          <button
+            onClick={onViewHistory}
+            className="inline-flex items-center gap-0.5 min-h-9 px-2.5 bg-white/10 hover:bg-white/20 rounded-full text-[10px] font-bold uppercase tracking-wider text-emerald-50 border border-white/10 transition-colors shrink-0"
+            aria-label="View mood history"
+          >
+            History <ChevronRight size={10} />
+          </button>
+        </div>
+
+        <div className="flex flex-col items-center text-center mb-5">
+          <div className="relative mb-2 h-24 w-24 flex items-center justify-center">
+            <div
+              className={cn(
+                "absolute inset-0 rounded-full blur-2xl opacity-70 transition-colors duration-500",
+                currentMood.bg,
+              )}
+              aria-hidden
+            />
+            <AnimatePresence mode="wait" initial={false}>
+              <motion.div
+                key={moodValue}
+                initial={{ scale: 0.6, opacity: 0, rotate: -8 }}
+                animate={{ scale: 1, opacity: 1, rotate: 0 }}
+                exit={{ scale: 0.6, opacity: 0, rotate: 8 }}
+                transition={{ type: "spring", stiffness: 260, damping: 20 }}
+                className="relative text-7xl leading-none select-none"
+                aria-hidden
+              >
+                {currentMood.emoji}
+              </motion.div>
+            </AnimatePresence>
+          </div>
+          <AnimatePresence mode="wait" initial={false}>
+            <motion.p
+              key={moodValue}
+              initial={{ y: 4, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              exit={{ y: -4, opacity: 0 }}
+              transition={{ duration: 0.18 }}
+              className="text-xl font-bold tracking-tight"
+            >
+              {currentMood.label}
+            </motion.p>
+          </AnimatePresence>
+          <p className="text-xs text-emerald-100/80 mt-1">
+            How are you feeling right now?
+          </p>
+        </div>
+
+        <div
+          className="grid grid-cols-6 gap-1.5 mb-4"
+          role="radiogroup"
+          aria-label="Mood score"
+        >
+          {MOODS.map((mood) => {
+            const active = mood.score === moodValue;
+            return (
+              <button
+                key={mood.score}
+                type="button"
+                role="radio"
+                aria-checked={active}
+                aria-label={mood.label}
+                onClick={() => onMoodChange(mood.score)}
+                className={cn(
+                  "relative aspect-square min-h-12 rounded-xl flex items-center justify-center text-2xl transition-all duration-200 active:scale-90",
+                  active
+                    ? cn(
+                        "bg-white ring-2 scale-105 shadow-lg shadow-black/10",
+                        mood.ring,
+                      )
+                    : "bg-white/10 hover:bg-white/20",
+                )}
+              >
+                <span
+                  className={cn(
+                    "transition-all",
+                    active
+                      ? "grayscale-0 opacity-100"
+                      : "grayscale-[40%] opacity-80",
+                  )}
+                >
+                  {mood.emoji}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="mb-3">
+          {!showComment ? (
+            <button
+              type="button"
+              onClick={() => setShowComment(true)}
+              className="w-full min-h-10 inline-flex items-center justify-center gap-1.5 text-xs font-semibold text-emerald-100 hover:text-white transition-colors rounded-lg"
+            >
+              <Plus size={14} /> Add a note
+            </button>
+          ) : (
+            <div className="space-y-2">
+              <textarea
+                value={moodComment}
+                onChange={(e) => onCommentChange(e.target.value)}
+                placeholder="What's on your mind?"
+                rows={2}
+                autoFocus
+                className="w-full resize-none px-3 py-2.5 bg-white/10 border border-white/20 rounded-xl text-sm text-white placeholder:text-emerald-100/60 focus:bg-white/15 focus:border-white/40 focus:ring-2 focus:ring-white/20 outline-none transition"
+              />
+              <div className="flex items-center justify-between">
+                <button
+                  type="button"
+                  onClick={() => {
+                    onCommentChange("");
+                    setShowComment(false);
+                  }}
+                  className="text-[10px] font-semibold uppercase tracking-wider text-emerald-100/70 hover:text-white transition-colors min-h-8 px-1"
+                >
+                  Remove note
+                </button>
+                <span className="text-[10px] font-medium text-emerald-100/60">
+                  {moodComment.length}/500
+                </span>
+              </div>
+            </div>
+          )}
+        </div>
+
+        <button
+          onClick={onSave}
+          disabled={submitting}
+          className={cn(
+            "w-full min-h-12 inline-flex items-center justify-center gap-2 rounded-xl font-bold text-sm transition-all mt-auto",
+            submitting && "opacity-60 cursor-not-allowed",
+            saved
+              ? "bg-white/15 text-white hover:bg-white/20 backdrop-blur-sm border border-white/20"
+              : "bg-white text-emerald-700 hover:bg-emerald-50 shadow-lg active:scale-[0.98]",
+          )}
+        >
+          {submitting ? (
+            <>
+              <Loader2 size={16} className="animate-spin" /> Saving…
+            </>
+          ) : saved ? (
+            <>
+              <Edit3 size={16} /> Update today's mood
+            </>
+          ) : (
+            <>
+              <Check size={16} /> Save today's mood
+            </>
+          )}
+        </button>
+      </div>
+    </section>
+  );
+}
+
+// ─── Therapy Prompt ─────────────────────────────────────────
+function TherapyPrompt({
+  open,
+  onClose,
+  onAccept,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onAccept: () => void;
+}) {
+  return (
+    <AnimatePresence>
+      {open && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4"
+        >
+          <div
+            className="absolute inset-0 bg-slate-950/50 backdrop-blur-sm"
+            onClick={onClose}
+            aria-hidden
+          />
+          <motion.div
+            initial={{ y: 40, opacity: 0, scale: 0.96 }}
+            animate={{ y: 0, opacity: 1, scale: 1 }}
+            exit={{ y: 40, opacity: 0, scale: 0.96 }}
+            className="relative bg-white rounded-3xl max-w-sm w-full p-6 shadow-2xl"
+            role="dialog"
+            aria-modal="true"
+          >
+            <div className="w-14 h-14 rounded-2xl bg-emerald-100 flex items-center justify-center mx-auto mb-4">
+              <MessageCircle size={26} className="text-emerald-700" />
+            </div>
+            <h3 className="text-lg font-bold text-slate-900 text-center mb-1.5">
+              Would you like to talk to a Doza medic?
+            </h3>
+            <p className="text-sm text-slate-600 text-center mb-6">
+              Our team is available 24/7 — no judgment, fully confidential.
+              Sometimes a conversation makes all the difference.
+            </p>
+            <div className="flex gap-2">
+              <button
+                onClick={onClose}
+                className="flex-1 min-h-11 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl font-semibold text-sm transition-colors"
+              >
+                Maybe later
+              </button>
+              <button
+                onClick={onAccept}
+                className="flex-1 min-h-11 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-semibold text-sm transition-colors"
+              >
+                Yes, talk now
+              </button>
+            </div>
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
+}
+
+// ─── StatCard + LiveBioChart ─────────────────────────────────
 function StatCard({ icon: Icon, label, val, unit, color, bg, hasChart }: any) {
   return (
     <div className="p-4 rounded-[22px] bg-slate-50/50 border border-slate-100 flex flex-col group active:scale-95 transition-all">
       <div className={cn("p-2 rounded-lg w-fit mb-3", bg)}>
         <Icon size={16} className={color} />
       </div>
-      <span className="text-[8px] font-black text-slate-500 uppercase tracking-wider mb-0.5">
+      <span className="text-[10px] font-black text-slate-500 uppercase tracking-wider mb-0.5">
         {label}
       </span>
       <div className="flex items-baseline gap-0.5">
         <span className="text-lg font-black text-slate-900 tracking-tighter">
           {val}
         </span>
-        <span className="text-[8px] font-bold text-slate-400 uppercase ml-0.5">
+        <span className="text-[10px] font-bold text-slate-400 uppercase ml-0.5">
           {unit}
         </span>
       </div>
@@ -1109,39 +1483,6 @@ function LiveBioChart({ color }: { color: string }) {
           className={cn("flex-1 rounded-full", hexToTailwind(color))}
         />
       ))}
-    </div>
-  );
-}
-
-function AppointmentCountdown({ targetDate }: { targetDate: string }) {
-  const [timeLeft, setTimeLeft] = useState("");
-  useEffect(() => {
-    const calc = () => {
-      const diff = +new Date(targetDate) - +new Date();
-      if (diff <= 0) return setTimeLeft("Now");
-      const d = Math.floor(diff / (1000 * 60 * 60 * 24));
-      const h = Math.floor((diff / (1000 * 60 * 60)) % 24);
-      const m = Math.floor((diff / 1000 / 60) % 60);
-      setTimeLeft(`${d > 0 ? d + "d " : ""}${h}h ${m}m`);
-    };
-    calc();
-    const timer = setInterval(calc, 60000);
-    return () => clearInterval(timer);
-  }, [targetDate]);
-
-  return (
-    <div className="flex flex-col">
-      <span
-        className={cn(
-          "text-5xl md:text-6xl font-black text-emerald-400 tracking-tighter leading-none",
-          bebasNeue.className,
-        )}
-      >
-        {timeLeft}
-      </span>
-      <span className="text-[9px] font-black text-slate-400 uppercase tracking-[0.3em] mt-2">
-        Remaining Time to Session
-      </span>
     </div>
   );
 }
@@ -1199,7 +1540,7 @@ function BentoTile({ children, className, onClick }: any) {
       transition={spring}
       onClick={onClick}
       className={cn(
-        "rounded-[30px] border border-slate-100 shadow-sm transition-all",
+        "rounded-[24px] border border-slate-100 shadow-sm transition-all h-full",
         className,
       )}
     >
@@ -1208,7 +1549,7 @@ function BentoTile({ children, className, onClick }: any) {
   );
 }
 
-// ─── Loading State ──────────────────────────────────────────────────
+// ─── Loading State (cold start only) ────────────────────────
 function LoadingState() {
   const PulseItem = ({ className }: { className: string }) => (
     <div
@@ -1218,33 +1559,58 @@ function LoadingState() {
 
   return (
     <div
-      className={cn(
-        "min-h-screen bg-[#F8FAFC] pb-24 pt-4 md:pt-8",
-        poppins.className,
-      )}
+      className={cn("min-h-screen bg-[#F8FAFC] pb-24 pt-2", poppins.className)}
     >
-      <div className="max-w-7xl mx-auto px-4 md:px-6 space-y-5 md:space-y-8">
-        {/* Header Skeleton */}
-        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white p-5 md:p-8 rounded-[28px] border border-slate-200/60 shadow-sm w-full">
-          <div className="space-y-3 w-1/2">
-            <div className="flex items-center gap-2">
-              <PulseItem className="h-3 w-3 rounded-full" />
-              <PulseItem className="h-3 w-32" />
-            </div>
-            <PulseItem className="h-10 w-64 rounded-xl" />
-          </div>
-          <PulseItem className="h-12 w-full md:w-44 rounded-xl" />
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-4 lg:space-y-6 pt-3">
+        <div className="space-y-2">
+          <PulseItem className="h-8 w-56 lg:h-10 lg:w-72" />
+          <PulseItem className="h-3 w-40" />
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-12 gap-5 md:gap-6">
-          {/* Left Column Skeleton */}
-          <div className="md:col-span-8 space-y-5 md:space-y-6">
-            <div className="bg-white p-6 md:p-8 rounded-[30px] border border-slate-100 shadow-sm space-y-6">
+        <div className="flex gap-2">
+          <PulseItem className="h-11 w-32 rounded-full" />
+          <PulseItem className="h-11 w-32 rounded-full" />
+          <PulseItem className="h-11 w-28 rounded-full" />
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 lg:gap-6">
+          <div className="lg:col-span-7">
+            <div className="bg-gradient-to-br from-emerald-600/90 to-emerald-700/90 rounded-3xl p-5 space-y-4">
+              <div className="flex justify-between items-center">
+                <PulseItem className="h-3 w-24 bg-emerald-500/50" />
+                <PulseItem className="h-5 w-20 bg-emerald-500/50 rounded-full" />
+              </div>
+              <div className="flex flex-col items-center gap-2 py-2">
+                <PulseItem className="h-24 w-24 rounded-full bg-emerald-500/50" />
+                <PulseItem className="h-4 w-24 bg-emerald-500/50" />
+              </div>
+              <div className="grid grid-cols-6 gap-1.5">
+                {[1, 2, 3, 4, 5, 6].map((i) => (
+                  <PulseItem
+                    key={i}
+                    className="aspect-square min-h-12 bg-emerald-500/50"
+                  />
+                ))}
+              </div>
+              <PulseItem className="h-12 w-full bg-emerald-500/50" />
+            </div>
+          </div>
+
+          <div className="lg:col-span-5">
+            <div className="bg-emerald-600/90 rounded-2xl p-6 h-full min-h-[220px]">
+              <PulseItem className="h-3 w-24 bg-emerald-500/50 mb-4" />
+              <PulseItem className="h-3 w-full bg-emerald-500/50 mb-2" />
+              <PulseItem className="h-3 w-5/6 bg-emerald-500/50" />
+            </div>
+          </div>
+
+          <div className="lg:col-span-7">
+            <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm space-y-5">
               <div className="flex justify-between items-center">
                 <PulseItem className="h-5 w-44" />
                 <PulseItem className="h-3 w-24" />
               </div>
-              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                 {[1, 2, 3, 4].map((i) => (
                   <div
                     key={i}
@@ -1265,10 +1631,12 @@ function LoadingState() {
                 ))}
               </div>
             </div>
+          </div>
 
-            <div className="bg-white p-6 md:p-8 rounded-[30px] border border-slate-100 shadow-sm space-y-4">
+          <div className="lg:col-span-5">
+            <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm space-y-3 h-full">
               <PulseItem className="h-5 w-36 mb-2" />
-              {[1, 2, 3].map((i) => (
+              {[1, 2].map((i) => (
                 <div
                   key={i}
                   className="flex justify-between items-center p-4 bg-slate-50 rounded-2xl border border-slate-100"
@@ -1283,41 +1651,6 @@ function LoadingState() {
                   </div>
                 </div>
               ))}
-            </div>
-          </div>
-
-          {/* Right Column Skeleton */}
-          <div className="md:col-span-4 space-y-5 md:space-y-6">
-            <div className="bg-slate-900 rounded-[28px] p-6 md:p-8 space-y-6 shadow-xl">
-              <div className="flex items-center gap-2">
-                <PulseItem className="h-4 w-4 bg-slate-800" />
-                <PulseItem className="h-2 w-28 bg-slate-800" />
-              </div>
-              <div className="space-y-2">
-                <PulseItem className="h-14 w-40 bg-slate-800 rounded-2xl" />
-                <PulseItem className="h-2 w-32 bg-slate-800" />
-              </div>
-              <div className="pt-4 border-t border-slate-800 space-y-2">
-                <PulseItem className="h-5 w-48 bg-slate-800" />
-                <PulseItem className="h-3 w-36 bg-slate-800" />
-              </div>
-            </div>
-
-            <div className="bg-emerald-600 rounded-[28px] p-6 md:p-8 h-56 flex flex-col justify-between shadow-lg">
-              <div className="space-y-4">
-                <div className="flex items-center gap-2">
-                  <PulseItem className="h-4 w-4 bg-emerald-500/50" />
-                  <PulseItem className="h-2.5 w-24 bg-emerald-500/50" />
-                </div>
-                <div className="space-y-2">
-                  <PulseItem className="h-3 w-full bg-emerald-500/50" />
-                  <PulseItem className="h-3 w-5/6 bg-emerald-500/50" />
-                </div>
-              </div>
-              <div className="flex gap-2">
-                <PulseItem className="h-9 w-9 bg-emerald-500/50 rounded-lg" />
-                <PulseItem className="h-9 w-9 bg-emerald-500/50 rounded-lg" />
-              </div>
             </div>
           </div>
         </div>

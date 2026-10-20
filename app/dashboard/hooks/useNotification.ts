@@ -27,19 +27,15 @@ export function useNotifications() {
   const { user } = useUser();
   const userId = user?.id;
 
-  // Get pending link requests
   const { pendingRequests } = usePendingLinkRequests(userId);
 
-  // Load read IDs from localStorage (existing)
   const [readIds, setReadIds] = useState<Set<string>>(new Set());
   useEffect(() => {
     const stored = localStorage.getItem("doza_notifications_read");
     if (stored) {
       try {
         setReadIds(new Set(JSON.parse(stored)));
-      } catch {
-        // ignore corrupted data
-      }
+      } catch {}
     }
   }, []);
 
@@ -61,13 +57,15 @@ export function useNotifications() {
     }
   };
 
-  // Fetch summary notifications (existing)
   const { data, error } = useSWR(
     user ? "/api/dashboard/summary" : null,
     authFetcher,
     {
       revalidateOnFocus: false,
+      revalidateOnReconnect: true,
       dedupingInterval: 60_000,
+      keepPreviousData: true,
+      revalidateIfStale: false,
     },
   );
 
@@ -75,13 +73,13 @@ export function useNotifications() {
     const raw = data?.data?.notifications ?? [];
 
     const pendingNotifs: Notification[] = (pendingRequests || [])
-      .filter((req: any) => req.id || req.requestId) // skip entries without an ID
+      .filter((req: any) => req.id || req.requestId)
       .map((req: any) => {
         const uniqueId = req.id || req.requestId;
         const notifId = `pending-${uniqueId}`;
         return {
           id: notifId,
-          type: "medic",
+          type: "medic" as const,
           title: "Link Request",
           message: `${req.centerName || "A healthcare center"} wants to link with you.`,
           timestamp: req.requestedAt || Date.now(),
@@ -90,7 +88,6 @@ export function useNotifications() {
         };
       });
 
-    // Combine with existing notifications
     const combined = [
       ...raw.map((n: any) => ({
         ...n,
@@ -99,7 +96,6 @@ export function useNotifications() {
       ...pendingNotifs,
     ];
 
-    // Sort by timestamp descending (newest first)
     combined.sort((a, b) => b.timestamp - a.timestamp);
     return combined;
   }, [data, pendingRequests, readIds]);
