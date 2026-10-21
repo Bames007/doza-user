@@ -353,7 +353,6 @@ export default function DashboardPanel() {
   const [moodComment, setMoodComment] = useState("");
   const [moodSubmitting, setMoodSubmitting] = useState(false);
   const [moodSaved, setMoodSaved] = useState(false);
-  const [showTherapyPrompt, setShowTherapyPrompt] = useState(false);
 
   const { markAsRead } = useNotifications();
 
@@ -441,8 +440,8 @@ export default function DashboardPanel() {
     }
   }, [todayMood]);
 
-  const handleSaveMood = async () => {
-    if (!userId) return;
+  const handleSaveMood = async (): Promise<boolean> => {
+    if (!userId) return false;
     setMoodSubmitting(true);
     try {
       const res = await fetch("/api/mood-records", {
@@ -459,15 +458,44 @@ export default function DashboardPanel() {
       if (data.success) {
         setMoodSaved(true);
         mutateMood();
-        setShowTherapyPrompt(true);
-      } else {
-        alert("Could not save your mood. Please try again.");
+        return true;
       }
+      alert("Could not save your mood. Please try again.");
+      return false;
     } catch (e) {
       console.error("Mood save failed", e);
       alert("Network error. Please try again.");
+      return false;
     } finally {
       setMoodSubmitting(false);
+    }
+  };
+
+  const handleChatWithMedic = async () => {
+    if (!userId) return;
+    try {
+      await fetch("/api/mood-records", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          date: today,
+          moodScore: moodValue,
+          comment: moodComment.trim(),
+          talkedToMedic: true,
+        }),
+      });
+      mutateMood();
+    } catch (e) {
+      console.error("Failed to mark talkedToMedic:", e);
+    }
+    setActivePanel("doza-therapist");
+  };
+
+  const handleCancelEdit = () => {
+    if (todayMood) {
+      setMoodValue(todayMood.moodScore);
+      setMoodComment(todayMood.comment || "");
     }
   };
 
@@ -559,14 +587,12 @@ export default function DashboardPanel() {
     scrollerRef.current = el;
     if (!el) return;
 
-    // Restore once on mount
     if (!scrollRestoredRef.current) {
       const saved = ssGet("dashboard:scroll");
       if (saved) el.scrollTo({ top: Number(saved), behavior: "instant" });
       scrollRestoredRef.current = true;
     }
 
-    // Save on scroll
     const onScroll = () => ssSet("dashboard:scroll", String(el.scrollTop));
     el.addEventListener("scroll", onScroll, { passive: true });
     return () => el.removeEventListener("scroll", onScroll);
@@ -643,6 +669,37 @@ export default function DashboardPanel() {
           />
         </div>
 
+        {/* ─── Quick Actions — image cards ───────────────── */}
+        <section className="space-y-3">
+          <header className="flex items-end justify-between gap-3 px-1">
+            <div className="min-w-0">
+              <h2 className="text-lg sm:text-xl font-bold text-slate-900 tracking-tight">
+                Quick Actions
+              </h2>
+              <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
+                Continue your health journey
+              </p>
+            </div>
+          </header>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
+            <ActionImageCard
+              image="https://images.unsplash.com/photo-1584308666744-24d5c474f2ae?auto=format&fit=crop&w=1200&q=80"
+              title="Start Medication"
+              category="Medication Tracker"
+              icon={Pill}
+              onClick={() => setActivePanel("medications")}
+            />
+            <ActionImageCard
+              image="https://images.unsplash.com/photo-1571019613454-1cb2f99b2d8b?auto=format&fit=crop&w=1200&q=80"
+              title="Start Health Tracking"
+              category="Health Tracker"
+              icon={HeartPulse}
+              onClick={() => setActivePanel("health-tracker")}
+            />
+          </div>
+        </section>
+
         {/* ─── Bento grid ─────────────────────────────────────── */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 lg:gap-6">
           {/* Moodboard */}
@@ -656,6 +713,8 @@ export default function DashboardPanel() {
               onCommentChange={setMoodComment}
               onSave={handleSaveMood}
               onViewHistory={() => setActivePanel("moodboard-history")}
+              onChatWithMedic={handleChatWithMedic}
+              onCancelEdit={handleCancelEdit}
             />
           </div>
 
@@ -1012,29 +1071,6 @@ export default function DashboardPanel() {
         </div>
       </div>
 
-      {/* Therapy Prompt */}
-      <TherapyPrompt
-        open={showTherapyPrompt}
-        onClose={() => setShowTherapyPrompt(false)}
-        onAccept={() => {
-          setShowTherapyPrompt(false);
-          fetch("/api/mood-records", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            credentials: "include",
-            body: JSON.stringify({
-              date: today,
-              moodScore: moodValue,
-              comment: moodComment.trim(),
-              talkedToMedic: true,
-            }),
-          })
-            .then(() => mutateMood())
-            .catch((e) => console.error("Failed to update mood:", e));
-          setActivePanel("doza-therapist");
-        }}
-      />
-
       {/* Pending Link Request Popup */}
       <AnimatePresence>
         {showPendingRequestPopup && activeRequest && userId && (
@@ -1163,7 +1199,66 @@ function Chip({
   );
 }
 
-// ─── Moodboard ──────────────────────────────────────────────
+// ─── Quick Action Image Card ─────────────────────────────
+function ActionImageCard({
+  image,
+  title,
+  category,
+  icon: Icon,
+  onClick,
+}: {
+  image: string;
+  title: string;
+  category: string;
+  icon: any;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={cn(
+        "group relative w-full overflow-hidden rounded-3xl text-left",
+        // Mobile: tall immersive card. Desktop: banner-style.
+        "min-h-[30vh] sm:min-h-[220px] md:min-h-[260px]",
+        "ring-1 ring-slate-200/80 hover:ring-emerald-400",
+        "shadow-md hover:shadow-xl transition-all duration-300",
+        "active:scale-[0.99] focus:outline-none focus:ring-2 focus:ring-emerald-500",
+      )}
+    >
+      <img
+        src={image}
+        alt={title}
+        loading="lazy"
+        className="absolute inset-0 w-full h-full object-cover transition-transform duration-700 group-hover:scale-105"
+      />
+
+      {/* Gradient overlay */}
+      <div className="absolute inset-0 bg-gradient-to-t from-slate-950/95 via-slate-950/40 to-slate-950/15" />
+
+      {/* Top-left category chip */}
+      <div className="absolute top-3 left-3 inline-flex items-center gap-1.5 bg-white/15 backdrop-blur-md border border-white/25 rounded-full px-2.5 py-1">
+        <Icon size={12} className="text-white" />
+        <span className="text-[10px] font-bold text-white uppercase tracking-wider">
+          {category}
+        </span>
+      </div>
+
+      {/* Bottom content */}
+      <div className="absolute bottom-0 left-0 right-0 p-4 sm:p-5 flex items-end justify-between gap-3">
+        <div className="min-w-0">
+          <h3 className="text-lg sm:text-xl md:text-2xl font-bold text-white leading-tight drop-shadow-sm">
+            {title}
+          </h3>
+        </div>
+        <span className="shrink-0 inline-flex items-center justify-center w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-white/20 backdrop-blur-md border border-white/30 group-hover:bg-emerald-500 group-hover:border-emerald-500 transition-colors">
+          <ChevronRight size={16} className="text-white" />
+        </span>
+      </div>
+    </button>
+  );
+}
+
+// ─── MoodBoard (done state + edit state) ─────────────────
 function MoodBoard({
   moodValue,
   moodComment,
@@ -1173,6 +1268,8 @@ function MoodBoard({
   onCommentChange,
   onSave,
   onViewHistory,
+  onChatWithMedic,
+  onCancelEdit,
 }: {
   moodValue: number;
   moodComment: string;
@@ -1180,16 +1277,135 @@ function MoodBoard({
   saved: boolean;
   onMoodChange: (v: number) => void;
   onCommentChange: (v: string) => void;
-  onSave: () => void;
+  onSave: () => Promise<boolean> | void;
   onViewHistory: () => void;
+  onChatWithMedic: () => void;
+  onCancelEdit: () => void;
 }) {
   const [showComment, setShowComment] = useState(moodComment.length > 0);
+  const [isEditing, setIsEditing] = useState(false);
+
   useEffect(() => {
     if (moodComment.length > 0) setShowComment(true);
   }, [moodComment]);
 
+  useEffect(() => {
+    if (!saved) setIsEditing(false);
+  }, [saved]);
+
   const currentMood = MOODS[moodValue - 1] ?? MOODS[3];
 
+  const handleSaveClick = async () => {
+    const ok = await onSave();
+    if (ok === true || ok === undefined) setIsEditing(false);
+  };
+
+  const handleCancelClick = () => {
+    onCancelEdit();
+    setIsEditing(false);
+  };
+
+  // ─────────────────────────────────────────────────────────
+  // DONE STATE — mood already logged for today, not editing
+  // ─────────────────────────────────────────────────────────
+  if (saved && !isEditing) {
+    return (
+      <section
+        className="relative bg-gradient-to-br from-emerald-600 to-emerald-700 rounded-3xl p-5 sm:p-6 text-white overflow-hidden shadow-lg h-full"
+        aria-label="Moodboard — logged"
+      >
+        <div
+          className="absolute -right-20 -top-20 w-56 h-56 rounded-full bg-white/10 blur-3xl pointer-events-none"
+          aria-hidden
+        />
+        <div
+          className="absolute -left-20 -bottom-20 w-56 h-56 rounded-full bg-emerald-400/20 blur-3xl pointer-events-none"
+          aria-hidden
+        />
+
+        <div className="relative flex flex-col h-full">
+          {/* Header */}
+          <div className="flex items-center justify-between mb-4 gap-2">
+            <div className="flex items-center gap-2 min-w-0">
+              <Check
+                size={16}
+                className="text-emerald-200 shrink-0"
+                strokeWidth={3}
+              />
+              <span className="text-[10px] font-bold uppercase tracking-widest text-emerald-100 truncate">
+                Moodboard
+              </span>
+            </div>
+            <button
+              onClick={onViewHistory}
+              className="inline-flex items-center gap-0.5 min-h-9 px-2.5 bg-white/10 hover:bg-white/20 rounded-full text-[10px] font-bold uppercase tracking-wider text-emerald-50 border border-white/10 transition-colors shrink-0"
+              aria-label="View mood history"
+            >
+              History <ChevronRight size={10} />
+            </button>
+          </div>
+
+          {/* Done body */}
+          <div className="flex flex-col items-center text-center flex-1 justify-center py-2">
+            <div className="w-16 h-16 rounded-full bg-white/15 border-2 border-white/30 flex items-center justify-center mb-3">
+              <Check size={32} className="text-white" strokeWidth={3} />
+            </div>
+
+            <h2 className="text-xl font-bold tracking-tight mb-1">
+              Mood logged for today!
+            </h2>
+            <p className="text-xs text-emerald-100/80 mb-5">
+              Nice work checking in with yourself.
+            </p>
+
+            {/* Today's mood summary */}
+            <div className="w-full flex items-center gap-3 bg-white/10 rounded-2xl px-4 py-3 mb-5 border border-white/15">
+              <span className="text-4xl leading-none shrink-0" aria-hidden>
+                {currentMood.emoji}
+              </span>
+              <div className="text-left min-w-0 flex-1">
+                <p className="text-sm font-bold text-white">
+                  {currentMood.label}
+                </p>
+                {moodComment ? (
+                  <p className="text-xs text-emerald-100/80 line-clamp-2 italic">
+                    "{moodComment}"
+                  </p>
+                ) : (
+                  <p className="text-xs text-emerald-100/60 italic">No note</p>
+                )}
+              </div>
+              <span className="text-[10px] font-bold text-emerald-100/70 uppercase tracking-wider shrink-0">
+                {moodValue}/6
+              </span>
+            </div>
+
+            {/* Chat CTA */}
+            <button
+              onClick={onChatWithMedic}
+              className="w-full min-h-12 inline-flex items-center justify-center gap-2 rounded-xl font-bold text-sm bg-white text-emerald-700 hover:bg-emerald-50 shadow-lg active:scale-[0.98] transition-all"
+            >
+              <MessageCircle size={16} />
+              Chat with a Doza Medic
+            </button>
+
+            {/* Update link */}
+            <button
+              onClick={() => setIsEditing(true)}
+              className="mt-3 inline-flex items-center gap-1 text-xs font-semibold text-emerald-100/80 hover:text-white transition-colors min-h-9 px-2 rounded-lg"
+            >
+              <Edit3 size={12} />
+              Update today's mood
+            </button>
+          </div>
+        </div>
+      </section>
+    );
+  }
+
+  // ─────────────────────────────────────────────────────────
+  // FORM STATE — first save or actively editing
+  // ─────────────────────────────────────────────────────────
   return (
     <section
       className="relative bg-gradient-to-br from-emerald-600 to-emerald-700 rounded-3xl p-5 sm:p-6 text-white overflow-hidden shadow-lg h-full"
@@ -1213,7 +1429,7 @@ function MoodBoard({
             </span>
             {saved && (
               <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-white/15 rounded-full text-[10px] font-bold uppercase tracking-wider text-emerald-50 border border-white/10 shrink-0">
-                <Check size={10} strokeWidth={3} /> Logged
+                <Check size={10} strokeWidth={3} /> Editing
               </span>
             )}
           </div>
@@ -1344,96 +1560,38 @@ function MoodBoard({
           )}
         </div>
 
-        <button
-          onClick={onSave}
-          disabled={submitting}
-          className={cn(
-            "w-full min-h-12 inline-flex items-center justify-center gap-2 rounded-xl font-bold text-sm transition-all mt-auto",
-            submitting && "opacity-60 cursor-not-allowed",
-            saved
-              ? "bg-white/15 text-white hover:bg-white/20 backdrop-blur-sm border border-white/20"
-              : "bg-white text-emerald-700 hover:bg-emerald-50 shadow-lg active:scale-[0.98]",
+        <div className="mt-auto space-y-2">
+          <button
+            onClick={handleSaveClick}
+            disabled={submitting}
+            className="w-full min-h-12 inline-flex items-center justify-center gap-2 rounded-xl font-bold text-sm bg-white text-emerald-700 hover:bg-emerald-50 shadow-lg active:scale-[0.98] transition-all disabled:opacity-60 disabled:cursor-not-allowed"
+          >
+            {submitting ? (
+              <>
+                <Loader2 size={16} className="animate-spin" /> Saving…
+              </>
+            ) : saved ? (
+              <>
+                <Check size={16} /> Save changes
+              </>
+            ) : (
+              <>
+                <Check size={16} /> Save today's mood
+              </>
+            )}
+          </button>
+
+          {saved && (
+            <button
+              onClick={handleCancelClick}
+              className="w-full text-[10px] font-semibold uppercase tracking-wider text-emerald-100/70 hover:text-white transition-colors min-h-8"
+            >
+              Cancel editing
+            </button>
           )}
-        >
-          {submitting ? (
-            <>
-              <Loader2 size={16} className="animate-spin" /> Saving…
-            </>
-          ) : saved ? (
-            <>
-              <Edit3 size={16} /> Update today's mood
-            </>
-          ) : (
-            <>
-              <Check size={16} /> Save today's mood
-            </>
-          )}
-        </button>
+        </div>
       </div>
     </section>
-  );
-}
-
-// ─── Therapy Prompt ─────────────────────────────────────────
-function TherapyPrompt({
-  open,
-  onClose,
-  onAccept,
-}: {
-  open: boolean;
-  onClose: () => void;
-  onAccept: () => void;
-}) {
-  return (
-    <AnimatePresence>
-      {open && (
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4"
-        >
-          <div
-            className="absolute inset-0 bg-slate-950/50 backdrop-blur-sm"
-            onClick={onClose}
-            aria-hidden
-          />
-          <motion.div
-            initial={{ y: 40, opacity: 0, scale: 0.96 }}
-            animate={{ y: 0, opacity: 1, scale: 1 }}
-            exit={{ y: 40, opacity: 0, scale: 0.96 }}
-            className="relative bg-white rounded-3xl max-w-sm w-full p-6 shadow-2xl"
-            role="dialog"
-            aria-modal="true"
-          >
-            <div className="w-14 h-14 rounded-2xl bg-emerald-100 flex items-center justify-center mx-auto mb-4">
-              <MessageCircle size={26} className="text-emerald-700" />
-            </div>
-            <h3 className="text-lg font-bold text-slate-900 text-center mb-1.5">
-              Would you like to talk to a Doza medic?
-            </h3>
-            <p className="text-sm text-slate-600 text-center mb-6">
-              Our team is available 24/7 — no judgment, fully confidential.
-              Sometimes a conversation makes all the difference.
-            </p>
-            <div className="flex gap-2">
-              <button
-                onClick={onClose}
-                className="flex-1 min-h-11 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl font-semibold text-sm transition-colors"
-              >
-                Maybe later
-              </button>
-              <button
-                onClick={onAccept}
-                className="flex-1 min-h-11 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-semibold text-sm transition-colors"
-              >
-                Yes, talk now
-              </button>
-            </div>
-          </motion.div>
-        </motion.div>
-      )}
-    </AnimatePresence>
   );
 }
 

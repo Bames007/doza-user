@@ -12,6 +12,26 @@ const MoodPayloadSchema = z.object({
   talkedToMedic: z.boolean().optional(),
 });
 
+/**
+ * Works in both Zod v3 and v4.
+ * Replaces the removed `ZodError.prototype.flatten()`.
+ * Returns the same shape the old `.flatten()` produced:
+ *   { formErrors: string[], fieldErrors: Record<string, string[]> }
+ */
+function flattenZodError(err: z.ZodError) {
+  const fieldErrors: Record<string, string[]> = {};
+  const formErrors: string[] = [];
+  for (const issue of err.issues) {
+    if (issue.path.length === 0) {
+      formErrors.push(issue.message);
+    } else {
+      const key = issue.path.map(String).join(".");
+      (fieldErrors[key] ??= []).push(issue.message);
+    }
+  }
+  return { formErrors, fieldErrors };
+}
+
 export async function GET(request: NextRequest) {
   const uid = await verifySessionCookie(request);
   if (!uid) {
@@ -63,16 +83,19 @@ export async function POST(request: NextRequest) {
     const validation = MoodPayloadSchema.safeParse(rawBody);
 
     if (!validation.success) {
+      // ✅ Zod v4–safe: no .flatten()
+      const details = flattenZodError(validation.error);
+
       logger.warn({
         uid,
         message: "Invalid mood payload",
-        validationErrors: validation.error.flatten(),
+        validationErrors: details,
       });
       return NextResponse.json(
         {
           success: false,
           error: "Invalid mood data",
-          details: validation.error.flatten(),
+          details,
         },
         { status: 400 },
       );
