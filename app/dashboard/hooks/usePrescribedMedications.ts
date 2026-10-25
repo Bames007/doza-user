@@ -14,6 +14,7 @@ export interface PrescribedMedication {
   medication: string;
   dosage: string;
   frequency: string;
+  times: string[]; // NEW — passed through so custom works
   route: string;
   duration: string;
   instructions?: string;
@@ -27,8 +28,6 @@ export interface PrescribedMedication {
   dispensedTotal: number;
 }
 
-// Minimal shape we need from a linked center.
-// useLinkedCenters may return more fields — we only need these two.
 interface LinkedCenter {
   centerId: string;
   centerName: string;
@@ -38,17 +37,15 @@ export function usePrescribedMedications() {
   const user = useUserContext();
   const { centers, loading: centersLoading } = useLinkedCenters(user?.id);
 
-  // Cast once, type everything downstream from here.
   const typedCenters = useMemo<LinkedCenter[]>(() => {
     if (!Array.isArray(centers)) return [];
     return centers as LinkedCenter[];
   }, [centers]);
 
-  // Stable string key so SWR only refetches when the actual set changes
   const centerKey = useMemo(
     () =>
       typedCenters
-        .map((c) => c.centerId) // c is now LinkedCenter — no error
+        .map((c) => c.centerId)
         .sort()
         .join(","),
     [typedCenters],
@@ -61,10 +58,8 @@ export function usePrescribedMedications() {
     async () => {
       if (!user?.id) return [];
 
-      // Parallel fetch — all centers in flight simultaneously
       const results = await Promise.all(
         typedCenters.map(async (center): Promise<PrescribedMedication[]> => {
-          // center is LinkedCenter — no error
           try {
             const res = await fetch(
               `/api/centers/${center.centerId}/patients/${user.id}`,
@@ -81,6 +76,8 @@ export function usePrescribedMedications() {
               medication: rx.medication || "Unknown",
               dosage: rx.dosage || "",
               frequency: rx.frequency || "",
+              // NEW — pass through custom times if the doctor provided them
+              times: Array.isArray(rx.times) ? rx.times : [],
               route: rx.route || "",
               duration: rx.duration || "",
               instructions: rx.instructions || "",

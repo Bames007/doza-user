@@ -1,3 +1,5 @@
+// app/layout.tsx
+
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { poppins } from "./constants";
@@ -7,6 +9,7 @@ import { Analytics } from "@vercel/analytics/react";
 import { SpeedInsights } from "@vercel/speed-insights/next";
 import FloatingFeedbackButton from "./components/FloatingFeedbackButton";
 import PaystackScript from "./components/PaystackScript";
+import ServiceWorkerRegistrar from "./utils/ServiceWorkerRegistrar";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -31,8 +34,13 @@ export const viewport: Viewport = {
   ],
 };
 
+// 🔑 Domain is now `users.dozamedic.com`.
+// If your canonical dashboard remains on `dashboard.dozamedic.com`,
+// swap the four occurrences below back.
+const APP_URL = "https://users.dozamedic.com";
+
 export const metadata: Metadata = {
-  metadataBase: new URL("https://dashboard.dozamedic.com"),
+  metadataBase: new URL(APP_URL),
   title: {
     default: "Doza | The Connected Healthcare Ecosystem",
     template: "%s | Doza",
@@ -56,20 +64,18 @@ export const metadata: Metadata = {
     "health data intelligence",
   ],
 
-  // Apple‑specific web app settings
   appleWebApp: {
     capable: true,
-    title: "Doza Medic",
+    title: "Doza",
     statusBarStyle: "black-translucent",
   },
 
-  // Open Graph (for social sharing)
   openGraph: {
     title: "Doza — Healthcare, Connected",
     description:
       "The unified healthcare ecosystem where patients, doctors, and medical centers connect for seamless, continuous care.",
-    url: "https://dashboard.dozamedic.com",
-    siteName: "Doza Medic",
+    url: APP_URL,
+    siteName: "Doza",
     images: [
       {
         url: "/og-image.png",
@@ -82,7 +88,6 @@ export const metadata: Metadata = {
     type: "website",
   },
 
-  // Twitter Card
   twitter: {
     card: "summary_large_image",
     title: "Doza — Healthcare, Connected",
@@ -91,7 +96,6 @@ export const metadata: Metadata = {
     images: ["/og-image.png"],
   },
 
-  // Brand Icons
   icons: {
     icon: [{ url: "/logo.png" }],
     apple: [{ url: "/logo.png", sizes: "180x180" }],
@@ -112,6 +116,9 @@ export default function RootLayout({
         <link rel="preload" href="/og-image.png" as="image" />
         <link rel="dns-prefetch" href="https://js.paystack.co" />
         <link rel="preconnect" href="https://js.paystack.co" />
+        {/* iOS PWA capability for notifications */}
+        <meta name="apple-mobile-web-app-capable" content="yes" />
+        <meta name="mobile-web-app-capable" content="yes" />
       </head>
       <body
         className={`
@@ -122,20 +129,20 @@ export default function RootLayout({
           bg-slate-50 text-slate-900 overflow-x-hidden
         `}
       >
+        {/* Registers /sw.js — no visible output */}
+        <ServiceWorkerRegistrar />
+
         <div className="relative min-h-screen flex flex-col">
           <StorageCheckBanner />
           <main className="flex-grow flex flex-col">{children}</main>
 
           <FloatingFeedbackButton />
 
-          {/* Subtle footer gradient */}
           <div className="fixed bottom-0 left-0 right-0 h-24 bg-gradient-to-t from-slate-50 to-transparent pointer-events-none z-0" />
         </div>
 
-        {/* Third‑party scripts loaded via client component to avoid SSR issues */}
         <PaystackScript />
 
-        {/* Vercel Analytics & Speed Insights */}
         <Analytics />
         <SpeedInsights />
       </body>

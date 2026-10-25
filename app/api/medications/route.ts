@@ -6,6 +6,23 @@ import { adminDb } from "@/app/utils/firebaseAdmin";
 import { z } from "zod";
 import logger from "@/app/utils/logger";
 
+// ─── Deep-strip undefined (Firebase RTDB rejects any undefined) ───
+// Keeps `null`, drops only `undefined`. Recurses through objects + arrays.
+function stripUndefined<T>(value: T): T {
+  if (value === null || value === undefined) return value;
+  if (Array.isArray(value)) {
+    return value.map(stripUndefined) as unknown as T;
+  }
+  if (typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .filter(([, v]) => v !== undefined)
+        .map(([k, v]) => [k, stripUndefined(v)]),
+    ) as T;
+  }
+  return value;
+}
+
 function generateDoses(
   startDate: string,
   endDate: string | undefined,
@@ -17,11 +34,8 @@ function generateDoses(
   const end = endDate ? new Date(endDate) : null;
   const today = new Date();
   today.setHours(0, 0, 0, 0);
-
   const maxDoses = totalQuantity && totalQuantity > 0 ? totalQuantity : 90;
-
   let doseCount = 0;
-
   let dayOffset = 0;
   while (doseCount < maxDoses) {
     const date = new Date(start);
@@ -31,7 +45,6 @@ function generateDoses(
       dayOffset++;
       continue;
     }
-
     const dayTimes = times.length > 0 ? times : ["08:00"];
     for (const time of dayTimes) {
       if (doseCount >= maxDoses) break;
@@ -50,23 +63,24 @@ function generateDoses(
   return doses;
 }
 
-// Schema with passthrough to allow extra fields
+// `.nullish()` accepts string | null | undefined.
+// This matches what our client sends (null for unknown fields).
 const createMedicationSchema = z
   .object({
     name: z.string().min(1),
     dosage: z.string().min(1),
     frequency: z.enum(["once", "twice", "thrice", "custom"]),
     times: z.array(z.string()).optional(),
-    instructions: z.string().optional(),
+    instructions: z.string().nullish(),
     startDate: z.string().min(1),
-    endDate: z.string().optional(),
+    endDate: z.string().nullish(),
     assignedTo: z.string().min(1),
     quantityPerDose: z.number().optional(),
     totalQuantity: z.number().optional(),
-    durationDays: z.number().optional(),
-    prescriptionId: z.string().optional(),
-    centerId: z.string().optional(),
-    sourceType: z.enum(["hospital", "external"]).optional(),
+    durationDays: z.number().nullish(),
+    prescriptionId: z.string().nullish(),
+    centerId: z.string().nullish(),
+    sourceType: z.enum(["hospital", "external"]).nullish(),
     status: z.enum(["active", "completed", "paused"]).optional(),
     doses: z
       .array(
@@ -74,8 +88,8 @@ const createMedicationSchema = z
           .object({
             id: z.string().optional(),
             scheduledTime: z.string().datetime(),
-            takenAt: z.string().datetime().optional(),
-            reaction: z.string().optional(),
+            takenAt: z.string().datetime().nullish(),
+            reaction: z.string().nullish(),
             skipped: z.boolean().optional(),
           })
           .passthrough(),
@@ -154,45 +168,51 @@ export async function POST(request: NextRequest) {
 
     const data = parseResult.data;
 
-    // Ensure times is an array
+    // Normalize times array
     let finalTimes: string[] = data.times || [];
-    if (!Array.isArray(finalTimes)) {
-      finalTimes = [];
-    }
+    if (!Array.isArray(finalTimes)) finalTimes = [];
     if (data.frequency === "once") finalTimes = ["08:00"];
     else if (data.frequency === "twice") finalTimes = ["08:00", "20:00"];
     else if (data.frequency === "thrice")
       finalTimes = ["08:00", "14:00", "20:00"];
 
-    // Use provided doses or generate fallback
+    // Normalize doses
     let doses = data.doses || [];
     if (!Array.isArray(doses)) doses = [];
     if (doses.length === 0) {
       const totalQty = data.totalQuantity || 0;
-      doses = generateDoses(data.startDate, data.endDate, finalTimes, totalQty);
+      doses = generateDoses(
+        data.startDate,
+        data.endDate ?? undefined,
+        finalTimes,
+        totalQty,
+      );
     }
 
-    // Build the medication object
-    const newMedication = {
+    // ─── KEY FIX ─────────────────────────────────────────────────
+    // Every optional field defaults to `null`, and we wrap the whole
+    // object in `stripUndefined` before writing to Firebase. This
+    // makes the endpoint bulletproof against missing fields.
+    const newMedication = stripUndefined({
       id: Date.now().toString() + Math.random().toString(36).substr(2, 5),
       name: data.name,
       dosage: data.dosage,
       frequency: data.frequency,
       times: finalTimes,
-      instructions: data.instructions || "",
+      instructions: data.instructions ?? null,
       startDate: data.startDate,
-      endDate: data.endDate || null,
+      endDate: data.endDate ?? null,
       assignedTo: data.assignedTo,
-      status: data.status || "active",
+      status: data.status ?? "active",
       doses,
       createdAt: new Date().toISOString(),
-      quantityPerDose: data.quantityPerDose,
-      totalQuantity: data.totalQuantity,
-      durationDays: data.durationDays,
-      prescriptionId: data.prescriptionId,
-      centerId: data.centerId,
-      sourceType: data.sourceType,
-    };
+      quantityPerDose: data.quantityPerDose ?? 1,
+      totalQuantity: data.totalQuantity ?? 0,
+      durationDays: data.durationDays ?? null,
+      prescriptionId: data.prescriptionId ?? null,
+      centerId: data.centerId ?? null,
+      sourceType: data.sourceType ?? null,
+    });
 
     const medsRef = adminDb.ref(`doza/users/${uid}/medications`);
     const snapshot = await medsRef.once("value");
@@ -203,7 +223,11 @@ export async function POST(request: NextRequest) {
       medications = Object.values(medications);
     }
     medications.push(newMedication);
-    await medsRef.set(medications);
+
+    // ─── Safety net ──────────────────────────────────────────────
+    // If a legacy record somewhere in the array has undefined, this
+    // prevents the WHOLE write from failing.
+    await medsRef.set(stripUndefined(medications));
 
     logger.info({
       uid,

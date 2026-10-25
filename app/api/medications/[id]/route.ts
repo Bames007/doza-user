@@ -6,16 +6,37 @@ import { adminDb } from "@/app/utils/firebaseAdmin";
 import { z } from "zod";
 import logger from "@/app/utils/logger";
 
+// ─── Deep-strip undefined (Firebase RTDB rejects any undefined) ───
+function stripUndefined<T>(value: T): T {
+  if (value === null || value === undefined) return value;
+  if (Array.isArray(value)) {
+    return value.map(stripUndefined) as unknown as T;
+  }
+  if (typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .filter(([, v]) => v !== undefined)
+        .map(([k, v]) => [k, stripUndefined(v)]),
+    ) as T;
+  }
+  return value;
+}
+
+// ─── UPDATED SCHEMA ──────────────────────────────────────────────
+// Now accepts `endDate` (previously stripped → bug where stopping a
+// medication never persisted the end date). Also `.nullish()` so a
+// client can clear `endDate` by sending null.
 const medicationUpdateSchema = z.object({
   status: z.enum(["active", "completed", "paused"]).optional(),
+  endDate: z.string().nullish(),
   doses: z
     .array(
       z
         .object({
           id: z.string().optional(),
           scheduledTime: z.string().datetime(),
-          takenAt: z.string().datetime().optional(),
-          reaction: z.string().optional(),
+          takenAt: z.string().datetime().nullish(),
+          reaction: z.string().nullish(),
           skipped: z.boolean().optional(),
         })
         .passthrough(),
@@ -80,11 +101,17 @@ export async function PUT(
     if (updateData.status !== undefined) {
       medications[medIndex].status = updateData.status;
     }
+    // ─── KEY FIX: now applies endDate ───────────────────────────
+    if (updateData.endDate !== undefined) {
+      medications[medIndex].endDate = updateData.endDate;
+    }
     if (updateData.doses !== undefined) {
       medications[medIndex].doses = updateData.doses;
     }
 
-    await medsRef.set(medications);
+    // Safety net: strip any undefined from legacy records
+    await medsRef.set(stripUndefined(medications));
+
     logger.info({
       uid,
       medicationId,
@@ -133,7 +160,7 @@ export async function DELETE(
     if (!Array.isArray(medications)) medications = Object.values(medications);
 
     const newMeds = medications.filter((m: any) => m.id !== medicationId);
-    await medsRef.set(newMeds);
+    await medsRef.set(stripUndefined(newMeds));
 
     logger.info({ uid, medicationId, message: "Medication deleted" });
     return NextResponse.json({

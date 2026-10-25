@@ -10,10 +10,65 @@ import {
   useState,
 } from "react";
 import { UserProvider, User } from "./UserContext";
-import { DashboardProvider } from "./DashboardContext";
+import { DashboardProvider, useDashboard, PanelId } from "./DashboardContext";
 import UserDashboardSidebar from "./components/UserDashboardSidebar";
 import { cn } from "@/app/utils/utils";
 import BubbleTransition from "@/app/components/BubbleTransitions";
+
+// ─── Deep link support ─────────────────────────────────────────
+// Reads ?panel=xxx on mount and applies it before the dashboard
+// paints. Notification clicks land directly on the target panel.
+//
+// Uses window.location (NOT useSearchParams) to avoid Next 14's
+// Suspense bailout — this component runs once on mount anyway.
+const VALID_PANELS: PanelId[] = [
+  "dashboard",
+  "health-tracker",
+  "medications",
+  "challenges",
+  "family-friends",
+  "doza-panel",
+  "doza-medics",
+  "doza-map",
+  "profile",
+  "settings",
+  "moodboard-history",
+  "doza-therapist",
+  "help",
+  "doza-sport-shop",
+  "doza-medical-shop",
+  "appointment",
+  "notifications",
+];
+
+function DeepLinkHandler() {
+  const { setActivePanel } = useDashboard();
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const params = new URLSearchParams(window.location.search);
+    const panel = params.get("panel");
+    if (!panel) return;
+    if (!VALID_PANELS.includes(panel as PanelId)) return;
+
+    // Apply the panel — the DeepLinkHandler runs at the same commit
+    // as BubbleTransition, so the target panel is what the bubble
+    // reveals, not the default dashboard.
+    setActivePanel(panel as PanelId);
+
+    // Clean the URL so ?panel= doesn't persist across refreshes.
+    // Use replace (not push) so the browser back button still works
+    // as users expect (no ghost entry for the deep-linked state).
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.delete("panel");
+      window.history.replaceState({}, "", url.toString());
+    } catch {}
+  }, [setActivePanel]);
+
+  return null;
+}
 
 export default function DashboardClientWrapper({
   user,
@@ -23,7 +78,6 @@ export default function DashboardClientWrapper({
   children: ReactNode;
 }) {
   // ─── Mobile detection — runs BEFORE first paint ──────────────
-  // Prevents the "desktop layout flash → mobile layout" jump on phones.
   const [isMobile, setIsMobile] = useState(false);
   useLayoutEffect(() => {
     const check = () => setIsMobile(window.innerWidth < 768);
@@ -33,8 +87,6 @@ export default function DashboardClientWrapper({
   }, []);
 
   // ─── Bubble lifecycle ─────────────────────────────────────────
-  // Start with the bubble VISIBLE from frame 0 — this is the key
-  // difference from before. No dashboard paint before the bubble.
   const [showBubble, setShowBubble] = useState(true);
   const [bubblePhase, setBubblePhase] = useState<"closing" | "opening">(
     "closing",
@@ -42,9 +94,6 @@ export default function DashboardClientWrapper({
   const [closingDone, setClosingDone] = useState(false);
 
   // ─── Readiness signals ────────────────────────────────────────
-  // Dashboard "ready" = children laid out AND painted (two rAFs).
-  // Do NOT let the bubble open before this — otherwise the user
-  // sees the dashboard emerge slowly / blank.
   const dashboardReadyRef = useRef(false);
   const minimumHoldRef = useRef(false);
 
@@ -62,7 +111,6 @@ export default function DashboardClientWrapper({
     };
   }, []);
 
-  // Tiny safety net — bubble never blinks shorter than this
   useEffect(() => {
     const t = setTimeout(() => {
       minimumHoldRef.current = true;
@@ -75,9 +123,6 @@ export default function DashboardClientWrapper({
     if (bubblePhase === "closing") {
       setClosingDone(true);
     } else {
-      // Opening finished → unmount bubble instantly.
-      // No AnimatePresence exit fade = dashboard is visible instantly
-      // (it was already painted behind the opening panels).
       setShowBubble(false);
     }
   }, [bubblePhase]);
@@ -103,19 +148,14 @@ export default function DashboardClientWrapper({
     };
   }, [closingDone, bubblePhase]);
 
-  // Dashboard paints ONLY when it can be seen:
-  //   closing → hidden (bubble wrapper covers it anyway)
-  //   opening → visible (paint behind the sliding panels)
-  //   done    → visible
   const dashboardVisible = !showBubble || bubblePhase === "opening";
 
   return (
     <UserProvider user={user}>
       <DashboardProvider>
-        {/* Rendered conditionally — NO AnimatePresence.
-            When showBubble flips to false, the bubble unmounts in
-            the same commit. Its opening animation already slid the
-            panels off-screen, so unmounting is invisible. */}
+        {/* Deep link: ?panel=medications → opens that panel on mount */}
+        <DeepLinkHandler />
+
         {showBubble && (
           <BubbleTransition
             role="user"

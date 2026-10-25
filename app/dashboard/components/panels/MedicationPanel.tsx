@@ -2,14 +2,7 @@
 
 "use client";
 
-import {
-  useState,
-  useEffect,
-  useMemo,
-  useRef,
-  useCallback,
-  type ChangeEvent,
-} from "react";
+import { useState, useEffect, useMemo, useRef, type ChangeEvent } from "react";
 import useSWR, { mutate } from "swr";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -70,6 +63,8 @@ const DEFAULT_MAX_DOSES = 90;
 const EMERALD = "#059669";
 const EMERALD_LIGHT = "#d1fae5";
 const EMERALD_SOFT = "#6ee7b7";
+const NOTIFIED_KEY = "med:notified:v1";
+const DUE_GRACE_MS = 30 * 60 * 1000; // 30 min — keeps "Due now" alive
 
 const FOCUS =
   "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:ring-offset-2";
@@ -117,12 +112,13 @@ type Medication = {
   createdAt: string;
 };
 
-type UpcomingDose = {
+type SortedDose = {
   medicationId: string;
   medicationName: string;
   scheduledTime: string;
   dosage: string;
   assignedToName: string;
+  doseTime: number;
 };
 
 interface ExtendedMedication extends Medication {
@@ -136,13 +132,23 @@ interface ExtendedMedication extends Medication {
 }
 
 // ---------- Schemas ----------
+const optionalNumber = z.preprocess(
+  (v) => (v === "" || v === null || v === undefined ? undefined : Number(v)),
+  z.number().min(0).optional(),
+);
+
+const optionalPositiveInt = z.preprocess(
+  (v) => (v === "" || v === null || v === undefined ? undefined : Number(v)),
+  z.number().int().min(0).optional(),
+);
+
 const medicationSchema = z
   .object({
     name: z.string().min(1, "Medication name is required"),
     dosage: z.string().min(1, "Dosage is required"),
     quantityPerDose: z.coerce.number().min(0.1, "Must be at least 0.1"),
-    totalQuantity: z.coerce.number().optional(),
-    durationDays: z.coerce.number().int().positive().optional(),
+    totalQuantity: optionalNumber,
+    durationDays: optionalPositiveInt,
     ailment: z.string().optional(),
     frequency: z.enum(["once", "twice", "thrice", "custom"]),
     times: z.string().optional(),
@@ -197,6 +203,66 @@ function getTimeOfDay(hour: number) {
   if (hour >= 12 && hour < 17) return "afternoon";
   if (hour >= 17 && hour < 21) return "evening";
   return "night";
+}
+
+// ─── Countdown formatter ────────────────────────────────────
+// Shows seconds when close, hours when far. Called every render
+// with a pre-computed diff (cheap, no allocations).
+function formatCountdown(diffMs: number): string {
+  if (diffMs <= 0) return "Due now";
+  const totalSec = Math.floor(diffMs / 1000);
+  const h = Math.floor(totalSec / 3600);
+  const m = Math.floor((totalSec % 3600) / 60);
+  const s = totalSec % 60;
+  if (h > 0) return `${h}h ${m}m ${s}s`;
+  if (m > 0) return `${m}m ${s}s`;
+  return `${s}s`;
+}
+
+// ─── Fire an OS notification (SW preferred, plain Notification fallback) ─
+// Safe against: missing SW, missing permission, iOS limitations.
+async function fireDoseNotification(
+  title: string,
+  body: string,
+  tag: string,
+): Promise<void> {
+  if (typeof window === "undefined") return;
+  if (!("Notification" in window)) return;
+  if (Notification.permission !== "granted") return;
+
+  const origin =
+    typeof window !== "undefined"
+      ? window.location.origin
+      : "https://users.dozamedic.com";
+  const clickUrl = `${origin}/dashboard`;
+  const iconUrl = `${origin}/logo.png`;
+
+  // Preferred path: Service Worker (required on Android Chrome)
+  try {
+    if ("serviceWorker" in navigator) {
+      const reg = await navigator.serviceWorker.getRegistration();
+      if (reg) {
+        await reg.showNotification(title, {
+          body,
+          tag,
+          icon: iconUrl,
+          badge: iconUrl,
+          // vibrate: [200, 100, 200],
+          silent: false,
+          requireInteraction: false,
+          data: { url: clickUrl },
+        });
+        return;
+      }
+    }
+  } catch {
+    // fall through to plain Notification
+  }
+
+  // Fallback: plain Notification (desktop, some mobile)
+  try {
+    new Notification(title, { body, icon: iconUrl, tag });
+  } catch {}
 }
 
 function getIntakesPerDay(frequency: string): number {
@@ -807,10 +873,7 @@ const MedicationCard = ({
   const nextDoseCountdown = nextDose
     ? (() => {
         const diff = new Date(nextDose.scheduledTime).getTime() - now;
-        if (diff <= 0) return "Due now";
-        const h = Math.floor(diff / 3600000);
-        const m = Math.floor((diff % 3600000) / 60000);
-        return `${h}h ${m}m`;
+        return formatCountdown(diff);
       })()
     : "";
 
@@ -983,9 +1046,9 @@ const MedicationCard = ({
               </div>
               <span
                 className={cn(
-                  "text-xs font-bold px-2 py-1 rounded-lg shrink-0",
+                  "text-xs font-bold px-2 py-1 rounded-lg shrink-0 tabular-nums",
                   isNextDoseDue
-                    ? "bg-emerald-600 text-white"
+                    ? "bg-emerald-600 text-white animate-pulse"
                     : nextDoseCountdown.includes("h")
                       ? "bg-white text-emerald-700 border border-emerald-100"
                       : "bg-emerald-100 text-emerald-800",
@@ -1112,7 +1175,7 @@ const UpcomingDosePill = ({
   index,
   now,
 }: {
-  dose: UpcomingDose;
+  dose: SortedDose;
   index: number;
   now: number;
 }) => {
@@ -1128,16 +1191,11 @@ const UpcomingDosePill = ({
           ? Sunset
           : Moon;
 
-  const diff = doseTime.getTime() - now;
+  const diff = dose.doseTime - now;
   const isDue = diff <= 0;
   const isSoon = diff > 0 && diff <= 3600000;
 
-  const countdown =
-    diff <= 0
-      ? "Due now"
-      : diff < 3600000
-        ? `${Math.floor(diff / 60000)}m`
-        : `${Math.floor(diff / 3600000)}h ${Math.floor((diff % 3600000) / 60000)}m`;
+  const countdown = formatCountdown(diff);
 
   return (
     <motion.div
@@ -1170,7 +1228,7 @@ const UpcomingDosePill = ({
       </div>
       <span
         className={cn(
-          "text-xs font-bold px-2 py-1 rounded-lg shrink-0",
+          "text-xs font-bold px-2 py-1 rounded-lg shrink-0 tabular-nums",
           isDue
             ? "text-white bg-emerald-600"
             : isSoon
@@ -1451,6 +1509,7 @@ export default function MedicationPanel() {
   const user = useUserContext();
   const { profile } = useProfile();
 
+  // ─── Shared 1s tick — powers countdown AND notification scheduler ─
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
     const interval = setInterval(() => setNow(Date.now()), 1000);
@@ -1498,6 +1557,28 @@ export default function MedicationPanel() {
   >([]);
   const [searching, setSearching] = useState(false);
   const [showSnapModal, setShowSnapModal] = useState(false);
+
+  // ─── In-app toast for dose notifications ─────────────────────
+  const [doseToast, setDoseToast] = useState<{
+    title: string;
+    body: string;
+    tone: "info" | "warn";
+  } | null>(null);
+
+  useEffect(() => {
+    if (!doseToast) return;
+    const t = setTimeout(() => setDoseToast(null), 8000);
+    return () => clearTimeout(t);
+  }, [doseToast]);
+
+  // Dedup set — survives reloads via sessionStorage
+  const firedRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem(NOTIFIED_KEY);
+      if (raw) firedRef.current = new Set(JSON.parse(raw) as string[]);
+    } catch {}
+  }, []);
 
   const scrollerRef = useRef<HTMLElement | null>(null);
   const scrollRestoredRef = useRef(false);
@@ -1580,19 +1661,25 @@ export default function MedicationPanel() {
     localStorage.setItem("medicationMeta", JSON.stringify(medicationMeta));
   }, [medicationMeta]);
 
+  // ─── allExtended — server data wins over localStorage ───────
   const allExtended = useMemo<ExtendedMedication[]>(() => {
-    const selfExtended = selfMedications.map((m) => ({
+    const selfExtended = selfMedications.map((m: any) => ({
       ...m,
       source: "self" as const,
       status: m.status as "active" | "completed" | "paused" | "pending",
-      prescriptionId: medicationMeta[m.id]?.prescriptionId,
-      centerId: medicationMeta[m.id]?.centerId,
-      sourceType: medicationMeta[m.id]?.sourceType,
+      prescriptionId: m.prescriptionId ?? medicationMeta[m.id]?.prescriptionId,
+      centerId: m.centerId ?? medicationMeta[m.id]?.centerId,
+      sourceType: m.sourceType ?? medicationMeta[m.id]?.sourceType,
     }));
 
-    const startedIds = new Set(
-      Object.values(medicationMeta).map((v) => v.prescriptionId),
-    );
+    const startedIds = new Set<string>([
+      ...(selfMedications
+        .map((m: any) => m.prescriptionId)
+        .filter(Boolean) as string[]),
+      ...Object.values(medicationMeta)
+        .map((v) => v.prescriptionId)
+        .filter(Boolean),
+    ]);
     const unstarted = prescribedMeds.filter((p) => !startedIds.has(p.id));
 
     const prescribedExtended = unstarted.map((p) => ({
@@ -1603,7 +1690,7 @@ export default function MedicationPanel() {
       totalQuantity: p.totalQuantity || 0,
       durationDays: p.durationDays,
       frequency: normalizeFrequency(p.frequency),
-      times: [],
+      times: p.times ?? [],
       instructions: p.instructions,
       startDate: new Date().toISOString().split("T")[0],
       assignedTo: "self",
@@ -1621,6 +1708,23 @@ export default function MedicationPanel() {
 
     return [...selfExtended, ...prescribedExtended];
   }, [selfMedications, prescribedMeds, medicationMeta]);
+
+  // ─── Backfill meta from server (fresh browser resilience) ───
+  useEffect(() => {
+    const inferred: typeof medicationMeta = {};
+    for (const m of selfMedications as any[]) {
+      if (m.prescriptionId && m.centerId && !medicationMeta[m.id]) {
+        inferred[m.id] = {
+          prescriptionId: m.prescriptionId,
+          centerId: m.centerId,
+          sourceType: m.sourceType,
+        };
+      }
+    }
+    if (Object.keys(inferred).length > 0) {
+      setMedicationMeta((prev) => ({ ...prev, ...inferred }));
+    }
+  }, [selfMedications, medicationMeta]);
 
   const activeMeds = allExtended.filter(
     (m) => m.status === "active" && m.doses.length > 0,
@@ -1675,28 +1779,101 @@ export default function MedicationPanel() {
   const adherenceScore = getAdherenceScore(allExtended);
   const streak = getStreak(allExtended);
 
-  const upcomingDoses = useMemo<UpcomingDose[]>(() => {
-    const nowTime = Date.now();
+  // ─── All non-taken doses, sorted by time ────────────────────
+  // Recomputed only when the underlying meds change (SWR revalidate).
+  const sortedUpcomingDoses = useMemo<SortedDose[]>(() => {
     const all = allExtended.flatMap((med) =>
       med.doses
-        .filter(
-          (d) => !d.takenAt && new Date(d.scheduledTime).getTime() > nowTime,
-        )
+        .filter((d) => !d.takenAt)
         .map((d) => ({
           medicationId: med.id,
           medicationName: med.name,
           scheduledTime: d.scheduledTime,
           dosage: med.dosage,
           assignedToName: med.assignedTo === "self" ? "Me" : "Family",
+          doseTime: new Date(d.scheduledTime).getTime(),
         })),
     );
-    all.sort(
-      (a, b) =>
-        new Date(a.scheduledTime).getTime() -
-        new Date(b.scheduledTime).getTime(),
-    );
-    return all.slice(0, 5);
+    all.sort((a, b) => a.doseTime - b.doseTime);
+    return all;
   }, [allExtended]);
+
+  // The "active" dose — 30-min grace window so "Due now" stays
+  // visible even after the dose passes. Cheap find() per render.
+  const nextDose = useMemo<SortedDose | null>(() => {
+    return (
+      sortedUpcomingDoses.find((d) => d.doseTime > now - DUE_GRACE_MS) ?? null
+    );
+  }, [sortedUpcomingDoses, now]);
+
+  const nextDoseDiffMs = useMemo(
+    () => (nextDose ? nextDose.doseTime - now : 0),
+    [nextDose, now],
+  );
+
+  // For the "Upcoming" widget — only strictly future doses
+  const upcomingDoses = useMemo<SortedDose[]>(
+    () => sortedUpcomingDoses.filter((d) => d.doseTime > now).slice(0, 5),
+    [sortedUpcomingDoses, now],
+  );
+
+  // ─── Dose notification scheduler ────────────────────────────
+  // Runs every tick (cheap). Fires at most once per threshold per dose.
+  // Checks ALL upcoming doses (not just nextDose) so back-to-back doses
+  // still get their own 10/5/1-min alerts.
+  useEffect(() => {
+    if (sortedUpcomingDoses.length === 0) return;
+
+    for (const dose of sortedUpcomingDoses) {
+      const diff = dose.doseTime - now;
+
+      // Only consider doses within the notification window
+      if (diff > 10 * 60_000 || diff < -60_000) continue;
+
+      const doseKey = `${dose.medicationId}|${dose.scheduledTime}`;
+
+      const fireOnce = (id: string, title: string, body: string) => {
+        const fireKey = `${doseKey}|${id}`;
+        if (firedRef.current.has(fireKey)) return;
+        firedRef.current.add(fireKey);
+        try {
+          sessionStorage.setItem(
+            NOTIFIED_KEY,
+            JSON.stringify([...firedRef.current]),
+          );
+        } catch {}
+
+        fireDoseNotification(title, body, doseKey);
+        setDoseToast({
+          title,
+          body,
+          tone: diff <= 0 ? "warn" : "info",
+        });
+      };
+
+      if (diff <= 0 && diff > -60_000) {
+        fireOnce("due", "Dose due now", `${dose.medicationName} — take it now`);
+      } else if (diff <= 60_000 && diff > 0) {
+        fireOnce(
+          "1m",
+          "1 minute to dose",
+          `${dose.medicationName} — get ready`,
+        );
+      } else if (diff <= 5 * 60_000 && diff > 4 * 60_000 + 60_000) {
+        fireOnce(
+          "5m",
+          "5 minutes to dose",
+          `${dose.medicationName} — prepare your dose`,
+        );
+      } else if (diff <= 10 * 60_000 && diff > 9 * 60_000 + 60_000) {
+        fireOnce(
+          "10m",
+          "10 minutes to dose",
+          `${dose.medicationName} — in 10 minutes`,
+        );
+      }
+    }
+  }, [sortedUpcomingDoses, now]);
 
   const chartData = useMemo(() => {
     const last14Days = Array.from({ length: 14 }, (_, i) => {
@@ -1720,16 +1897,6 @@ export default function MedicationPanel() {
       };
     });
   }, [allExtended]);
-
-  const nextDose = upcomingDoses.length > 0 ? upcomingDoses[0] : null;
-  const timeRemaining = useMemo(() => {
-    if (!nextDose) return "";
-    const diff = new Date(nextDose.scheduledTime).getTime() - now;
-    if (diff <= 0) return "Due now";
-    const h = Math.floor(diff / 3600000);
-    const m = Math.floor((diff % 3600000) / 60000);
-    return `${h}h ${m}m`;
-  }, [nextDose, now]);
 
   const todayDosesRemaining = useMemo(() => {
     const today = new Date().toISOString().split("T")[0];
@@ -1759,11 +1926,51 @@ export default function MedicationPanel() {
       frequency: "once",
       assignedTo: selectedFamilyId,
       quantityPerDose: 1,
-      totalQuantity: 0,
+      totalQuantity: undefined,
       startDate: new Date().toISOString().split("T")[0],
     },
   });
   const frequency = watch("frequency");
+
+  const totalQtyWatch = watch("totalQuantity");
+  const durationWatch = watch("durationDays");
+  const qtyPerDoseWatch = watch("quantityPerDose");
+
+  const derivationPreview = useMemo(() => {
+    const total = Number(totalQtyWatch) || 0;
+    const duration = Number(durationWatch) || 0;
+    const qpd = Number(qtyPerDoseWatch) || 1;
+    const intakes = getIntakesPerDay(frequency);
+
+    if (total > 0 && duration > 0) {
+      return {
+        icon: "✓",
+        text: `${total} tablet${total === 1 ? "" : "s"} over ${duration} day${duration === 1 ? "" : "s"}.`,
+        tone: "ok" as const,
+      };
+    }
+    if (total > 0) {
+      const days = Math.ceil(total / (qpd * intakes));
+      return {
+        icon: "📦",
+        text: `${total} tablet${total === 1 ? "" : "s"} ≈ ${days} day${days === 1 ? "" : "s"} at ${intakes}× per day.`,
+        tone: "ok" as const,
+      };
+    }
+    if (duration > 0) {
+      const derived = duration * qpd * intakes;
+      return {
+        icon: "📅",
+        text: `${duration} day${duration === 1 ? "" : "s"} ≈ ${derived} tablets total (${intakes}× per day).`,
+        tone: "ok" as const,
+      };
+    }
+    return {
+      icon: "♾️",
+      text: "Ongoing — we'll schedule up to 90 doses. You can stop anytime from the card.",
+      tone: "info" as const,
+    };
+  }, [totalQtyWatch, durationWatch, qtyPerDoseWatch, frequency]);
 
   useEffect(() => {
     setValue("assignedTo", selectedFamilyId);
@@ -1804,125 +2011,179 @@ export default function MedicationPanel() {
     setSearchResults([]);
   };
 
+  // ─── Add medication — clean null-safe payload ───────────────
   const onSubmitNewMed = async (formData: MedicationForm) => {
-    let totalQty = formData.totalQuantity || 0;
-    let durationDays = formData.durationDays;
+    const qtyPerDose = Number(formData.quantityPerDose) || 1;
+    const intakesPerDay = getIntakesPerDay(formData.frequency);
+
+    let totalQty =
+      typeof formData.totalQuantity === "number" && formData.totalQuantity > 0
+        ? formData.totalQuantity
+        : 0;
+    let durationDays =
+      typeof formData.durationDays === "number" && formData.durationDays > 0
+        ? formData.durationDays
+        : undefined;
 
     if (durationDays && totalQty === 0) {
-      const intakesPerDay = getIntakesPerDay(formData.frequency);
-      totalQty = deriveTotalQuantity(
-        durationDays,
-        formData.quantityPerDose,
-        intakesPerDay,
-      );
+      totalQty = deriveTotalQuantity(durationDays, qtyPerDose, intakesPerDay);
+    } else if (totalQty > 0 && !durationDays) {
+      durationDays = deriveDuration(totalQty, qtyPerDose, intakesPerDay);
     }
 
-    if (totalQty > 0 && !durationDays) {
-      const intakesPerDay = getIntakesPerDay(formData.frequency);
-      durationDays = deriveDuration(
-        totalQty,
-        formData.quantityPerDose,
-        intakesPerDay,
-      );
-    }
+    const isOngoing = totalQty === 0;
 
     let timesArray: string[] = [];
     let doses: Dose[] = [];
-    let endDateStr: string | undefined;
+    let endDateStr: string | null = null;
 
     if (formData.frequency === "custom" && formData.times) {
       timesArray = formData.times.split(",").map((t) => t.trim());
       doses = generateCustomDoses(
         formData.startDate,
         timesArray,
-        totalQty || DEFAULT_MAX_DOSES,
+        isOngoing ? DEFAULT_MAX_DOSES : totalQty,
       );
+      endDateStr = null;
     } else {
       const normFreq = formData.frequency as "once" | "twice" | "thrice";
       const startDateTime = new Date().toISOString();
       doses = generateDosesFromStart(
         startDateTime,
         normFreq,
-        totalQty || DEFAULT_MAX_DOSES,
+        isOngoing ? DEFAULT_MAX_DOSES : totalQty,
       );
-      endDateStr = computeEndDateFromDoses(doses);
+      endDateStr = isOngoing ? null : (computeEndDateFromDoses(doses) ?? null);
     }
 
+    const payload: Record<string, any> = {
+      name: formData.name.trim(),
+      dosage: formData.dosage.trim(),
+      quantityPerDose: qtyPerDose,
+      totalQuantity: totalQty,
+      durationDays: durationDays ?? null,
+      frequency: formData.frequency,
+      times: timesArray,
+      instructions: formData.instructions?.trim() || null,
+      startDate: formData.startDate,
+      endDate: endDateStr,
+      assignedTo: formData.assignedTo,
+      status: "active",
+      doses,
+      prescriptionId: null,
+      centerId: null,
+      sourceType: null,
+    };
+
     try {
-      const result = await authPost("/api/medications", {
-        name: formData.name,
-        dosage: formData.dosage,
-        quantityPerDose: formData.quantityPerDose,
-        totalQuantity: totalQty,
-        durationDays: durationDays,
-        frequency: formData.frequency,
-        times: timesArray,
-        instructions: formData.instructions,
-        startDate: formData.startDate,
-        endDate: endDateStr,
-        assignedTo: formData.assignedTo,
-        status: "active",
-        doses,
-      });
+      const result = await authPost("/api/medications", payload);
       if (result.success) {
         mutate(`/api/medications?memberId=${selectedFamilyId}`);
         setShowAddMedModal(false);
         reset();
-      } else alert("Error: " + result.error);
+      } else {
+        alert("Error: " + (result.error || "Failed to save medication"));
+      }
     } catch {
       alert("Failed to add medication");
     }
   };
 
+  // ─── Start prescribed — derives, respects custom times, guards center ─
   const startPrescribedMedication = async (prescribed: ExtendedMedication) => {
     if (!prescribed.prescriptionId) return;
+    if (!prescribed.centerId) {
+      alert(
+        "This prescription is missing its center — please contact support.",
+      );
+      return;
+    }
 
     const normalizedFreq = normalizeFrequency(prescribed.frequency);
+    const intakesPerDay = getIntakesPerDay(normalizedFreq);
+    const qtyPerDose = prescribed.quantityPerDose || 1;
+    const startDateOnly = new Date().toISOString().split("T")[0];
     const startDateTime = new Date().toISOString();
-    const totalQty = prescribed.totalQuantity || 0;
-    const doses = generateDosesFromStart(
-      startDateTime,
-      normalizedFreq,
-      totalQty || DEFAULT_MAX_DOSES,
-    );
-    const endDateStr = computeEndDateFromDoses(doses);
+
+    let totalQty =
+      typeof prescribed.totalQuantity === "number" &&
+      prescribed.totalQuantity > 0
+        ? prescribed.totalQuantity
+        : 0;
+    let durationDays =
+      typeof prescribed.durationDays === "number" && prescribed.durationDays > 0
+        ? prescribed.durationDays
+        : undefined;
+
+    if (durationDays && totalQty === 0) {
+      totalQty = deriveTotalQuantity(durationDays, qtyPerDose, intakesPerDay);
+    } else if (totalQty > 0 && !durationDays) {
+      durationDays = deriveDuration(totalQty, qtyPerDose, intakesPerDay);
+    }
+
+    const isOngoing = totalQty === 0;
+
+    let doses: Dose[] = [];
+    let endDateStr: string | null = null;
+
+    if (
+      normalizedFreq === "custom" &&
+      Array.isArray(prescribed.times) &&
+      prescribed.times.length > 0
+    ) {
+      doses = generateCustomDoses(
+        startDateOnly,
+        prescribed.times,
+        isOngoing ? DEFAULT_MAX_DOSES : totalQty,
+      );
+      endDateStr = null;
+    } else {
+      doses = generateDosesFromStart(
+        startDateTime,
+        normalizedFreq,
+        isOngoing ? DEFAULT_MAX_DOSES : totalQty,
+      );
+      endDateStr = isOngoing ? null : (computeEndDateFromDoses(doses) ?? null);
+    }
+
+    const payload: Record<string, any> = {
+      name: prescribed.name,
+      dosage: prescribed.dosage,
+      quantityPerDose: qtyPerDose,
+      totalQuantity: totalQty,
+      durationDays: durationDays ?? null,
+      frequency: normalizedFreq,
+      times: prescribed.times ?? [],
+      instructions: prescribed.instructions?.trim() || null,
+      startDate: startDateOnly,
+      endDate: endDateStr,
+      assignedTo: "self",
+      status: "active",
+      doses,
+      prescriptionId: prescribed.prescriptionId,
+      centerId: prescribed.centerId,
+      sourceType: prescribed.sourceType ?? null,
+    };
 
     try {
-      const result = await authPost("/api/medications", {
-        name: prescribed.name,
-        dosage: prescribed.dosage,
-        quantityPerDose: prescribed.quantityPerDose || 1,
-        totalQuantity: totalQty,
-        durationDays: prescribed.durationDays,
-        frequency: normalizedFreq,
-        times: [],
-        instructions: prescribed.instructions || "",
-        startDate: new Date(startDateTime).toISOString().split("T")[0],
-        endDate: endDateStr,
-        assignedTo: "self",
-        status: "active",
-        doses,
-        prescriptionId: prescribed.prescriptionId,
-        centerId: prescribed.centerId,
-        sourceType: prescribed.sourceType,
-      });
+      const result = await authPost("/api/medications", payload);
 
       if (result.success) {
         const newId = result.data?.id ?? result.id;
-        if (!newId) return;
-        const newMeta = {
-          ...medicationMeta,
-          [newId]: {
-            prescriptionId: prescribed.prescriptionId!,
-            centerId: prescribed.centerId!,
-            sourceType: prescribed.sourceType,
-          },
-        };
-        setMedicationMeta(newMeta);
+        if (newId) {
+          setMedicationMeta((prev) => ({
+            ...prev,
+            [newId]: {
+              prescriptionId: prescribed.prescriptionId!,
+              centerId: prescribed.centerId!,
+              sourceType: prescribed.sourceType,
+            },
+          }));
+        }
         mutate(`/api/medications?memberId=${selectedFamilyId}`);
         alert("Medication started. Your doses are now scheduled.");
       } else {
-        alert("Error: " + result.error);
+        alert("Error: " + (result.error || "Failed to start medication"));
       }
     } catch (err: any) {
       alert("Failed to start medication: " + (err.message || "Unknown error"));
@@ -2031,14 +2292,23 @@ export default function MedicationPanel() {
           }
         }
 
-        const meta = medicationMeta[medicationId];
-        if (meta && meta.centerId && meta.prescriptionId) {
+        // Sync to center — prefers server data, falls back to localStorage
+        const currentMed = selfMedications.find(
+          (m) => m.id === medicationId,
+        ) as any;
+        const meta = {
+          prescriptionId:
+            currentMed?.prescriptionId ??
+            medicationMeta[medicationId]?.prescriptionId,
+          centerId:
+            currentMed?.centerId ?? medicationMeta[medicationId]?.centerId,
+          sourceType:
+            currentMed?.sourceType ?? medicationMeta[medicationId]?.sourceType,
+        };
+        if (meta.centerId && meta.prescriptionId) {
           await syncToCenter(meta.centerId, {
-            medication:
-              selfMedications.find((m) => m.id === medicationId)?.name ||
-              "Unknown",
-            dose:
-              selfMedications.find((m) => m.id === medicationId)?.dosage || "1",
+            medication: currentMed?.name || "Unknown",
+            dose: currentMed?.dosage || "1",
             administeredAt: actualTakenTime,
             administeredBy: user?.fullName || "Patient",
             administeredById: user?.id,
@@ -2098,18 +2368,42 @@ export default function MedicationPanel() {
     }
   };
 
+  // ─── Stop medication — optimistic with rollback ─────────────
   const stopMedication = async (medicationId: string) => {
+    const swrKey = `/api/medications?memberId=${selectedFamilyId}`;
+    const today = new Date().toISOString().split("T")[0];
+
+    mutate(
+      swrKey,
+      (currentData: any) => {
+        if (!currentData?.success) return currentData;
+        return {
+          ...currentData,
+          data: currentData.data.map((m: any) =>
+            m.id === medicationId
+              ? { ...m, status: "completed", endDate: today }
+              : m,
+          ),
+        };
+      },
+      false,
+    );
+
     try {
       const result = await authPut(`/api/medications/${medicationId}`, {
         status: "completed",
-        endDate: new Date().toISOString().split("T")[0],
+        endDate: today,
       });
       if (result.success) {
-        mutate(`/api/medications?memberId=${selectedFamilyId}`);
+        await mutate(swrKey);
         setStopConfirm(null);
-      } else alert("Error: " + (result.error || "Failed to stop medication"));
+      } else {
+        alert("Error: " + (result.error || "Failed to stop medication"));
+        mutate(swrKey);
+      }
     } catch {
       alert("An error occurred");
+      mutate(swrKey);
     }
   };
 
@@ -2131,24 +2425,42 @@ export default function MedicationPanel() {
 
   const requestNotificationPermission = async () => {
     if (!("Notification" in window)) {
-      alert("Notifications not supported.");
+      alert("Notifications not supported on this browser.");
       return;
     }
     if (Notification.permission === "granted") {
-      alert("Already enabled.");
+      alert("Notifications are already enabled.");
       return;
     }
     try {
       const permission = await Notification.requestPermission();
       if (permission === "granted") {
-        const registration = await navigator.serviceWorker.ready;
-        const subscription = await registration.pushManager.subscribe({
-          userVisibleOnly: true,
-          applicationServerKey: process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY,
-        });
-        await authPost("/api/notifications/subscribe", subscription);
+        // If a SW is registered, also subscribe to push (for future
+        // server-triggered reminders when the app is closed).
+        if ("serviceWorker" in navigator) {
+          try {
+            const reg = await navigator.serviceWorker.getRegistration();
+            if (reg) {
+              const existing = await reg.pushManager.getSubscription();
+              if (!existing) {
+                const sub = await reg.pushManager.subscribe({
+                  userVisibleOnly: true,
+                  applicationServerKey:
+                    process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY,
+                });
+                await authPost("/api/notifications/subscribe", sub);
+              }
+            }
+          } catch (err) {
+            console.warn("Push subscription failed (non-blocking):", err);
+          }
+        }
         alert("Notifications enabled.");
-      } else alert("Permission denied.");
+      } else {
+        alert(
+          "Permission denied. You'll still see in-app dose alerts while using the app.",
+        );
+      }
     } catch {
       alert("Failed to enable notifications.");
     }
@@ -2176,7 +2488,8 @@ export default function MedicationPanel() {
     {
       icon: <Bell className="w-8 h-8 text-emerald-700" />,
       title: "Smart Reminders",
-      description: "Enable push notifications to never miss a dose again.",
+      description:
+        "Enable notifications and we'll alert you 10 mins before every dose.",
     },
   ];
 
@@ -2339,6 +2652,7 @@ export default function MedicationPanel() {
                 </div>
               </BentoTile>
 
+              {/* ─── NEXT DOSE — live countdown ──────────────── */}
               <BentoTile className="p-4">
                 <SectionHeader icon={Clock} label="Next Dose" />
                 {nextDose ? (
@@ -2346,8 +2660,17 @@ export default function MedicationPanel() {
                     <p className="text-sm font-semibold text-emerald-900 truncate mb-1">
                       {nextDose.medicationName}
                     </p>
-                    <p className="text-2xl font-bold text-emerald-900 leading-none mb-1">
-                      {timeRemaining}
+                    <p
+                      className={cn(
+                        "text-2xl sm:text-3xl font-bold leading-none mb-1 tabular-nums tracking-tight transition-colors",
+                        nextDoseDiffMs <= 0
+                          ? "text-emerald-700 animate-pulse"
+                          : nextDoseDiffMs <= 60_000
+                            ? "text-emerald-600"
+                            : "text-emerald-900",
+                      )}
+                    >
+                      {formatCountdown(nextDoseDiffMs)}
                     </p>
                     <p className="text-xs text-emerald-700/70 mt-1">
                       {new Date(nextDose.scheduledTime).toLocaleTimeString([], {
@@ -2769,6 +3092,73 @@ export default function MedicationPanel() {
         )}
       </main>
 
+      {/* ─── IN-APP DOSE TOAST ──────────────────────────────── */}
+      <AnimatePresence>
+        {doseToast && (
+          <motion.div
+            initial={{ opacity: 0, y: -20, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -20, scale: 0.95 }}
+            transition={{ type: "spring", stiffness: 300, damping: 26 }}
+            className="fixed top-20 sm:top-4 left-1/2 -translate-x-1/2 z-[300] max-w-[calc(100vw-2rem)] sm:max-w-md w-full"
+            role="alert"
+          >
+            <div
+              className={cn(
+                "rounded-xl shadow-xl border px-4 py-3 flex items-start gap-3",
+                doseToast.tone === "warn"
+                  ? "bg-emerald-600 text-white border-emerald-500"
+                  : "bg-white text-emerald-900 border-emerald-200",
+              )}
+            >
+              <div
+                className={cn(
+                  "w-8 h-8 rounded-lg flex items-center justify-center shrink-0",
+                  doseToast.tone === "warn" ? "bg-white/20" : "bg-emerald-50",
+                )}
+              >
+                <Bell
+                  size={16}
+                  className={
+                    doseToast.tone === "warn"
+                      ? "text-white"
+                      : "text-emerald-600"
+                  }
+                />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-bold leading-tight truncate">
+                  {doseToast.title}
+                </p>
+                <p
+                  className={cn(
+                    "text-xs mt-0.5 leading-relaxed line-clamp-2",
+                    doseToast.tone === "warn"
+                      ? "text-emerald-100"
+                      : "text-emerald-700/80",
+                  )}
+                >
+                  {doseToast.body}
+                </p>
+              </div>
+              <button
+                onClick={() => setDoseToast(null)}
+                aria-label="Dismiss"
+                className={cn(
+                  "shrink-0 min-h-8 min-w-8 inline-flex items-center justify-center rounded-lg transition-colors",
+                  doseToast.tone === "warn"
+                    ? "hover:bg-white/20 text-white/80"
+                    : "hover:bg-emerald-50 text-emerald-600",
+                  FOCUS,
+                )}
+              >
+                <X size={14} />
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* HELP MODAL */}
       <AnimatePresence>
         {showHelp && (
@@ -3019,16 +3409,14 @@ export default function MedicationPanel() {
               </section>
 
               <section className="space-y-3">
-                <SectionLabel icon={Calendar}>
-                  Duration &amp; Stock
-                </SectionLabel>
+                <SectionLabel icon={Calendar}>Duration (optional)</SectionLabel>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <Input
                     type="number"
                     inputMode="numeric"
                     {...register("totalQuantity")}
-                    label="Total quantity"
-                    placeholder="0"
+                    label="Total tablets / doses"
+                    placeholder="Leave blank if unknown"
                     error={errors.totalQuantity?.message}
                   />
                   <Input
@@ -3036,15 +3424,31 @@ export default function MedicationPanel() {
                     step="1"
                     inputMode="numeric"
                     {...register("durationDays")}
-                    label="Duration (days)"
-                    placeholder="e.g., 7"
+                    label="For how many days?"
+                    placeholder="Leave blank if ongoing"
                     error={errors.durationDays?.message}
                   />
                 </div>
-                <p className="text-xs text-emerald-700/60 leading-relaxed">
-                  Leave both at{" "}
-                  <span className="font-semibold text-emerald-800">0</span> for
-                  ongoing medication (no fixed end date).
+
+                <div
+                  className={cn(
+                    "rounded-xl border p-3 flex items-start gap-2.5 text-xs leading-relaxed",
+                    derivationPreview.tone === "ok"
+                      ? "bg-emerald-50 border-emerald-200 text-emerald-800"
+                      : "bg-emerald-50/60 border-emerald-100 text-emerald-700/80",
+                  )}
+                >
+                  <span className="text-base shrink-0">
+                    {derivationPreview.icon}
+                  </span>
+                  <span className="font-medium">{derivationPreview.text}</span>
+                </div>
+
+                <p className="text-[11px] text-emerald-700/60 leading-relaxed">
+                  Fill in{" "}
+                  <span className="font-semibold text-emerald-800">either</span>{" "}
+                  field and we&apos;ll calculate the other. Leave both blank for
+                  ongoing medication.
                 </p>
               </section>
 
