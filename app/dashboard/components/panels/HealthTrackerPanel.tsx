@@ -17,7 +17,7 @@ import jsPDF from "jspdf";
 import { authFetcher } from "@/app/utils/client-auth";
 import { useUser } from "../../hooks/useProfile";
 import { cn } from "@/app/utils/utils";
-import { bebasNeue, poppins } from "@/app/constants";
+import { poppins } from "@/app/constants";
 
 import {
   metricConfig,
@@ -44,7 +44,6 @@ const VALID_METRICS: MetricType[] = [
   "weight",
 ];
 
-// Shared SWR config — warm cache, no focus refetch, no skeleton flash
 const SWR_PANEL_CONFIG = {
   revalidateOnFocus: false,
   revalidateOnReconnect: true,
@@ -70,7 +69,7 @@ function ssSet(key: string, value: string) {
   } catch {}
 }
 
-// ─── Utility exports (unchanged) ───────────────────────────
+// ─── Utility exports ───────────────────────────────────────
 const generateSecureReportID = (): string => {
   if (typeof window !== "undefined" && window.crypto) {
     if (window.crypto.randomUUID)
@@ -109,7 +108,6 @@ export const formatDisplayValue = (record: HealthRecord): string => {
 
 // ─── Main component ────────────────────────────────────────
 export default function HealthTracker() {
-  // Persisted: selected metric
   const [selectedType, setSelectedType] = useState<MetricType>(() => {
     const stored = ssGet("health:selectedType");
     if (stored && VALID_METRICS.includes(stored as MetricType)) {
@@ -121,11 +119,9 @@ export default function HealthTracker() {
     ssSet("health:selectedType", selectedType);
   }, [selectedType]);
 
-  // Ephemeral UI
   const [showForm, setShowForm] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
 
-  // Stable report ID — post-hydration only (fixes hydration mismatch)
   const [uniqueReportId, setUniqueReportId] = useState<string>("DOZA-PENDING");
   useEffect(() => {
     setUniqueReportId(generateSecureReportID());
@@ -136,13 +132,11 @@ export default function HealthTracker() {
 
   const { user } = useUser();
 
-  // Health records — warm cache, no focus refetch
   const { data, mutate, isLoading } = useSWR<{
     success: boolean;
     data: HealthRecord[];
   }>("/api/health-records", authFetcher, SWR_PANEL_CONFIG);
 
-  // Scroll restoration
   const scrollerRef = useRef<HTMLElement | null>(null);
   const scrollRestoredRef = useRef(false);
   useEffect(() => {
@@ -295,9 +289,6 @@ export default function HealthTracker() {
     setShowForm(false);
   };
 
-  // ─── Loading gate — cold start only ─────────────────────
-  // `isLoading` in SWR v2 is true only when there's no cached data.
-  // Combined with `!data` for defense in depth.
   if (isLoading && !data) return <HealthTrackerSkeleton />;
 
   const isBP = selectedType === "bloodPressure";
@@ -315,7 +306,10 @@ export default function HealthTracker() {
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.2, ease: "easeOut" }}
-      className="min-h-screen bg-[#F8FAFC] text-slate-900 selection:bg-emerald-100 antialiased"
+      className={cn(
+        "min-h-screen bg-[#F8FAFC] pb-28 pt-2 text-slate-900 selection:bg-emerald-100 antialiased",
+        poppins.className,
+      )}
     >
       {/* Hidden PDF Engine */}
       <div style={{ position: "absolute", left: "-9999px", top: "-9999px" }}>
@@ -435,163 +429,110 @@ export default function HealthTracker() {
       </div>
 
       {/* Main view */}
-      <main
-        className={cn(
-          "mx-auto max-w-7xl px-4 pt-5 pb-20 sm:px-6 sm:pt-6 sm:pb-10",
-          poppins.className,
-        )}
-      >
-        <div className="space-y-6">
-          {/* Header */}
-          <header className="space-y-4">
-            {/* Eyebrow */}
-            <div className="flex items-center gap-3">
-              <span
-                aria-hidden="true"
-                className="h-5 w-1 rounded-full bg-gradient-to-b from-emerald-500 to-teal-600"
+      <main className="mx-auto max-w-7xl px-4 pt-3 sm:px-6 lg:px-8 space-y-4 lg:space-y-6">
+        {/* ─── HEADER — matches Dashboard header pattern ──────── */}
+        <header className="pt-1 lg:pt-2 flex flex-col gap-3">
+          <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3">
+            <div className="min-w-0 flex-1">
+              <h1 className="text-2xl sm:text-3xl lg:text-4xl font-bold text-slate-900 tracking-tight leading-tight">
+                Health Tracker
+              </h1>
+              <p className="text-xs sm:text-sm text-slate-500 mt-1">
+                Track your vitals over time. Export reports for your doctor
+                anytime.
+              </p>
+            </div>
+
+            {/* Export icons + desktop Add entry */}
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={handleExportCSV}
+                disabled={filteredRecords.length === 0}
+                aria-label="Export data as CSV"
+                title="Export CSV"
+                className={cn(
+                  "flex h-11 w-11 items-center justify-center rounded-xl border border-slate-200/80 bg-white text-slate-600 shadow-xs transition-all duration-150 hover:bg-emerald-50 hover:text-emerald-700 hover:border-emerald-200 active:scale-[0.97] disabled:opacity-50 disabled:cursor-not-allowed",
+                  FOCUS,
+                )}
+              >
+                <FileSpreadsheet size={18} aria-hidden="true" />
+              </button>
+              <button
+                type="button"
+                onClick={handleExportPDF}
+                disabled={isExporting || filteredRecords.length === 0}
+                aria-label="Export data as PDF"
+                title="Export PDF"
+                className={cn(
+                  "flex h-11 w-11 items-center justify-center rounded-xl border border-slate-200/80 bg-white text-slate-600 shadow-xs transition-all duration-150 hover:bg-emerald-50 hover:text-emerald-700 hover:border-emerald-200 active:scale-[0.97] disabled:opacity-50 disabled:cursor-not-allowed",
+                  FOCUS,
+                )}
+              >
+                {isExporting ? (
+                  <span
+                    className="h-4 w-4 rounded-full border-2 border-slate-400 border-t-transparent animate-spin"
+                    aria-hidden
+                  />
+                ) : (
+                  <Download size={18} aria-hidden="true" />
+                )}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setShowForm(true)}
+                className={cn(
+                  "hidden h-11 items-center gap-2 rounded-xl bg-emerald-600 px-4 text-xs font-bold text-white shadow-sm shadow-emerald-600/25 transition-all duration-150 hover:bg-emerald-700 active:scale-[0.97] sm:inline-flex",
+                  FOCUS,
+                )}
+              >
+                <Plus size={16} aria-hidden="true" />
+                <span>Add entry</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Mobile-only full-width primary CTA */}
+          <button
+            type="button"
+            onClick={() => setShowForm(true)}
+            className={cn(
+              "sm:hidden w-full min-h-12 inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 text-sm font-bold text-white shadow-sm shadow-emerald-600/25 transition-all duration-150 hover:bg-emerald-700 active:scale-[0.98]",
+              FOCUS,
+            )}
+          >
+            <Plus size={18} aria-hidden="true" />
+            <span>Add entry</span>
+          </button>
+        </header>
+
+        {/* Empty state OR full content */}
+        {!hasAnyData ? (
+          <HealthTrackerEmpty onAdd={() => setShowForm(true)} />
+        ) : (
+          <>
+            <div className="lg:hidden">
+              <MetricSelector
+                variant="chips"
+                selectedType={selectedType}
+                onSelectMetric={setSelectedType}
               />
-              <span className="text-xs font-bold uppercase tracking-[0.22em] text-emerald-700">
-                Vitals Monitoring
-              </span>
             </div>
 
-            {/* Heading + actions */}
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-              <div className="min-w-0 flex-1">
-                <h1
-                  className={cn(
-                    "text-[clamp(2.25rem,7.5vw,3.5rem)] leading-[1] tracking-tight text-slate-900",
-                    bebasNeue.className,
-                  )}
-                >
-                  Health <span className="text-emerald-600">Tracker</span>
-                </h1>
-                <p className="mt-2 max-w-md text-[clamp(0.8125rem,2.2vw,0.9375rem)] font-medium leading-relaxed text-slate-600">
-                  Track your vitals over time. Export reports for your doctor
-                  anytime.
-                </p>
-              </div>
+            <MetricStatsCards stats={stats} currentMetric={selectedType} />
 
-              {/* Export icons + desktop Add entry */}
-              <div className="flex items-center gap-2 shrink-0">
-                <button
-                  type="button"
-                  onClick={handleExportCSV}
-                  disabled={filteredRecords.length === 0}
-                  aria-label="Export data as CSV"
-                  title="Export CSV"
-                  className={cn(
-                    "flex h-11 w-11 items-center justify-center rounded-xl border border-slate-200/80 bg-white text-slate-600 shadow-xs transition-all duration-150 hover:bg-emerald-50 hover:text-emerald-700 hover:border-emerald-200 active:scale-[0.97] disabled:opacity-50 disabled:cursor-not-allowed",
-                    FOCUS,
-                  )}
-                >
-                  <FileSpreadsheet size={18} aria-hidden="true" />
-                </button>
-                <button
-                  type="button"
-                  onClick={handleExportPDF}
-                  disabled={isExporting || filteredRecords.length === 0}
-                  aria-label="Export data as PDF"
-                  title="Export PDF"
-                  className={cn(
-                    "flex h-11 w-11 items-center justify-center rounded-xl border border-slate-200/80 bg-white text-slate-600 shadow-xs transition-all duration-150 hover:bg-emerald-50 hover:text-emerald-700 hover:border-emerald-200 active:scale-[0.97] disabled:opacity-50 disabled:cursor-not-allowed",
-                    FOCUS,
-                  )}
-                >
-                  {isExporting ? (
-                    <span
-                      className="h-4 w-4 rounded-full border-2 border-slate-400 border-t-transparent animate-spin"
-                      aria-hidden
-                    />
-                  ) : (
-                    <Download size={18} aria-hidden="true" />
-                  )}
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setShowForm(true)}
-                  className={cn(
-                    "hidden h-11 items-center gap-2 rounded-xl bg-emerald-600 px-4 text-xs font-bold text-white shadow-sm shadow-emerald-600/25 transition-all duration-150 hover:bg-emerald-700 active:scale-[0.97] sm:inline-flex",
-                    FOCUS,
-                  )}
-                >
-                  <Plus size={16} aria-hidden="true" />
-                  <span>Add entry</span>
-                </button>
-              </div>
-            </div>
-
-            {/* Mobile-only full-width primary CTA */}
-            <button
-              type="button"
-              onClick={() => setShowForm(true)}
-              className={cn(
-                "sm:hidden w-full min-h-12 inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 text-sm font-bold text-white shadow-sm shadow-emerald-600/25 transition-all duration-150 hover:bg-emerald-700 active:scale-[0.98]",
-                FOCUS,
-              )}
-            >
-              <Plus size={18} aria-hidden="true" />
-              <span>Add entry</span>
-            </button>
-          </header>
-
-          {/* Empty state OR full content */}
-          {!hasAnyData ? (
-            <HealthTrackerEmpty onAdd={() => setShowForm(true)} />
-          ) : (
-            <>
-              <div className="lg:hidden">
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-4 lg:gap-6">
+              <aside className="hidden flex-col gap-4 lg:flex">
                 <MetricSelector
-                  variant="chips"
+                  variant="list"
                   selectedType={selectedType}
                   onSelectMetric={setSelectedType}
                 />
-              </div>
 
-              <MetricStatsCards stats={stats} currentMetric={selectedType} />
-
-              <div className="grid grid-cols-1 gap-4 lg:grid-cols-4 lg:gap-6">
-                <aside className="hidden flex-col gap-4 lg:flex">
-                  <MetricSelector
-                    variant="list"
-                    selectedType={selectedType}
-                    onSelectMetric={setSelectedType}
-                  />
-
-                  <div className="group relative overflow-hidden rounded-2xl border border-slate-800 bg-gradient-to-br from-slate-900 to-slate-800 p-5 text-white shadow-md shadow-slate-950/10">
-                    <div className="absolute right-0 top-0 h-24 w-24 rounded-full bg-emerald-500/10 blur-2xl transition-all duration-500 group-hover:bg-emerald-500/25" />
-                    <div className="mb-2 flex items-center gap-2">
-                      <Stethoscope
-                        className="h-3.5 w-3.5 text-emerald-400"
-                        aria-hidden="true"
-                      />
-                      <span className="text-[10px] font-extrabold uppercase tracking-widest text-emerald-400">
-                        Clinical Insight
-                      </span>
-                    </div>
-                    <p className="text-xs font-medium leading-relaxed text-slate-300">
-                      {metricConfig[selectedType].tip}
-                    </p>
-                  </div>
-                </aside>
-
-                <div
-                  ref={chartRef}
-                  className="flex flex-col justify-between rounded-2xl border border-slate-200/80 bg-white p-4 shadow-xs transition-shadow duration-300 sm:p-5 lg:col-span-3 lg:hover:shadow-md"
-                >
-                  <TelemetryChart
-                    chartData={chartData}
-                    currentMetric={selectedType}
-                    filteredRecords={filteredRecords}
-                  />
-                </div>
-              </div>
-
-              <div className="lg:hidden">
-                <div className="relative overflow-hidden rounded-2xl border border-slate-800 bg-gradient-to-br from-slate-900 to-slate-800 p-4 text-white shadow-md">
-                  <div className="absolute right-0 top-0 h-20 w-20 rounded-full bg-emerald-500/10 blur-2xl" />
-                  <div className="mb-1.5 flex items-center gap-2">
+                <div className="group relative overflow-hidden rounded-2xl border border-slate-800 bg-gradient-to-br from-slate-900 to-slate-800 p-5 text-white shadow-md shadow-slate-950/10">
+                  <div className="absolute right-0 top-0 h-24 w-24 rounded-full bg-emerald-500/10 blur-2xl transition-all duration-500 group-hover:bg-emerald-500/25" />
+                  <div className="mb-2 flex items-center gap-2">
                     <Stethoscope
                       className="h-3.5 w-3.5 text-emerald-400"
                       aria-hidden="true"
@@ -604,10 +545,39 @@ export default function HealthTracker() {
                     {metricConfig[selectedType].tip}
                   </p>
                 </div>
+              </aside>
+
+              <div
+                ref={chartRef}
+                className="flex flex-col justify-between rounded-2xl border border-slate-200/80 bg-white p-4 shadow-xs transition-shadow duration-300 sm:p-5 lg:col-span-3 lg:hover:shadow-md"
+              >
+                <TelemetryChart
+                  chartData={chartData}
+                  currentMetric={selectedType}
+                  filteredRecords={filteredRecords}
+                />
               </div>
-            </>
-          )}
-        </div>
+            </div>
+
+            <div className="lg:hidden">
+              <div className="relative overflow-hidden rounded-2xl border border-slate-800 bg-gradient-to-br from-slate-900 to-slate-800 p-4 text-white shadow-md">
+                <div className="absolute right-0 top-0 h-20 w-20 rounded-full bg-emerald-500/10 blur-2xl" />
+                <div className="mb-1.5 flex items-center gap-2">
+                  <Stethoscope
+                    className="h-3.5 w-3.5 text-emerald-400"
+                    aria-hidden="true"
+                  />
+                  <span className="text-[10px] font-extrabold uppercase tracking-widest text-emerald-400">
+                    Clinical Insight
+                  </span>
+                </div>
+                <p className="text-xs font-medium leading-relaxed text-slate-300">
+                  {metricConfig[selectedType].tip}
+                </p>
+              </div>
+            </div>
+          </>
+        )}
       </main>
 
       <AnimatePresence>
@@ -654,16 +624,12 @@ function HealthTrackerEmpty({ onAdd }: { onAdd: () => void }) {
 // ─── Skeleton ─────────────────────────────────────────────
 function HealthTrackerSkeleton() {
   return (
-    <div className="mx-auto min-h-screen max-w-7xl animate-pulse space-y-6 px-4 pt-5 pb-20 sm:px-6 sm:pt-6 sm:pb-10">
-      <div className="space-y-4">
-        <div className="flex items-center gap-3">
-          <div className="h-5 w-1 rounded-full bg-slate-200" />
-          <div className="h-3 w-32 rounded-full bg-slate-200" />
-        </div>
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+    <div className="mx-auto min-h-screen max-w-7xl animate-pulse space-y-4 lg:space-y-6 px-4 pt-3 pb-28 sm:px-6 lg:px-8">
+      <div className="space-y-3 pt-1 lg:pt-2">
+        <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3">
           <div className="flex-1 space-y-2">
-            <div className="h-11 w-64 rounded-xl bg-slate-200 md:w-80" />
-            <div className="h-3.5 w-56 rounded-lg bg-slate-200" />
+            <div className="h-9 w-56 rounded-lg bg-slate-200 md:h-11 md:w-64" />
+            <div className="h-3.5 w-72 rounded-lg bg-slate-200" />
           </div>
           <div className="flex items-center gap-2">
             <div className="h-11 w-11 rounded-xl bg-slate-200" />

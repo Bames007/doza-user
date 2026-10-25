@@ -1,10 +1,10 @@
+// app/dashboard/panels/FamilyPanel.tsx
 "use client";
 
 import React, { useState } from "react";
 import useSWR, { mutate } from "swr";
 import { motion, AnimatePresence, LayoutGroup } from "framer-motion";
 import {
-  Plus,
   Trash2,
   Edit2,
   Phone,
@@ -29,7 +29,10 @@ import {
   authPut,
   authDelete,
 } from "@/app/utils/client-auth";
-import { poppins, bebasNeue } from "@/app/constants";
+import { poppins } from "@/app/constants";
+
+const FOCUS =
+  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:ring-offset-2";
 
 const contactSchema = z.object({
   name: z.string().min(1, "Please enter a name"),
@@ -97,56 +100,67 @@ export default function FamilyPanel() {
     }
   };
 
+  const openAdd = () => {
+    setEditingId(null);
+    reset();
+    setShowForm(true);
+  };
+
+  const openEdit = (contact: FamilyFriend) => {
+    setEditingId(contact.id);
+    setValue("name", contact.name);
+    setValue("phone", contact.phone);
+    setValue("relationship", contact.relationship);
+    setValue("isEmergency", contact.isEmergency);
+    setShowForm(true);
+  };
+
   return (
-    <div
-      className={cn("min-h-screen bg-[#F8FAFC] pb-32 pt-6", poppins.className)}
+    <motion.div
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.2, ease: "easeOut" }}
+      className={cn(
+        "min-h-screen bg-[#F8FAFC] pb-28 pt-2 text-slate-900",
+        poppins.className,
+      )}
     >
-      <div className="max-w-7xl mx-auto px-4 md:px-6 space-y-6">
-        {/* ─── NEW DOZA-STYLE HEADER ─────────────────────────────── */}
-        <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-6">
-          <div>
-            <div className="flex items-center gap-3 mb-2">
-              <div className="h-8 w-1 rounded-full bg-gradient-to-b from-emerald-500 to-teal-600" />
-              <span className="text-[11px] font-bold text-emerald-600 uppercase tracking-[0.25em]">
-                Family Circle
-              </span>
+      <main className="mx-auto max-w-7xl px-4 pt-3 sm:px-6 lg:px-8 space-y-4 lg:space-y-6">
+        {/* ─── HEADER — Dashboard pattern ──────────────────────── */}
+        <header className="pt-1 lg:pt-2 flex flex-col gap-3">
+          <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3">
+            <div className="min-w-0 flex-1">
+              <h1 className="text-2xl sm:text-3xl lg:text-4xl font-bold text-slate-900 tracking-tight leading-tight">
+                Family &amp; Friends
+              </h1>
+              <p className="text-xs sm:text-sm text-slate-500 mt-1 max-w-md">
+                Manage your trusted medical contacts, family, and emergency
+                responders.
+              </p>
             </div>
-            <h1
+
+            <button
+              onClick={openAdd}
               className={cn(
-                "text-4xl md:text-5xl text-slate-900 leading-[1.1] tracking-tight",
-                bebasNeue.className,
+                "inline-flex items-center justify-center gap-2 min-h-11 px-4 bg-emerald-600 text-white rounded-xl text-xs font-bold shadow-sm shadow-emerald-600/25 hover:bg-emerald-700 transition-all shrink-0",
+                FOCUS,
               )}
             >
-              Family <span className="text-emerald-600">&amp; Friends</span>
-            </h1>
-            <p className="text-sm text-slate-600 mt-2 max-w-md">
-              Manage your trusted medical contacts, family, and emergency
-              responders.
-            </p>
+              <UserPlus size={15} />
+              <span>Add Someone</span>
+            </button>
           </div>
+        </header>
 
-          <button
-            onClick={() => {
-              setEditingId(null);
-              reset();
-              setShowForm(true);
-            }}
-            className="flex items-center gap-2 px-5 py-3 bg-emerald-600 text-white rounded-xl font-medium hover:bg-emerald-700 transition shadow-sm shadow-emerald-200"
-          >
-            <UserPlus size={16} />
-            <span>Add Someone New</span>
-          </button>
-        </div>
-
-        {/* ─── MAIN PAGE LAYOUT (unchanged) ────────────────────── */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-          {/* LEFT SIDEBAR: HELP GUIDE & SECURITY */}
-          <div className="lg:col-span-4 space-y-6 order-2 lg:order-1">
-            <div className="bg-emerald-600 rounded-[32px] p-8 text-white relative overflow-hidden shadow-lg min-h-[300px] flex flex-col justify-between">
+        {/* ─── MAIN LAYOUT ─────────────────────────────────────── */}
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 lg:gap-6">
+          {/* LEFT SIDEBAR: HELP GUIDE + SECURITY */}
+          <aside className="lg:col-span-4 space-y-4 order-2 lg:order-1">
+            <div className="bg-gradient-to-br from-emerald-600 to-emerald-700 rounded-2xl p-5 sm:p-6 text-white relative overflow-hidden shadow-sm min-h-[260px] flex flex-col justify-between">
               <div className="relative z-10 flex-1">
-                <div className="flex items-center gap-2 mb-6">
-                  <HelpCircle size={18} className="text-emerald-200" />
-                  <span className="text-[10px] font-black uppercase tracking-widest text-emerald-100">
+                <div className="flex items-center gap-2 mb-4">
+                  <HelpCircle size={14} className="text-emerald-200" />
+                  <span className="text-[10px] font-bold uppercase tracking-widest text-emerald-100">
                     How This Helps You
                   </span>
                 </div>
@@ -158,82 +172,87 @@ export default function FamilyPanel() {
                     exit={{ opacity: 0, x: -12 }}
                     transition={{ duration: 0.2 }}
                   >
-                    <h3 className="text-2xl font-black mb-2 tracking-tight">
+                    <h3 className="text-xl font-bold mb-1.5 tracking-tight leading-tight">
                       {helpContent[helpSlide].title}
                     </h3>
-                    <p className="text-emerald-50 text-sm leading-relaxed font-medium">
+                    <p className="text-emerald-50 text-xs sm:text-sm leading-relaxed">
                       {helpContent[helpSlide].text}
                     </p>
                   </motion.div>
                 </AnimatePresence>
               </div>
 
-              <div className="relative z-10 flex justify-between items-center mt-6 pt-4 border-t border-white/10">
-                <div className="flex gap-2">
+              <div className="relative z-10 flex justify-between items-center mt-5 pt-3 border-t border-white/15">
+                <div className="flex gap-1.5">
                   <button
                     onClick={() => setHelpSlide((s) => (s > 0 ? s - 1 : 2))}
-                    className="p-2.5 bg-white/10 rounded-xl hover:bg-white/20 active:scale-95 transition-all"
+                    className="p-2 bg-white/10 rounded-lg hover:bg-white/20 active:scale-95 transition-all min-h-9 min-w-9 inline-flex items-center justify-center"
+                    aria-label="Previous tip"
                   >
-                    <ChevronLeft size={14} className="stroke-[2.5]" />
+                    <ChevronLeft size={14} />
                   </button>
                   <button
                     onClick={() => setHelpSlide((s) => (s < 2 ? s + 1 : 0))}
-                    className="p-2.5 bg-white/10 rounded-xl hover:bg-white/20 active:scale-95 transition-all"
+                    className="p-2 bg-white/10 rounded-lg hover:bg-white/20 active:scale-95 transition-all min-h-9 min-w-9 inline-flex items-center justify-center"
+                    aria-label="Next tip"
                   >
-                    <ChevronRight size={14} className="stroke-[2.5]" />
+                    <ChevronRight size={14} />
                   </button>
                 </div>
-                <span className="text-[11px] font-black tracking-widest bg-emerald-700 px-3 py-1 rounded-full text-emerald-100 shadow-2xs">
-                  {helpSlide + 1} / 3
-                </span>
+                <div className="flex gap-1.5">
+                  {helpContent.map((_, i) => (
+                    <button
+                      key={i}
+                      onClick={() => setHelpSlide(i)}
+                      aria-label={`Go to slide ${i + 1}`}
+                      className={cn(
+                        "h-1.5 rounded-full transition-all",
+                        i === helpSlide ? "bg-white w-4" : "bg-white/40 w-1.5",
+                      )}
+                    />
+                  ))}
+                </div>
               </div>
               <Activity
-                size={180}
-                className="absolute -bottom-14 -right-14 text-white/[0.04] pointer-events-none stroke-[1.5]"
+                size={160}
+                className="absolute -bottom-12 -right-12 text-white/[0.05] pointer-events-none"
               />
             </div>
 
-            <div className="bg-white border border-slate-200/80 rounded-[32px] p-6 flex items-center gap-4 shadow-3xs">
-              <div className="h-12 w-12 bg-blue-50 border border-blue-100 rounded-2xl flex items-center justify-center text-blue-600 shrink-0 shadow-3xs">
-                <ShieldCheck size={22} className="stroke-[2.5]" />
+            <div className="bg-white rounded-2xl border border-slate-200 p-4 flex items-center gap-3 shadow-xs">
+              <div className="h-10 w-10 bg-blue-50 rounded-xl flex items-center justify-center text-blue-600 shrink-0">
+                <ShieldCheck size={18} />
               </div>
-              <div>
-                <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest leading-none mb-1">
+              <div className="min-w-0">
+                <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest leading-none mb-0.5">
                   Privacy Protected
                 </p>
-                <p className="text-sm font-bold text-slate-800 tracking-tight">
-                  Your Data is Safe & Encrypted
+                <p className="text-xs sm:text-sm font-bold text-slate-800 truncate">
+                  Your data is safe &amp; encrypted
                 </p>
               </div>
             </div>
-          </div>
+          </aside>
 
-          {/* RIGHT SIDEBAR: CONTACT LIST */}
-          <div className="lg:col-span-8 space-y-6 order-1 lg:order-2">
+          {/* RIGHT: CONTACT GRID */}
+          <section className="lg:col-span-8 order-1 lg:order-2">
             {isLoading ? (
               <PanelSkeletonGrid />
             ) : (
               <LayoutGroup>
                 <motion.div
                   layout
-                  className="grid grid-cols-1 sm:grid-cols-2 gap-4"
+                  className="grid grid-cols-1 sm:grid-cols-2 gap-3 lg:gap-4"
                 >
                   <AnimatePresence mode="popLayout">
                     {family.length === 0 ? (
-                      <EmptyState onAdd={() => setShowForm(true)} />
+                      <EmptyState onAdd={openAdd} />
                     ) : (
                       family.map((contact) => (
                         <ContactCard
                           key={contact.id}
                           contact={contact}
-                          onEdit={() => {
-                            setEditingId(contact.id);
-                            setValue("name", contact.name);
-                            setValue("phone", contact.phone);
-                            setValue("relationship", contact.relationship);
-                            setValue("isEmergency", contact.isEmergency);
-                            setShowForm(true);
-                          }}
+                          onEdit={() => openEdit(contact)}
                           onDelete={() =>
                             authDelete(`/api/family/${contact.id}`).then(() =>
                               mutate("/api/family"),
@@ -246,20 +265,51 @@ export default function FamilyPanel() {
                 </motion.div>
               </LayoutGroup>
             )}
-          </div>
+          </section>
         </div>
-      </div>
+      </main>
 
-      {/* --- ADD / EDIT POPUP MODAL (unchanged) --- */}
+      {/* ─── MODAL — sticky header + footer, mobile sheet ──────── */}
       <AnimatePresence>
         {showForm && (
           <Modal
             onClose={() => setShowForm(false)}
-            title={
-              editingId ? "Update Contact Info" : "Add Contact To Your Circle"
+            title={editingId ? "Update Contact" : "Add Contact"}
+            footer={
+              <div className="flex gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => setShowForm(false)}
+                  className={cn(
+                    "flex-1 min-h-12 text-xs font-bold uppercase tracking-wider text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors",
+                    FOCUS,
+                  )}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  form="family-form"
+                  disabled={isSubmitting}
+                  className={cn(
+                    "flex-[2] min-h-12 inline-flex items-center justify-center gap-2 text-xs font-bold uppercase tracking-wider text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 rounded-xl shadow-sm transition-colors",
+                    FOCUS,
+                  )}
+                >
+                  {isSubmitting ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    "Save to Circle"
+                  )}
+                </button>
+              </div>
             }
           >
-            <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+            <form
+              id="family-form"
+              onSubmit={handleSubmit(onSubmit)}
+              className="space-y-4"
+            >
               <FormInput
                 label="Full Name"
                 placeholder="e.g., Jane Doe"
@@ -268,63 +318,49 @@ export default function FamilyPanel() {
               />
               <FormInput
                 label="Phone Number"
+                type="tel"
                 placeholder="e.g., (555) 000-0000"
                 {...register("phone")}
                 error={errors.phone?.message}
               />
               <FormInput
                 label="How are you related?"
-                placeholder="e.g., Spouse, Sister, Primary Doctor"
+                placeholder="e.g., Spouse, Sister, Doctor"
                 {...register("relationship")}
                 error={errors.relationship?.message}
               />
 
-              <label className="flex items-center gap-4 p-4 rounded-2xl border border-slate-200 bg-slate-50 hover:bg-white transition-all cursor-pointer has-[:checked]:border-rose-300 has-[:checked]:bg-rose-50/20 group">
+              <label
+                className={cn(
+                  "flex items-start gap-3 p-3.5 rounded-xl border bg-slate-50 cursor-pointer transition-all",
+                  "has-[:checked]:border-rose-300 has-[:checked]:bg-rose-50/40",
+                  "border-slate-200 hover:border-slate-300",
+                )}
+              >
                 <input
                   type="checkbox"
                   {...register("isEmergency")}
-                  className="w-5 h-5 rounded-md text-rose-600 focus:ring-rose-500 border-slate-300 shadow-3xs cursor-pointer"
+                  className="w-5 h-5 mt-0.5 rounded-md text-rose-600 focus:ring-rose-500 border-slate-300 cursor-pointer shrink-0"
                 />
                 <div className="flex-1 min-w-0">
-                  <p className="font-bold text-slate-800 text-xs uppercase tracking-tight group-hover:text-slate-900 transition-colors">
-                    Set as an Emergency Contact
+                  <p className="font-bold text-slate-800 text-sm">
+                    Emergency Contact
                   </p>
-                  <p className="text-[9px] text-slate-400 font-black uppercase tracking-widest mt-0.5">
-                    This person will receive immediate alerts during urgent
-                    situations
+                  <p className="text-[11px] text-slate-500 mt-0.5 leading-relaxed">
+                    This person will be notified immediately during urgent
+                    situations.
                   </p>
                 </div>
               </label>
-
-              <div className="flex gap-3 pt-3">
-                <button
-                  type="button"
-                  onClick={() => setShowForm(false)}
-                  className="flex-1 py-4 font-black text-slate-500 bg-slate-100 border border-slate-200/60 hover:bg-slate-200 hover:text-slate-700 rounded-2xl text-[10px] uppercase tracking-widest transition-all"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={isSubmitting}
-                  className="flex-1 py-4 font-black text-white bg-slate-900 hover:bg-slate-800 disabled:bg-slate-300 rounded-2xl text-[10px] uppercase tracking-widest shadow-md transition-all flex items-center justify-center min-h-[48px]"
-                >
-                  {isSubmitting ? (
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                  ) : (
-                    "Save To Circle"
-                  )}
-                </button>
-              </div>
             </form>
           </Modal>
         )}
       </AnimatePresence>
-    </div>
+    </motion.div>
   );
 }
 
-/* --- CONTACT CARD COMPONENT (unchanged) --- */
+/* ─── Contact Card ───────────────────────────────────────── */
 function ContactCard({
   contact,
   onEdit,
@@ -341,19 +377,20 @@ function ContactCard({
       animate={{ opacity: 1, scale: 1 }}
       exit={{ opacity: 0, scale: 0.97 }}
       className={cn(
-        "bg-white p-5 rounded-[28px] border border-slate-200/80 shadow-xs flex flex-col justify-between gap-4 transition-all hover:shadow-md",
-        contact.isEmergency &&
-          "border-rose-200 bg-gradient-to-br from-white via-white to-rose-50/15",
+        "bg-white p-3.5 sm:p-4 rounded-2xl border shadow-xs flex flex-col justify-between gap-3 transition-shadow hover:shadow-sm",
+        contact.isEmergency
+          ? "border-rose-200 bg-gradient-to-br from-white to-rose-50/30"
+          : "border-slate-200",
       )}
     >
-      <div className="flex items-start gap-4">
-        {/* Initials Circle */}
+      <div className="flex items-start gap-3">
+        {/* Initials */}
         <div
           className={cn(
-            "w-14 h-14 rounded-2xl flex items-center justify-center font-black text-lg italic shrink-0 border shadow-3xs",
+            "w-11 h-11 rounded-xl flex items-center justify-center font-bold text-sm shrink-0",
             contact.isEmergency
-              ? "bg-rose-500 border-rose-600 text-white shadow-rose-200"
-              : "bg-slate-50 border-slate-200/70 text-slate-500",
+              ? "bg-rose-500 text-white shadow-sm shadow-rose-500/25"
+              : "bg-slate-100 text-slate-600",
           )}
         >
           {contact.name
@@ -364,40 +401,45 @@ function ContactCard({
             .toUpperCase()}
         </div>
 
-        {/* Contact Information Details */}
-        <div className="flex-1 min-w-0 pr-1">
+        <div className="flex-1 min-w-0">
           <div className="flex items-center gap-1.5 mb-0.5">
-            <h3 className="font-bold text-slate-900 text-base truncate tracking-tight">
+            <h3 className="font-bold text-slate-900 text-sm truncate">
               {contact.name}
             </h3>
             {contact.isEmergency && (
               <Heart
-                size={13}
-                className="text-rose-500 fill-rose-500 shrink-0 drop-shadow-xs animate-pulse"
+                size={11}
+                className="text-rose-500 fill-rose-500 shrink-0"
               />
             )}
           </div>
-          <p className="text-[10px] font-black text-emerald-600 uppercase tracking-wider mb-2.5">
+          <p className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider mb-2 truncate">
             {contact.relationship}
           </p>
           <a
             href={`tel:${contact.phone}`}
-            className="inline-flex items-center gap-2 px-3 py-1.5 bg-slate-50 border border-slate-200/60 rounded-xl text-[11px] font-bold text-slate-600 hover:bg-slate-900 hover:text-white hover:border-slate-900 transition-all shadow-3xs"
+            className={cn(
+              "inline-flex items-center gap-1.5 px-2.5 py-1 bg-slate-50 border border-slate-200 rounded-lg text-[11px] font-semibold text-slate-700 hover:bg-slate-900 hover:text-white hover:border-slate-900 transition-colors",
+              FOCUS,
+            )}
           >
-            <Phone size={11} className="stroke-[2.5]" />
+            <Phone size={10} />
             <span className="truncate">{contact.phone}</span>
           </a>
         </div>
       </div>
 
-      {/* Persistent Edit/Delete Action Row */}
-      <div className="flex items-center justify-end gap-1 pt-3 border-t border-slate-100">
+      <div className="flex items-center justify-end gap-1 pt-2 border-t border-slate-100 -mb-1 -mr-1">
         <button
           onClick={onEdit}
-          className="p-2 hover:bg-slate-100 text-slate-400 hover:text-slate-800 rounded-xl transition-all"
-          title="Edit Details"
+          className={cn(
+            "p-2 hover:bg-slate-100 text-slate-400 hover:text-slate-800 rounded-lg transition-colors min-h-9 min-w-9 inline-flex items-center justify-center",
+            FOCUS,
+          )}
+          title="Edit"
+          aria-label="Edit contact"
         >
-          <Edit2 size={14} className="stroke-[2.5]" />
+          <Edit2 size={13} />
         </button>
         <button
           onClick={() =>
@@ -405,33 +447,39 @@ function ContactCard({
               "Are you sure you want to remove this person from your circle?",
             ) && onDelete()
           }
-          className="p-2 hover:bg-rose-50 text-slate-400 hover:text-rose-600 rounded-xl transition-all"
-          title="Remove Contact"
+          className={cn(
+            "p-2 hover:bg-rose-50 text-slate-400 hover:text-rose-600 rounded-lg transition-colors min-h-9 min-w-9 inline-flex items-center justify-center",
+            FOCUS,
+          )}
+          title="Remove"
+          aria-label="Remove contact"
         >
-          <Trash2 size={14} className="stroke-[2.5]" />
+          <Trash2 size={13} />
         </button>
       </div>
     </motion.div>
   );
 }
 
+/* ─── Form input ─────────────────────────────────────────── */
 const FormInput = React.forwardRef(
   ({ label, error, ...props }: any, ref: any) => (
     <div className="space-y-1.5">
-      <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">
+      <label className="block text-[10px] font-bold uppercase tracking-widest text-slate-500 ml-0.5">
         {label}
       </label>
       <input
         ref={ref}
         {...props}
         className={cn(
-          "w-full px-4 py-3.5 bg-slate-50 border border-slate-200/80 rounded-2xl focus:bg-white focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/5 outline-none transition-all font-semibold text-sm text-slate-900 placeholder:text-slate-300 shadow-3xs",
-          error &&
-            "border-rose-400 bg-rose-50/40 focus:border-rose-500 focus:ring-rose-500/5",
+          "w-full min-h-12 px-4 text-base sm:text-sm font-medium text-slate-900 placeholder:text-slate-400 bg-slate-50 border rounded-xl outline-none transition-all",
+          error
+            ? "border-rose-300 bg-rose-50/40 focus:border-rose-500 focus:ring-2 focus:ring-rose-200"
+            : "border-slate-200 focus:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/15",
         )}
       />
       {error && (
-        <p className="text-[10px] font-bold text-rose-600 ml-1 tracking-tight">
+        <p className="text-[11px] font-semibold text-rose-600 ml-0.5">
           {error}
         </p>
       )}
@@ -440,92 +488,119 @@ const FormInput = React.forwardRef(
 );
 FormInput.displayName = "FormInput";
 
-const Modal = ({ children, onClose, title }: any) => (
+/* ─── Modal — mobile sheet, sticky header/footer ─────────── */
+const Modal = ({
+  children,
+  onClose,
+  title,
+  footer,
+}: {
+  children: React.ReactNode;
+  onClose: () => void;
+  title?: string;
+  footer?: React.ReactNode;
+}) => (
   <motion.div
     initial={{ opacity: 0 }}
     animate={{ opacity: 1 }}
     exit={{ opacity: 0 }}
-    className="fixed inset-0 bg-slate-900/40 backdrop-blur-md z-[100] flex items-end sm:items-center justify-center p-4"
+    className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-[100] flex items-end sm:items-center justify-center sm:p-4"
     onClick={onClose}
   >
     <motion.div
-      initial={{ y: 24, scale: 0.98 }}
-      animate={{ y: 0, scale: 1 }}
-      exit={{ y: 24, scale: 0.98 }}
-      className="bg-white w-full max-w-md rounded-[32px] p-6 sm:p-8 shadow-2xl border border-slate-100"
+      initial={{ y: "30%", scale: 0.98, opacity: 0 }}
+      animate={{ y: 0, scale: 1, opacity: 1 }}
+      exit={{ y: "30%", scale: 0.98, opacity: 0 }}
+      transition={{ type: "spring", stiffness: 300, damping: 28 }}
+      className="bg-white w-full max-w-md rounded-t-3xl sm:rounded-2xl max-h-[92dvh] sm:max-h-[90vh] flex flex-col shadow-2xl border border-slate-100 overflow-hidden"
       onClick={(e) => e.stopPropagation()}
     >
-      <div className="flex justify-between items-center mb-6">
-        <h2
-          className={cn(
-            "text-3xl font-black text-slate-900 uppercase tracking-tight leading-none",
-            bebasNeue.className,
-          )}
-        >
+      {/* Drag handle (mobile) */}
+      <div className="sm:hidden flex justify-center pt-3 shrink-0" aria-hidden>
+        <div className="w-10 h-1 rounded-full bg-slate-300" />
+      </div>
+
+      {/* Sticky header */}
+      <div className="shrink-0 flex items-center justify-between gap-3 px-4 sm:px-6 py-3 border-b border-slate-100">
+        <h2 className="text-base sm:text-lg font-bold text-slate-900 truncate">
           {title}
         </h2>
         <button
           onClick={onClose}
-          className="p-2 bg-slate-50 border border-slate-200/50 rounded-full hover:bg-rose-50 hover:border-rose-100 hover:text-rose-500 transition-colors"
+          aria-label="Close"
+          className={cn(
+            "shrink-0 w-9 h-9 inline-flex items-center justify-center rounded-xl text-slate-500 hover:bg-slate-100 hover:text-slate-900 transition-colors",
+            FOCUS,
+          )}
         >
-          <X size={16} className="stroke-[2.5]" />
+          <X size={16} strokeWidth={2.5} />
         </button>
       </div>
-      {children}
+
+      {/* Scrollable body */}
+      <div className="flex-1 overflow-y-auto overscroll-contain custom-emerald-scrollbar">
+        <div className="p-4 sm:p-6">{children}</div>
+      </div>
+
+      {/* Sticky footer */}
+      {footer && (
+        <div className="shrink-0 border-t border-slate-100 bg-white px-4 sm:px-6 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:pb-4">
+          {footer}
+        </div>
+      )}
     </motion.div>
   </motion.div>
 );
 
+/* ─── Empty state ────────────────────────────────────────── */
 function EmptyState({ onAdd }: { onAdd: () => void }) {
   return (
-    <div className="col-span-full py-16 px-4 bg-white border border-dashed border-slate-200 rounded-[32px] text-center shadow-3xs">
-      <div className="w-16 h-16 bg-slate-50 border border-slate-100 rounded-2xl flex items-center justify-center mx-auto mb-4 text-slate-400 shadow-inner">
-        <Users size={28} />
+    <div className="col-span-full py-12 px-4 bg-white border border-dashed border-slate-200 rounded-2xl text-center">
+      <div className="w-14 h-14 bg-slate-50 rounded-2xl flex items-center justify-center mx-auto mb-3 text-slate-400">
+        <Users size={24} />
       </div>
-      <h3 className="text-lg font-bold text-slate-900 tracking-tight">
+      <h3 className="text-base font-bold text-slate-900">
         Your Health Circle is Empty
       </h3>
-      <p className="text-slate-500 font-semibold text-xs mb-8 max-w-xs mx-auto mt-1">
-        Add family members, close friends, or your care team to stay safely
-        connected.
+      <p className="text-slate-500 text-xs mb-5 max-w-xs mx-auto mt-1 leading-relaxed">
+        Add family, close friends, or your care team to stay safely connected.
       </p>
       <button
         onClick={onAdd}
-        className="bg-slate-900 hover:bg-slate-800 text-white px-8 py-3.5 rounded-2xl text-[11px] font-black uppercase tracking-wider shadow-md active:scale-98 transition-all"
+        className={cn(
+          "inline-flex items-center gap-1.5 min-h-11 px-5 bg-emerald-600 text-white rounded-xl text-xs font-bold hover:bg-emerald-700 transition-colors shadow-sm",
+          FOCUS,
+        )}
       >
+        <UserPlus size={14} />
         Add First Contact
       </button>
     </div>
   );
 }
 
-/* --- ANIMATED PULSE SKELETON PLACEHOLDERS (unchanged) --- */
+/* ─── Skeleton grid ──────────────────────────────────────── */
 function PanelSkeletonGrid() {
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 animate-pulse">
+    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 lg:gap-4 animate-pulse">
       {Array.from({ length: 4 }).map((_, idx) => (
         <div
           key={idx}
-          className="bg-white/60 p-5 rounded-[28px] border border-slate-200/50 flex flex-col justify-between gap-6 min-h-[160px]"
+          className="bg-white p-3.5 sm:p-4 rounded-2xl border border-slate-200 flex flex-col justify-between gap-3 min-h-[150px]"
         >
-          <div className="flex items-start gap-4">
-            {/* Avatar block */}
-            <div className="w-14 h-14 rounded-2xl bg-slate-200 shrink-0" />
-
-            {/* Context line payloads */}
-            <div className="flex-1 space-y-2 mt-1">
-              <div className="h-4 bg-slate-200 rounded-md w-3/4" />
-              <div className="h-3 bg-slate-100 rounded-md w-1/2" />
-              <div className="pt-2">
-                <div className="h-6 bg-slate-200/70 rounded-xl w-28" />
+          <div className="flex items-start gap-3">
+            <div className="w-11 h-11 rounded-xl bg-slate-200 shrink-0" />
+            <div className="flex-1 space-y-2 mt-0.5">
+              <div className="h-3.5 bg-slate-200 rounded-md w-3/4" />
+              <div className="h-2.5 bg-slate-100 rounded-md w-1/2" />
+              <div className="pt-1.5">
+                <div className="h-5 bg-slate-200/70 rounded-lg w-24" />
               </div>
             </div>
           </div>
-
-          {/* Bottom dock placeholders */}
-          <div className="flex justify-end gap-2 pt-3 border-t border-slate-100/70">
-            <div className="w-7 h-7 bg-slate-100 rounded-lg" />
-            <div className="w-7 h-7 bg-slate-100 rounded-lg" />
+          <div className="flex justify-end gap-1 pt-2 border-t border-slate-100">
+            <div className="w-8 h-8 bg-slate-100 rounded-lg" />
+            <div className="w-8 h-8 bg-slate-100 rounded-lg" />
           </div>
         </div>
       ))}

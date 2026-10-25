@@ -68,11 +68,12 @@ import DatePicker from "@/app/components/CustomDatePicker";
 // ---------- Constants ----------
 const DEFAULT_MAX_DOSES = 90;
 const EMERALD = "#059669";
+const EMERALD_LIGHT = "#d1fae5";
+const EMERALD_SOFT = "#6ee7b7";
 
 const FOCUS =
   "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:ring-offset-2";
 
-// Shared SWR config — no refetch on focus, warm cache, no skeleton flash
 const SWR_PANEL_CONFIG = {
   revalidateOnFocus: false,
   revalidateOnReconnect: true,
@@ -177,14 +178,12 @@ function ssGet(key: string): string | null {
     return null;
   }
 }
-
 function ssSet(key: string, value: string) {
   if (typeof window === "undefined") return;
   try {
     sessionStorage.setItem(key, value);
   } catch {}
 }
-
 function ssRemove(key: string) {
   if (typeof window === "undefined") return;
   try {
@@ -342,12 +341,12 @@ function getStreak(medications: ExtendedMedication[]): number {
 const CustomTooltip = ({ active, payload, label }: any) => {
   if (active && payload?.length) {
     return (
-      <div className="bg-white p-3 rounded-xl shadow-lg border border-slate-200">
-        <p className="text-sm font-semibold text-slate-800 mb-2">{label}</p>
+      <div className="bg-white p-3 rounded-xl shadow-lg border border-emerald-100">
+        <p className="text-sm font-semibold text-emerald-900 mb-2">{label}</p>
         {payload.map((entry: any, idx: number) => (
           <div
             key={idx}
-            className="flex items-center gap-2 text-sm text-slate-700"
+            className="flex items-center gap-2 text-sm text-emerald-800"
           >
             <div
               className="w-3 h-3 rounded-full"
@@ -365,11 +364,13 @@ const CustomTooltip = ({ active, payload, label }: any) => {
 
 // ---------- Skeletons ----------
 const SkeletonPulse = ({ className }: { className?: string }) => (
-  <div className={cn("animate-pulse bg-slate-200 rounded-xl", className)} />
+  <div
+    className={cn("animate-pulse bg-emerald-100/70 rounded-xl", className)}
+  />
 );
 
 const SkeletonCard = () => (
-  <div className="bg-white border border-slate-200 rounded-2xl p-5">
+  <div className="bg-white border border-emerald-100 rounded-2xl p-4">
     <div className="flex items-start justify-between">
       <div className="flex-1 space-y-3">
         <div className="flex gap-2">
@@ -388,7 +389,7 @@ const SkeletonCard = () => (
 );
 
 const SkeletonStatCard = () => (
-  <div className="bg-white border border-slate-200 rounded-2xl p-5">
+  <div className="bg-white border border-emerald-100 rounded-2xl p-4">
     <SkeletonPulse className="h-4 w-20 rounded-lg mb-4" />
     <div className="space-y-3">
       {[...Array(3)].map((_, i) => (
@@ -417,8 +418,8 @@ const BentoTile = ({
     className={cn(
       "rounded-2xl border transition-all duration-300 h-full",
       hero
-        ? "bg-emerald-600 text-white border-transparent shadow-lg"
-        : "bg-white border-slate-200 shadow-sm md:hover:shadow-md",
+        ? "bg-emerald-600 text-white border-transparent shadow-lg shadow-emerald-600/20"
+        : "bg-white border-emerald-100 shadow-xs md:hover:shadow-sm",
       className,
     )}
   >
@@ -437,7 +438,7 @@ const SectionHeader = ({
   right?: React.ReactNode;
   light?: boolean;
 }) => (
-  <div className="flex items-center justify-between mb-4">
+  <div className="flex items-center justify-between mb-3">
     <div className="flex items-center gap-2.5 min-w-0">
       <div
         className={cn(
@@ -452,7 +453,7 @@ const SectionHeader = ({
       <h3
         className={cn(
           "text-xs font-bold uppercase tracking-wider truncate",
-          light ? "text-emerald-50" : "text-slate-500",
+          light ? "text-emerald-50" : "text-emerald-700/70",
         )}
       >
         {label}
@@ -462,16 +463,33 @@ const SectionHeader = ({
   </div>
 );
 
+const SectionLabel = ({
+  icon: Icon,
+  children,
+}: {
+  icon: any;
+  children: React.ReactNode;
+}) => (
+  <div className="flex items-center gap-2 pb-1">
+    <Icon className="w-4 h-4 text-emerald-700 shrink-0" />
+    <h4 className="text-[11px] sm:text-xs font-bold uppercase tracking-wider text-emerald-700/80">
+      {children}
+    </h4>
+  </div>
+);
+
 const Modal = ({
   children,
   onClose,
   title,
   icon: Icon,
+  footer,
 }: {
   children: React.ReactNode;
   onClose: () => void;
   title?: string;
   icon?: any;
+  footer?: React.ReactNode;
 }) => (
   <motion.div
     initial={{ opacity: 0 }}
@@ -485,16 +503,17 @@ const Modal = ({
       animate={{ y: 0, scale: 1 }}
       exit={{ y: "30%", scale: 0.98 }}
       transition={{ type: "spring", stiffness: 300, damping: 28 }}
-      className="bg-white rounded-t-3xl sm:rounded-2xl max-w-lg w-full max-h-[92vh] overflow-y-auto shadow-2xl border border-slate-200 pb-[max(1rem,env(safe-area-inset-bottom))] sm:pb-0"
+      className="bg-white rounded-t-3xl sm:rounded-2xl max-w-lg w-full max-h-[92dvh] sm:max-h-[90vh] flex flex-col shadow-2xl border border-emerald-100 overflow-hidden"
       onClick={(e) => e.stopPropagation()}
       role="dialog"
       aria-modal="true"
     >
-      <div className="sm:hidden flex justify-center pt-3" aria-hidden>
-        <div className="w-10 h-1 rounded-full bg-slate-300" />
+      <div className="sm:hidden flex justify-center pt-3 shrink-0" aria-hidden>
+        <div className="w-10 h-1 rounded-full bg-emerald-200" />
       </div>
+
       {(title || Icon) && (
-        <div className="flex items-center justify-between gap-3 px-4 md:px-6 pt-4 md:pt-6 pb-2">
+        <div className="shrink-0 flex items-center justify-between gap-3 px-4 md:px-6 py-3 md:py-4 border-b border-emerald-100">
           <div className="flex items-center gap-3 min-w-0">
             {Icon && (
               <div className="w-9 h-9 md:w-10 md:h-10 rounded-xl bg-emerald-50 flex items-center justify-center shrink-0">
@@ -502,7 +521,7 @@ const Modal = ({
               </div>
             )}
             {title && (
-              <h2 className="text-lg md:text-xl font-bold text-slate-900 truncate">
+              <h2 className="text-base md:text-xl font-bold text-emerald-900 truncate">
                 {title}
               </h2>
             )}
@@ -512,7 +531,7 @@ const Modal = ({
             onClick={onClose}
             aria-label="Close"
             className={cn(
-              "shrink-0 min-h-11 min-w-11 inline-flex items-center justify-center rounded-xl text-slate-500 hover:bg-slate-100 hover:text-slate-900 transition-colors",
+              "shrink-0 min-h-11 min-w-11 inline-flex items-center justify-center rounded-xl text-emerald-600 hover:bg-emerald-50 transition-colors",
               FOCUS,
             )}
           >
@@ -520,7 +539,23 @@ const Modal = ({
           </button>
         </div>
       )}
-      <div className="p-4 md:p-6 pt-2">{children}</div>
+
+      <div className="flex-1 overflow-y-auto overscroll-contain custom-emerald-scrollbar">
+        <div
+          className={cn(
+            "p-4 md:p-6",
+            !footer && "pb-[max(1rem,env(safe-area-inset-bottom))]",
+          )}
+        >
+          {children}
+        </div>
+      </div>
+
+      {footer && (
+        <div className="shrink-0 border-t border-emerald-100 bg-white px-4 md:px-6 py-3 md:py-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:pb-4">
+          {footer}
+        </div>
+      )}
     </motion.div>
   </motion.div>
 );
@@ -533,7 +568,7 @@ const Input = ({ label, error, className, id, ...props }: any) => {
       {label && (
         <label
           htmlFor={autoId}
-          className="block text-xs font-bold text-slate-600 uppercase tracking-wider"
+          className="block text-[11px] sm:text-xs font-bold text-emerald-700/80 uppercase tracking-wider"
         >
           {label}
         </label>
@@ -542,10 +577,10 @@ const Input = ({ label, error, className, id, ...props }: any) => {
         id={autoId}
         {...props}
         className={cn(
-          "w-full min-h-12 px-4 text-sm bg-slate-50 border rounded-xl transition-all outline-none placeholder:text-slate-500 text-slate-900 font-medium",
+          "w-full min-h-12 px-4 text-base sm:text-sm bg-emerald-50/40 border rounded-xl transition-all outline-none placeholder:text-emerald-700/40 text-emerald-900 font-medium",
           error
             ? "border-rose-300 focus:border-rose-500 focus:ring-2 focus:ring-rose-100"
-            : "border-slate-200 focus:bg-white focus:border-emerald-600 focus:ring-2 focus:ring-emerald-600/20",
+            : "border-emerald-100 focus:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/15",
         )}
       />
       {error && <p className="text-xs text-rose-700 font-semibold">{error}</p>}
@@ -556,17 +591,17 @@ const Input = ({ label, error, className, id, ...props }: any) => {
 const Textarea = ({ label, error, className, ...props }: any) => (
   <div className={cn("space-y-1.5", className)}>
     {label && (
-      <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider">
+      <label className="block text-[11px] sm:text-xs font-bold text-emerald-700/80 uppercase tracking-wider">
         {label}
       </label>
     )}
     <textarea
       {...props}
       className={cn(
-        "w-full px-4 py-3 text-sm bg-slate-50 border rounded-xl transition-all outline-none placeholder:text-slate-500 text-slate-900 font-medium resize-y min-h-[80px]",
+        "w-full px-4 py-3 text-base sm:text-sm bg-emerald-50/40 border rounded-xl transition-all outline-none placeholder:text-emerald-700/40 text-emerald-900 font-medium resize-y min-h-[88px]",
         error
           ? "border-rose-300 focus:border-rose-500 focus:ring-2 focus:ring-rose-100"
-          : "border-slate-200 focus:bg-white focus:border-emerald-600 focus:ring-2 focus:ring-emerald-600/20",
+          : "border-emerald-100 focus:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/15",
       )}
     />
     {error && <p className="text-xs text-rose-700 font-semibold">{error}</p>}
@@ -604,7 +639,7 @@ const SelectDropdown = ({
   return (
     <div className="space-y-1.5" ref={ref}>
       {label && (
-        <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider">
+        <label className="block text-[11px] sm:text-xs font-bold text-emerald-700/80 uppercase tracking-wider">
           {label}
         </label>
       )}
@@ -616,21 +651,21 @@ const SelectDropdown = ({
           aria-expanded={open}
           className={cn(
             "w-full min-h-12 flex items-center justify-between gap-2 text-left",
-            "bg-slate-50 border rounded-xl px-4 py-2.5",
-            "text-sm font-semibold text-slate-900 transition-colors",
+            "bg-emerald-50/40 border rounded-xl px-4 py-2.5",
+            "text-base sm:text-sm font-semibold text-emerald-900 transition-colors",
             error
               ? "border-rose-300"
-              : "border-slate-200 hover:border-slate-300",
+              : "border-emerald-100 hover:border-emerald-200",
             open &&
               !error &&
-              "bg-white border-emerald-600 ring-2 ring-emerald-600/20",
-            "focus:outline-none focus:bg-white focus:border-emerald-600 focus:ring-2 focus:ring-emerald-600/20",
+              "bg-white border-emerald-500 ring-2 ring-emerald-500/15",
+            "focus:outline-none focus:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/15",
           )}
         >
           <span
             className={cn(
               "truncate",
-              !selected && "text-slate-500 font-normal",
+              !selected && "text-emerald-700/40 font-normal",
             )}
           >
             {selected?.label || placeholder}
@@ -638,8 +673,8 @@ const SelectDropdown = ({
           <ChevronDown
             size={16}
             className={cn(
-              "text-slate-500 transition-transform shrink-0",
-              open && "rotate-180 text-emerald-700",
+              "text-emerald-600 transition-transform shrink-0",
+              open && "rotate-180",
             )}
           />
         </button>
@@ -651,7 +686,7 @@ const SelectDropdown = ({
               exit={{ opacity: 0, y: -8, scale: 0.98 }}
               transition={{ duration: 0.15 }}
               role="listbox"
-              className="absolute top-full left-0 right-0 mt-2 bg-white border border-slate-200 rounded-xl shadow-xl z-50 max-h-64 overflow-y-auto p-1.5 space-y-0.5"
+              className="absolute top-full left-0 right-0 mt-2 bg-white border border-emerald-100 rounded-xl shadow-xl z-50 max-h-64 overflow-y-auto p-1.5 space-y-0.5 custom-emerald-scrollbar"
             >
               {options.map((opt) => {
                 const isSelected = opt.value === value;
@@ -669,7 +704,7 @@ const SelectDropdown = ({
                       "w-full min-h-11 flex items-center justify-between gap-2 px-3 py-2 rounded-lg text-sm font-semibold text-left transition-colors",
                       isSelected
                         ? "bg-emerald-50 text-emerald-900"
-                        : "text-slate-700 hover:bg-slate-50",
+                        : "text-emerald-800 hover:bg-emerald-50/60",
                       FOCUS,
                     )}
                   >
@@ -796,12 +831,14 @@ const MedicationCard = ({
       transition={{ type: "spring", stiffness: 300, damping: 25 }}
       className={cn(
         "bg-white rounded-2xl border overflow-hidden transition-shadow duration-300",
-        isPast ? "border-slate-200 opacity-60" : "border-slate-200 shadow-sm",
+        isPast
+          ? "border-emerald-100 opacity-70"
+          : "border-emerald-100 shadow-xs",
       )}
     >
-      <div className="h-1 w-full bg-emerald-600" />
+      <div className="h-1 w-full bg-gradient-to-r from-emerald-500 to-emerald-600" />
 
-      <div className="p-4 md:p-5">
+      <div className="p-4 lg:p-5">
         <div className="flex items-start justify-between gap-2">
           <div
             className="flex-1 cursor-pointer min-w-0"
@@ -811,14 +848,14 @@ const MedicationCard = ({
               <div className="w-8 h-8 rounded-lg bg-emerald-50 flex items-center justify-center shrink-0">
                 <Pill className="w-4 h-4 text-emerald-700" />
               </div>
-              <h3 className="font-semibold text-slate-900 text-base md:text-lg truncate">
+              <h3 className="font-semibold text-emerald-900 text-base truncate">
                 {medication.name}
               </h3>
               <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-100">
                 {medication.dosage}
               </span>
               {isPrescribed && medication.sourceType && (
-                <span className="text-xs bg-slate-100 text-slate-700 px-2 py-0.5 rounded-full font-semibold flex items-center gap-1 border border-slate-200">
+                <span className="text-[11px] bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded-full font-semibold flex items-center gap-1 border border-emerald-100">
                   {medication.sourceType === "hospital" ? (
                     <Building className="w-3 h-3" />
                   ) : (
@@ -830,16 +867,16 @@ const MedicationCard = ({
                 </span>
               )}
               {medication.ailment && (
-                <span className="text-xs bg-slate-100 text-slate-700 px-2 py-0.5 rounded-full font-medium border border-slate-200">
+                <span className="text-[11px] bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded-full font-medium border border-emerald-100">
                   {medication.ailment}
                 </span>
               )}
             </div>
 
             {isPrescribed && (
-              <p className="text-xs text-slate-600 ml-10 mb-1">
+              <p className="text-xs text-emerald-700/70 ml-10 mb-1">
                 from{" "}
-                <span className="font-medium text-slate-800">
+                <span className="font-medium text-emerald-900">
                   {medication.centerName}
                 </span>
                 {medication.prescribedBy && ` · by ${medication.prescribedBy}`}
@@ -853,8 +890,8 @@ const MedicationCard = ({
                   Ongoing
                 </span>
               ) : (
-                <span className="text-xs text-slate-600">
-                  <span className="font-semibold text-slate-800">
+                <span className="text-xs text-emerald-700/70">
+                  <span className="font-semibold text-emerald-900">
                     {remainingDoses}
                   </span>{" "}
                   / {totalDoses} doses remaining
@@ -862,11 +899,11 @@ const MedicationCard = ({
               )}
             </div>
             <div className="ml-10 mt-1.5 flex flex-wrap gap-x-3 gap-y-1">
-              <span className="text-xs text-slate-500">
+              <span className="text-xs text-emerald-700/60">
                 Start: {new Date(medication.startDate).toLocaleDateString()}
               </span>
               {medication.endDate && (
-                <span className="text-xs text-slate-500">
+                <span className="text-xs text-emerald-700/60">
                   Finished: {new Date(medication.endDate).toLocaleDateString()}
                 </span>
               )}
@@ -876,7 +913,7 @@ const MedicationCard = ({
           <button
             onClick={onToggleExpand}
             className={cn(
-              "min-h-10 min-w-10 inline-flex items-center justify-center hover:bg-slate-50 rounded-xl transition-colors shrink-0",
+              "min-h-10 min-w-10 inline-flex items-center justify-center hover:bg-emerald-50 rounded-xl transition-colors shrink-0",
               FOCUS,
             )}
             aria-label={expanded ? "Collapse" : "Expand"}
@@ -886,14 +923,14 @@ const MedicationCard = ({
               animate={{ rotate: expanded ? 180 : 0 }}
               transition={{ duration: 0.2 }}
             >
-              <ChevronDown className="w-4 h-4 md:w-5 md:h-5 text-slate-500" />
+              <ChevronDown className="w-4 h-4 md:w-5 md:h-5 text-emerald-600" />
             </motion.div>
           </button>
         </div>
 
         <div className="mt-4 space-y-3">
           <div>
-            <div className="flex justify-between text-xs font-semibold text-slate-600 mb-1.5">
+            <div className="flex justify-between text-xs font-semibold text-emerald-700/80 mb-1.5">
               <span className="flex items-center gap-1">
                 <Clock className="w-3 h-3" /> Today
               </span>
@@ -901,7 +938,7 @@ const MedicationCard = ({
                 {takenToday}/{todaysDoses.length} doses
               </span>
             </div>
-            <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
+            <div className="w-full bg-emerald-50 h-2 rounded-full overflow-hidden">
               <motion.div
                 initial={{ width: 0 }}
                 animate={{ width: `${progress}%` }}
@@ -912,32 +949,32 @@ const MedicationCard = ({
           </div>
 
           <div>
-            <div className="flex justify-between text-xs font-semibold text-slate-600 mb-1.5">
+            <div className="flex justify-between text-xs font-semibold text-emerald-700/80 mb-1.5">
               <span className="flex items-center gap-1">
                 <TrendingUp className="w-3 h-3" /> Overall
               </span>
               <span>{Math.round(completion)}%</span>
             </div>
-            <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
+            <div className="w-full bg-emerald-50 h-1.5 rounded-full overflow-hidden">
               <motion.div
                 initial={{ width: 0 }}
                 animate={{ width: `${isNaN(completion) ? 0 : completion}%` }}
                 transition={{ duration: 1, ease: "easeOut", delay: 0.2 }}
-                className="h-full rounded-full bg-slate-400"
+                className="h-full rounded-full bg-emerald-300"
               />
             </div>
           </div>
         </div>
 
         {!isPast && nextDose && (
-          <div className="mt-4 p-3 rounded-xl bg-slate-50 border border-slate-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+          <div className="mt-4 p-3 rounded-xl bg-emerald-50/70 border border-emerald-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
             <div className="flex items-center gap-3">
-              <Clock className="w-5 h-5 text-slate-500 shrink-0" />
+              <Clock className="w-5 h-5 text-emerald-600 shrink-0" />
               <div className="min-w-0">
-                <p className="text-xs font-semibold text-slate-600">
+                <p className="text-xs font-semibold text-emerald-700/70">
                   Next dose
                 </p>
-                <p className="text-sm font-bold text-slate-900">
+                <p className="text-sm font-bold text-emerald-900">
                   {new Date(nextDose.scheduledTime).toLocaleTimeString([], {
                     hour: "2-digit",
                     minute: "2-digit",
@@ -948,10 +985,10 @@ const MedicationCard = ({
                 className={cn(
                   "text-xs font-bold px-2 py-1 rounded-lg shrink-0",
                   isNextDoseDue
-                    ? "text-rose-700 bg-rose-100"
+                    ? "bg-emerald-600 text-white"
                     : nextDoseCountdown.includes("h")
-                      ? "text-slate-600 bg-slate-100"
-                      : "text-amber-700 bg-amber-100",
+                      ? "bg-white text-emerald-700 border border-emerald-100"
+                      : "bg-emerald-100 text-emerald-800",
                 )}
               >
                 {nextDoseCountdown}
@@ -972,7 +1009,7 @@ const MedicationCard = ({
                 <button
                   onClick={() => onReportReaction(nextDose.id)}
                   className={cn(
-                    "inline-flex items-center gap-1 min-h-10 px-3 bg-amber-50 text-amber-700 text-xs font-bold rounded-lg hover:bg-amber-100 border border-amber-200 transition-colors",
+                    "inline-flex items-center gap-1 min-h-10 px-3 bg-white text-emerald-700 text-xs font-bold rounded-lg hover:bg-emerald-50 border border-emerald-200 transition-colors",
                     FOCUS,
                   )}
                 >
@@ -981,7 +1018,7 @@ const MedicationCard = ({
                 </button>
               </div>
             ) : (
-              <span className="text-xs font-medium text-slate-500">
+              <span className="text-xs font-medium text-emerald-600/70">
                 Upcoming
               </span>
             )}
@@ -1005,8 +1042,8 @@ const MedicationCard = ({
               className="mt-4 space-y-4 overflow-hidden"
             >
               <div>
-                <h4 className="text-xs font-bold text-slate-600 mb-2.5 flex items-center gap-1.5 uppercase tracking-wider">
-                  <Calendar className="w-3.5 h-3.5 text-slate-500" />
+                <h4 className="text-xs font-bold text-emerald-700/70 mb-2.5 flex items-center gap-1.5 uppercase tracking-wider">
+                  <Calendar className="w-3.5 h-3.5" />
                   Next 7 Days
                 </h4>
                 <div className="grid grid-cols-7 gap-1">
@@ -1028,11 +1065,11 @@ const MedicationCard = ({
                           "aspect-square rounded-lg flex flex-col items-center justify-center text-xs p-0.5 transition-all",
                           tt > 0
                             ? tk === tt
-                              ? "bg-emerald-50 text-emerald-800 border border-emerald-200"
+                              ? "bg-emerald-100 text-emerald-800 border border-emerald-200"
                               : tk > 0
-                                ? "bg-amber-50 text-amber-800 border border-amber-200"
-                                : "bg-slate-50 text-slate-600 border border-slate-100"
-                            : "bg-slate-50 text-slate-400 border border-slate-100",
+                                ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
+                                : "bg-white text-emerald-500 border border-emerald-200"
+                            : "bg-white text-emerald-300 border border-emerald-100",
                         )}
                       >
                         <span className="text-[10px] font-medium opacity-70">
@@ -1054,7 +1091,7 @@ const MedicationCard = ({
                 <button
                   onClick={onStop}
                   className={cn(
-                    "w-full min-h-11 inline-flex items-center justify-center gap-2 text-sm bg-slate-50 text-slate-700 rounded-xl hover:bg-rose-50 hover:text-rose-700 transition-all font-semibold border border-slate-200 hover:border-rose-200",
+                    "w-full min-h-11 inline-flex items-center justify-center gap-2 text-sm bg-white text-emerald-700 rounded-xl hover:bg-emerald-50 transition-all font-semibold border border-emerald-200",
                     FOCUS,
                   )}
                 >
@@ -1110,20 +1147,20 @@ const UpcomingDosePill = ({
       className={cn(
         "flex items-center gap-2.5 p-3 rounded-xl border transition-all",
         isDue
-          ? "bg-rose-50 border-rose-200"
+          ? "bg-emerald-50 border-emerald-300"
           : isSoon
-            ? "bg-amber-50 border-amber-200"
-            : "bg-slate-50 border-slate-200",
+            ? "bg-emerald-50 border-emerald-200"
+            : "bg-white border-emerald-100",
       )}
     >
-      <div className="w-9 h-9 rounded-lg bg-white border border-slate-200 flex items-center justify-center shrink-0">
+      <div className="w-9 h-9 rounded-lg bg-white border border-emerald-100 flex items-center justify-center shrink-0">
         <TimeIcon className="w-4 h-4 text-emerald-700" />
       </div>
       <div className="flex-1 min-w-0">
-        <p className="text-sm font-semibold text-slate-900 truncate">
+        <p className="text-sm font-semibold text-emerald-900 truncate">
           {dose.medicationName}
         </p>
-        <p className="text-xs text-slate-600 truncate">
+        <p className="text-xs text-emerald-700/70 truncate">
           {doseTime.toLocaleTimeString([], {
             hour: "2-digit",
             minute: "2-digit",
@@ -1135,10 +1172,10 @@ const UpcomingDosePill = ({
         className={cn(
           "text-xs font-bold px-2 py-1 rounded-lg shrink-0",
           isDue
-            ? "text-rose-700 bg-rose-100"
+            ? "text-white bg-emerald-600"
             : isSoon
-              ? "text-amber-700 bg-amber-100"
-              : "text-slate-600 bg-slate-100",
+              ? "text-emerald-800 bg-emerald-100"
+              : "text-emerald-700 bg-white border border-emerald-100",
         )}
       >
         {countdown}
@@ -1181,9 +1218,8 @@ const SnapDrugModal = ({ onClose, onSnap }: any) => {
           const playPromise = videoRef.current.play();
           if (playPromise !== undefined) {
             playPromise.catch((err) => {
-              if (err?.name !== "AbortError") {
+              if (err?.name !== "AbortError")
                 console.warn("Video play failed:", err);
-              }
             });
           }
         }
@@ -1288,26 +1324,30 @@ const SnapDrugModal = ({ onClose, onSnap }: any) => {
 
   return (
     <div className="fixed inset-0 bg-slate-950/70 backdrop-blur-sm flex items-end sm:items-center justify-center z-[100] sm:p-4">
-      <div className="bg-white rounded-t-3xl sm:rounded-2xl max-w-lg w-full overflow-hidden shadow-2xl max-h-[92vh] overflow-y-auto pb-[max(1rem,env(safe-area-inset-bottom))] sm:pb-0">
-        <div className="sm:hidden flex justify-center pt-3" aria-hidden>
-          <div className="w-10 h-1 rounded-full bg-slate-300" />
+      <div className="bg-white rounded-t-3xl sm:rounded-2xl max-w-lg w-full shadow-2xl max-h-[92dvh] sm:max-h-[90vh] flex flex-col overflow-hidden border border-emerald-100">
+        <div
+          className="sm:hidden flex justify-center pt-3 shrink-0"
+          aria-hidden
+        >
+          <div className="w-10 h-1 rounded-full bg-emerald-200" />
         </div>
-        <div className="flex items-center justify-between p-4 border-b border-slate-200">
-          <h3 className="text-base md:text-lg font-bold text-slate-900">
+        <div className="shrink-0 flex items-center justify-between px-4 py-3 border-b border-emerald-100">
+          <h3 className="text-base md:text-lg font-bold text-emerald-900">
             Snap Drug
           </h3>
           <button
             onClick={onClose}
             aria-label="Close"
             className={cn(
-              "min-h-10 min-w-10 inline-flex items-center justify-center hover:bg-slate-100 rounded-xl text-slate-600 transition-colors",
+              "min-h-10 min-w-10 inline-flex items-center justify-center hover:bg-emerald-50 rounded-xl text-emerald-600 transition-colors",
               FOCUS,
             )}
           >
             <X className="w-5 h-5" />
           </button>
         </div>
-        <div className="p-4">
+
+        <div className="flex-1 overflow-y-auto overscroll-contain p-4 custom-emerald-scrollbar">
           {error && (
             <div
               role="alert"
@@ -1318,7 +1358,7 @@ const SnapDrugModal = ({ onClose, onSnap }: any) => {
             </div>
           )}
           {step === "camera" && (
-            <div className="relative bg-black rounded-xl overflow-hidden aspect-video">
+            <div className="relative bg-emerald-900 rounded-xl overflow-hidden aspect-video">
               <video
                 ref={videoRef}
                 className="w-full h-full object-cover"
@@ -1335,13 +1375,13 @@ const SnapDrugModal = ({ onClose, onSnap }: any) => {
                   FOCUS,
                 )}
               >
-                <Camera className="w-5 h-5 md:w-6 md:h-6 text-slate-900" />
+                <Camera className="w-5 h-5 md:w-6 md:h-6 text-emerald-700" />
               </button>
             </div>
           )}
           {step === "result" && (
             <div className="space-y-4">
-              <div className="bg-slate-50 rounded-xl overflow-hidden">
+              <div className="bg-emerald-50/40 rounded-xl overflow-hidden border border-emerald-100">
                 {capturedImage && (
                   <img
                     src={capturedImage}
@@ -1351,7 +1391,7 @@ const SnapDrugModal = ({ onClose, onSnap }: any) => {
                 )}
               </div>
               <div>
-                <label className="block text-xs font-bold text-slate-600 mb-1 uppercase tracking-wider">
+                <label className="block text-[11px] sm:text-xs font-bold text-emerald-700/80 mb-1 uppercase tracking-wider">
                   Extracted name
                 </label>
                 <Textarea
@@ -1363,39 +1403,44 @@ const SnapDrugModal = ({ onClose, onSnap }: any) => {
                   className="min-h-[80px]"
                 />
                 {isProcessing && (
-                  <div className="flex items-center gap-2 mt-2 text-sm text-slate-600 font-medium">
+                  <div className="flex items-center gap-2 mt-2 text-sm text-emerald-700 font-medium">
                     <Loader2 className="w-4 h-4 animate-spin" /> Reading image…
                   </div>
                 )}
               </div>
-              <div className="flex gap-3">
-                <button
-                  onClick={retake}
-                  className={cn(
-                    "flex-1 min-h-12 bg-slate-100 text-slate-800 rounded-xl font-semibold hover:bg-slate-200 transition",
-                    FOCUS,
-                  )}
-                >
-                  Retake
-                </button>
-                <button
-                  onClick={handleUseName}
-                  disabled={!extractedText.trim() || isProcessing}
-                  className={cn(
-                    "flex-1 min-h-12 bg-emerald-600 text-white rounded-xl font-bold hover:bg-emerald-700 transition disabled:opacity-50 disabled:cursor-not-allowed",
-                    FOCUS,
-                  )}
-                >
-                  {isProcessing ? (
-                    <Loader2 className="w-4 h-4 animate-spin mx-auto" />
-                  ) : (
-                    "Use this name"
-                  )}
-                </button>
-              </div>
             </div>
           )}
         </div>
+
+        {step === "result" && (
+          <div className="shrink-0 border-t border-emerald-100 bg-white px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+            <div className="flex gap-3">
+              <button
+                onClick={retake}
+                className={cn(
+                  "flex-1 min-h-12 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-xl font-semibold hover:bg-emerald-100 transition",
+                  FOCUS,
+                )}
+              >
+                Retake
+              </button>
+              <button
+                onClick={handleUseName}
+                disabled={!extractedText.trim() || isProcessing}
+                className={cn(
+                  "flex-[2] min-h-12 bg-emerald-600 text-white rounded-xl font-bold hover:bg-emerald-700 transition disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center justify-center",
+                  FOCUS,
+                )}
+              >
+                {isProcessing ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  "Use this name"
+                )}
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -1412,7 +1457,6 @@ export default function MedicationPanel() {
     return () => clearInterval(interval);
   }, []);
 
-  // Persisted: selected family member
   const [selectedFamilyId, setSelectedFamilyId] = useState<string>(() => {
     return ssGet("med:selectedFamilyId") || "self";
   });
@@ -1420,7 +1464,6 @@ export default function MedicationPanel() {
     ssSet("med:selectedFamilyId", selectedFamilyId);
   }, [selectedFamilyId]);
 
-  // Persisted: active tab
   const [activeTab, setActiveTab] = useState<"active" | "past">(() => {
     const v = ssGet("med:activeTab");
     return v === "past" ? "past" : "active";
@@ -1429,7 +1472,6 @@ export default function MedicationPanel() {
     ssSet("med:activeTab", activeTab);
   }, [activeTab]);
 
-  // Persisted: expanded medication
   const [expandedMedId, setExpandedMedId] = useState<string | null>(() =>
     ssGet("med:expandedMedId"),
   );
@@ -1438,7 +1480,6 @@ export default function MedicationPanel() {
     else ssRemove("med:expandedMedId");
   }, [expandedMedId]);
 
-  // Ephemeral state
   const [familyMembers, setFamilyMembers] = useState<FamilyMember[]>([
     { id: "self", name: "Myself", relationship: "self" },
   ]);
@@ -1458,8 +1499,6 @@ export default function MedicationPanel() {
   const [searching, setSearching] = useState(false);
   const [showSnapModal, setShowSnapModal] = useState(false);
 
-  // Scroll restoration — always scroll (to saved or 0) so panel
-  // never inherits the previous panel's scroll position
   const scrollerRef = useRef<HTMLElement | null>(null);
   const scrollRestoredRef = useRef(false);
   useEffect(() => {
@@ -1487,7 +1526,6 @@ export default function MedicationPanel() {
     }
   }, []);
 
-  // ─── Family fetch (with SWR config) ─────────────────────────
   const { data: familyData, mutate: mutateFamily } = useSWR(
     "/api/family",
     authFetcher,
@@ -1507,7 +1545,6 @@ export default function MedicationPanel() {
     }
   }, [familyData]);
 
-  // ─── Medications fetch (with SWR config) ───────────────────
   const { data, error, isLoading } = useSWR(
     `/api/medications?memberId=${selectedFamilyId}`,
     authFetcher,
@@ -1665,7 +1702,9 @@ export default function MedicationPanel() {
     const last14Days = Array.from({ length: 14 }, (_, i) => {
       const d = new Date();
       d.setDate(d.getDate() - i);
-      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(
+        d.getDate(),
+      ).padStart(2, "0")}`;
     }).reverse();
     return last14Days.map((day) => {
       const dayDoses = allExtended.flatMap((m) =>
@@ -1971,7 +2010,10 @@ export default function MedicationPanel() {
     try {
       const result = await authPut(
         `/api/medications/${medicationId}/doses/${doseId}`,
-        { taken, reaction },
+        {
+          taken,
+          reaction,
+        },
       );
       if (result.success) {
         const currentData = await mutate(swrKey);
@@ -2030,7 +2072,9 @@ export default function MedicationPanel() {
     try {
       const getRes = await fetch(
         `/api/centers/${centerId}/patients/${user.id}`,
-        { credentials: "include" },
+        {
+          credentials: "include",
+        },
       );
       if (!getRes.ok) return;
       const patientData = await getRes.json();
@@ -2138,12 +2182,11 @@ export default function MedicationPanel() {
 
   if (error)
     return (
-      <div className="p-6 text-rose-700 text-center bg-white rounded-2xl border shadow-sm">
+      <div className="p-6 text-rose-700 text-center bg-white rounded-2xl border border-emerald-100 shadow-sm">
         Error loading medications.
       </div>
     );
 
-  // Cold start = loading AND no data. Warm cache = no skeleton.
   const isLoadingCombined = isLoading || prescribedLoading;
   const isColdStart = isLoadingCombined && allExtended.length === 0;
 
@@ -2153,59 +2196,61 @@ export default function MedicationPanel() {
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.2, ease: "easeOut" }}
       className={cn(
-        "min-h-screen bg-slate-50 pb-24 pt-2 md:pt-6",
+        "min-h-screen bg-[#F8FAFC] pb-28 pt-2 text-slate-900",
         poppins.className,
       )}
     >
-      <div className="max-w-7xl mx-auto px-4 md:px-6 space-y-5 md:space-y-7">
+      <main className="mx-auto max-w-7xl px-4 pt-3 sm:px-6 lg:px-8 space-y-4 lg:space-y-5">
         {/* ─── HEADER ──────────────────────────────────────────── */}
-        <header className="flex flex-col md:flex-row md:items-end md:justify-between gap-4 mb-2 md:mb-4">
-          <div className="min-w-0">
-            <h1 className="text-3xl sm:text-4xl md:text-5xl text-slate-900 leading-[1.1] tracking-tight font-bold">
-              Medication <span className="text-emerald-600">Tracker</span>
-            </h1>
-            <p className="text-sm text-slate-600 mt-1.5">
-              {streak > 0 ? (
-                <span className="inline-flex items-center gap-1.5 flex-wrap">
-                  <Flame className="w-4 h-4 text-amber-600 shrink-0" />
-                  <span className="font-semibold text-amber-700">
-                    {streak}-day streak
+        <header className="pt-1 lg:pt-2 flex flex-col gap-3">
+          <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3">
+            <div className="min-w-0 flex-1">
+              <h1 className="text-2xl sm:text-3xl lg:text-4xl font-bold text-slate-900 tracking-tight leading-tight">
+                Medication Tracker
+              </h1>
+              <p className="text-xs sm:text-sm text-slate-500 mt-1">
+                {streak > 0 ? (
+                  <span className="inline-flex items-center gap-1.5 flex-wrap">
+                    <Flame className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                    <span className="font-semibold text-emerald-700">
+                      {streak}-day streak
+                    </span>
+                    <span className="text-emerald-300">·</span>
+                    <span>Keep it up</span>
                   </span>
-                  <span className="text-slate-400">·</span>
-                  <span>Keep it up</span>
-                </span>
-              ) : (
-                "Stay on top of your daily doses."
-              )}
-            </p>
-          </div>
+                ) : (
+                  "Stay on top of your daily doses."
+                )}
+              </p>
+            </div>
 
-          <div className="flex items-center gap-2 shrink-0">
-            <button
-              onClick={requestNotificationPermission}
-              className={cn(
-                "inline-flex items-center gap-2 min-h-12 px-4 bg-white text-slate-800 border border-slate-200 rounded-xl font-semibold hover:bg-slate-50 transition shadow-sm",
-                FOCUS,
-              )}
-            >
-              <Bell size={16} />
-              <span className="hidden sm:inline">Reminders</span>
-            </button>
-            <button
-              onClick={() => setShowAddMedModal(true)}
-              className={cn(
-                "inline-flex items-center gap-2 min-h-12 px-4 bg-emerald-600 text-white rounded-xl font-semibold hover:bg-emerald-700 transition shadow-sm",
-                FOCUS,
-              )}
-            >
-              <Plus size={16} />
-              <span className="hidden sm:inline">Add Med</span>
-            </button>
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                onClick={requestNotificationPermission}
+                className={cn(
+                  "inline-flex items-center gap-2 min-h-11 px-4 bg-white text-emerald-700 border border-emerald-200 rounded-xl font-semibold hover:bg-emerald-50 transition shadow-xs",
+                  FOCUS,
+                )}
+              >
+                <Bell size={16} />
+                <span className="hidden sm:inline">Reminders</span>
+              </button>
+              <button
+                onClick={() => setShowAddMedModal(true)}
+                className={cn(
+                  "inline-flex items-center gap-2 min-h-11 px-4 bg-emerald-600 text-white rounded-xl font-semibold hover:bg-emerald-700 transition shadow-sm shadow-emerald-600/25",
+                  FOCUS,
+                )}
+              >
+                <Plus size={16} />
+                <span className="hidden sm:inline">Add Med</span>
+              </button>
+            </div>
           </div>
         </header>
 
         {/* ─── STATS ─────────────────────────────────────────── */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 lg:gap-4">
           {isColdStart ? (
             <>
               <SkeletonStatCard />
@@ -2215,7 +2260,7 @@ export default function MedicationPanel() {
             </>
           ) : (
             <>
-              <BentoTile className="p-5">
+              <BentoTile className="p-4">
                 <SectionHeader
                   icon={Users}
                   label="Managing For"
@@ -2224,11 +2269,11 @@ export default function MedicationPanel() {
                       onClick={() => setShowAddFamilyModal(true)}
                       aria-label="Add family member"
                       className={cn(
-                        "min-h-9 min-w-9 inline-flex items-center justify-center rounded-lg hover:bg-slate-100 transition-colors shrink-0",
+                        "min-h-9 min-w-9 inline-flex items-center justify-center rounded-lg hover:bg-emerald-50 transition-colors shrink-0",
                         FOCUS,
                       )}
                     >
-                      <UserPlus size={16} className="text-slate-500" />
+                      <UserPlus size={16} className="text-emerald-600" />
                     </button>
                   }
                 />
@@ -2240,8 +2285,8 @@ export default function MedicationPanel() {
                       className={cn(
                         "min-w-[64px] px-2.5 py-2 rounded-xl text-xs font-semibold transition-all",
                         selectedFamilyId === m.id
-                          ? "bg-emerald-600 text-white shadow-sm"
-                          : "bg-slate-50 text-slate-700 hover:bg-slate-100",
+                          ? "bg-emerald-600 text-white shadow-sm shadow-emerald-600/20"
+                          : "bg-emerald-50 text-emerald-700 hover:bg-emerald-100",
                       )}
                     >
                       <div className="truncate">{m.name}</div>
@@ -2251,7 +2296,7 @@ export default function MedicationPanel() {
                             "text-[10px] font-medium",
                             selectedFamilyId === m.id
                               ? "text-emerald-100"
-                              : "text-slate-500",
+                              : "text-emerald-600/70",
                           )}
                         >
                           {m.relationship}
@@ -2262,13 +2307,13 @@ export default function MedicationPanel() {
                 </div>
               </BentoTile>
 
-              <BentoTile hero className="p-5">
+              <BentoTile hero className="p-4">
                 <SectionHeader icon={Calendar} label="Today's Doses" light />
                 <div className="flex items-baseline gap-1.5 mb-1">
-                  <span className="text-4xl font-bold text-white leading-none">
+                  <span className="text-3xl font-bold text-white leading-none">
                     {todayDosesRemaining}
                   </span>
-                  <span className="text-base text-emerald-100 font-medium">
+                  <span className="text-sm text-emerald-100 font-medium">
                     / {todayDosesTotal}
                   </span>
                 </div>
@@ -2294,17 +2339,17 @@ export default function MedicationPanel() {
                 </div>
               </BentoTile>
 
-              <BentoTile className="p-5">
+              <BentoTile className="p-4">
                 <SectionHeader icon={Clock} label="Next Dose" />
                 {nextDose ? (
                   <>
-                    <p className="text-sm font-semibold text-slate-900 truncate mb-1">
+                    <p className="text-sm font-semibold text-emerald-900 truncate mb-1">
                       {nextDose.medicationName}
                     </p>
-                    <p className="text-3xl font-bold text-slate-900 leading-none mb-1">
+                    <p className="text-2xl font-bold text-emerald-900 leading-none mb-1">
                       {timeRemaining}
                     </p>
-                    <p className="text-xs text-slate-500 mt-1">
+                    <p className="text-xs text-emerald-700/70 mt-1">
                       {new Date(nextDose.scheduledTime).toLocaleTimeString([], {
                         hour: "2-digit",
                         minute: "2-digit",
@@ -2315,27 +2360,27 @@ export default function MedicationPanel() {
                 ) : (
                   <div className="flex items-center gap-2 py-6">
                     <CheckCircle className="w-5 h-5 text-emerald-600 shrink-0" />
-                    <span className="text-sm font-medium text-slate-700">
+                    <span className="text-sm font-medium text-emerald-800">
                       All done for now
                     </span>
                   </div>
                 )}
               </BentoTile>
 
-              <BentoTile className="p-5">
+              <BentoTile className="p-4">
                 <SectionHeader icon={TrendingUp} label="Adherence" />
                 <div className="flex items-baseline gap-2 flex-wrap mb-1">
-                  <span className="text-3xl font-bold text-slate-900 leading-none">
+                  <span className="text-2xl font-bold text-emerald-900 leading-none">
                     {adherenceScore}%
                   </span>
                   <span
                     className={cn(
                       "text-xs font-bold px-2 py-0.5 rounded-md",
                       adherenceScore >= 90
-                        ? "bg-emerald-50 text-emerald-700"
+                        ? "bg-emerald-50 text-emerald-700 border border-emerald-100"
                         : adherenceScore >= 70
-                          ? "bg-amber-50 text-amber-700"
-                          : "bg-rose-50 text-rose-700",
+                          ? "bg-emerald-100 text-emerald-800"
+                          : "bg-emerald-600 text-white",
                     )}
                   >
                     {adherenceScore >= 90
@@ -2345,7 +2390,7 @@ export default function MedicationPanel() {
                         : "Needs work"}
                   </span>
                 </div>
-                <p className="text-xs text-slate-500 mt-1">
+                <p className="text-xs text-emerald-700/60 mt-1">
                   {adherenceScore >= 90
                     ? "Outstanding consistency"
                     : adherenceScore >= 70
@@ -2359,22 +2404,22 @@ export default function MedicationPanel() {
 
         {/* ─── UPCOMING + CHART ────────────────────────────── */}
         {!isColdStart && allExtended.length > 0 && (
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 md:gap-5">
-            <BentoTile className="lg:col-span-1 p-5">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 lg:gap-4">
+            <BentoTile className="lg:col-span-1 p-4">
               <SectionHeader
                 icon={Clock}
                 label="Upcoming"
                 right={
-                  <span className="text-xs font-semibold text-slate-600 bg-slate-100 px-2 py-1 rounded-lg shrink-0">
+                  <span className="text-xs font-semibold text-emerald-700 bg-emerald-50 px-2 py-1 rounded-lg border border-emerald-100 shrink-0">
                     {upcomingDoses.length} doses
                   </span>
                 }
               />
               <div className="space-y-2">
                 {upcomingDoses.length === 0 ? (
-                  <div className="text-center py-8">
-                    <CheckCircle className="w-10 h-10 text-emerald-500 mx-auto mb-2" />
-                    <p className="text-sm font-medium text-slate-600">
+                  <div className="text-center py-6">
+                    <CheckCircle className="w-8 h-8 text-emerald-500 mx-auto mb-1" />
+                    <p className="text-xs font-medium text-emerald-700/70">
                       No upcoming doses
                     </p>
                   </div>
@@ -2391,24 +2436,24 @@ export default function MedicationPanel() {
               </div>
             </BentoTile>
 
-            <BentoTile className="lg:col-span-2 p-5">
+            <BentoTile className="lg:col-span-2 p-4">
               <SectionHeader
                 icon={BarChart3}
                 label="Adherence (14 Days)"
                 right={
                   <div className="flex gap-3 shrink-0">
-                    <div className="flex items-center gap-1 text-xs text-slate-600">
+                    <div className="flex items-center gap-1 text-xs text-emerald-700/70">
                       <div className="w-2 h-2 rounded-full bg-emerald-600" />{" "}
                       Taken
                     </div>
-                    <div className="flex items-center gap-1 text-xs text-slate-600">
-                      <div className="w-2 h-2 rounded-full bg-slate-300" />{" "}
+                    <div className="flex items-center gap-1 text-xs text-emerald-700/70">
+                      <div className="w-2 h-2 rounded-full bg-emerald-300" />{" "}
                       Scheduled
                     </div>
                   </div>
                 }
               />
-              <div className="h-[200px] md:h-[260px] w-full">
+              <div className="h-[200px] md:h-[240px] w-full">
                 <ResponsiveContainer>
                   <AreaChart
                     data={chartData}
@@ -2436,23 +2481,23 @@ export default function MedicationPanel() {
                     </defs>
                     <CartesianGrid
                       strokeDasharray="3 3"
-                      stroke="#e2e8f0"
+                      stroke={EMERALD_LIGHT}
                       vertical={false}
                     />
                     <XAxis
                       dataKey="date"
                       tick={{
                         fontSize: 11,
-                        fill: "#64748b",
+                        fill: EMERALD,
                         fontFamily: "Poppins",
                       }}
-                      axisLine={{ stroke: "#cbd5e1" }}
+                      axisLine={{ stroke: EMERALD_LIGHT }}
                       tickLine={false}
                     />
                     <YAxis
                       tick={{
                         fontSize: 11,
-                        fill: "#64748b",
+                        fill: EMERALD,
                         fontFamily: "Poppins",
                       }}
                       axisLine={false}
@@ -2478,7 +2523,7 @@ export default function MedicationPanel() {
                     <Line
                       type="monotone"
                       dataKey="total"
-                      stroke="#94a3b8"
+                      stroke={EMERALD_SOFT}
                       strokeWidth={2}
                       strokeDasharray="5 5"
                       dot={false}
@@ -2492,27 +2537,27 @@ export default function MedicationPanel() {
 
         {/* ─── MEDICATION LIST ──────────────────────────────── */}
         {isColdStart ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-5">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 lg:gap-4">
             {[...Array(4)].map((_, i) => (
               <SkeletonCard key={i} />
             ))}
           </div>
         ) : allExtended.length === 0 ? (
-          <div className="bg-white rounded-2xl p-8 md:p-12 text-center border border-slate-200 shadow-sm">
+          <div className="bg-white rounded-2xl p-8 md:p-12 text-center border border-emerald-100 shadow-xs">
             <div className="w-16 h-16 md:w-20 md:h-20 bg-emerald-50 rounded-3xl flex items-center justify-center mx-auto mb-4">
               <Pill className="w-8 h-8 md:w-10 md:h-10 text-emerald-700" />
             </div>
-            <p className="text-lg md:text-xl font-semibold text-slate-800 mb-2">
+            <p className="text-lg md:text-xl font-semibold text-emerald-900 mb-2">
               No medications yet
             </p>
-            <p className="text-sm text-slate-600 mb-6 max-w-md mx-auto">
+            <p className="text-sm text-emerald-700/70 mb-6 max-w-md mx-auto">
               Add your first medication to start tracking, or visit a linked
               center to get a prescription.
             </p>
             <button
               onClick={() => setShowAddMedModal(true)}
               className={cn(
-                "inline-flex items-center gap-2 min-h-12 px-6 bg-emerald-600 text-white rounded-xl font-semibold text-sm hover:bg-emerald-700 transition shadow-md",
+                "inline-flex items-center gap-2 min-h-11 px-5 bg-emerald-600 text-white rounded-xl font-semibold text-sm hover:bg-emerald-700 transition shadow-sm shadow-emerald-600/25",
                 FOCUS,
               )}
             >
@@ -2520,15 +2565,15 @@ export default function MedicationPanel() {
             </button>
           </div>
         ) : (
-          <div className="space-y-5">
-            <div className="flex items-center gap-1 bg-white rounded-2xl p-1 border border-slate-200 w-fit shadow-sm">
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 sm:flex sm:w-fit gap-1 bg-white rounded-2xl p-1 border border-emerald-100 shadow-xs">
               <button
                 onClick={() => setActiveTab("active")}
                 className={cn(
-                  "min-h-10 px-4 rounded-xl text-xs font-semibold transition-all",
+                  "min-h-10 px-4 rounded-xl text-xs font-semibold transition-all text-center sm:text-left",
                   activeTab === "active"
-                    ? "bg-emerald-600 text-white"
-                    : "text-slate-600 hover:text-slate-800",
+                    ? "bg-emerald-600 text-white shadow-sm shadow-emerald-600/20"
+                    : "text-emerald-700 hover:bg-emerald-50",
                 )}
               >
                 Active ({activeMeds.length})
@@ -2536,10 +2581,10 @@ export default function MedicationPanel() {
               <button
                 onClick={() => setActiveTab("past")}
                 className={cn(
-                  "min-h-10 px-4 rounded-xl text-xs font-semibold transition-all",
+                  "min-h-10 px-4 rounded-xl text-xs font-semibold transition-all text-center sm:text-left",
                   activeTab === "past"
-                    ? "bg-slate-800 text-white"
-                    : "text-slate-600 hover:text-slate-800",
+                    ? "bg-emerald-700 text-white shadow-sm"
+                    : "text-emerald-700 hover:bg-emerald-50",
                 )}
               >
                 Past ({pastMeds.length})
@@ -2553,22 +2598,22 @@ export default function MedicationPanel() {
                   initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: -10 }}
-                  className="space-y-6"
+                  className="space-y-5"
                 >
                   {groupedActive.map((group) => (
                     <div key={group.label}>
-                      <h3 className="text-sm font-semibold text-slate-700 mb-3 flex items-center gap-2">
+                      <h3 className="text-sm font-semibold text-emerald-900 mb-2.5 flex items-center gap-2">
                         {group.label === "My Medications" ? (
-                          <Pill className="w-4 h-4 text-emerald-700" />
+                          <Pill className="w-4 h-4 text-emerald-600" />
                         ) : (
-                          <Building className="w-4 h-4 text-emerald-700" />
+                          <Building className="w-4 h-4 text-emerald-600" />
                         )}
                         {group.label}
-                        <span className="text-xs font-normal text-slate-500">
+                        <span className="text-xs font-normal text-emerald-700/60">
                           ({group.items.length})
                         </span>
                       </h3>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-5">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 lg:gap-4">
                         {group.items.map((med) => (
                           <MedicationCard
                             key={med.id}
@@ -2605,22 +2650,22 @@ export default function MedicationPanel() {
                   initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: -10 }}
-                  className="space-y-6 opacity-75"
+                  className="space-y-5 opacity-75"
                 >
                   {groupedPast.map((group) => (
                     <div key={group.label}>
-                      <h3 className="text-sm font-semibold text-slate-700 mb-3 flex items-center gap-2">
+                      <h3 className="text-sm font-semibold text-emerald-900 mb-2.5 flex items-center gap-2">
                         {group.label === "My Medications" ? (
-                          <Pill className="w-4 h-4 text-emerald-700" />
+                          <Pill className="w-4 h-4 text-emerald-600" />
                         ) : (
-                          <Building className="w-4 h-4 text-emerald-700" />
+                          <Building className="w-4 h-4 text-emerald-600" />
                         )}
                         {group.label}
-                        <span className="text-xs font-normal text-slate-500">
+                        <span className="text-xs font-normal text-emerald-700/60">
                           ({group.items.length})
                         </span>
                       </h3>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-5">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 lg:gap-4">
                         {group.items.map((med) => (
                           <MedicationCard
                             key={med.id}
@@ -2646,45 +2691,45 @@ export default function MedicationPanel() {
             </AnimatePresence>
 
             {unstartedMeds.length > 0 && activeTab === "active" && (
-              <div className="mt-8 border-t border-slate-200 pt-6">
-                <div className="flex items-center gap-2.5 mb-4">
+              <div className="mt-6 border-t border-emerald-100 pt-5">
+                <div className="flex items-center gap-2.5 mb-3">
                   <div className="w-8 h-8 rounded-lg bg-emerald-50 flex items-center justify-center shrink-0">
                     <Building className="w-4 h-4 text-emerald-700" />
                   </div>
-                  <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500">
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-emerald-700/70">
                     Prescriptions from Centers
                   </h3>
-                  <span className="text-xs font-semibold text-slate-600 bg-slate-100 px-2 py-0.5 rounded-full">
+                  <span className="text-xs font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-100">
                     {unstartedMeds.length} pending
                   </span>
                 </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-5">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 lg:gap-4">
                   {unstartedMeds.map((p) => (
                     <div
                       key={p.id}
-                      className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm"
+                      className="bg-white border border-emerald-100 rounded-2xl overflow-hidden shadow-xs"
                     >
-                      <div className="h-1 w-full bg-emerald-600" />
-                      <div className="p-5">
+                      <div className="h-1 w-full bg-gradient-to-r from-emerald-500 to-emerald-600" />
+                      <div className="p-4 lg:p-5">
                         <div className="flex items-start gap-3 mb-3">
                           <div className="w-11 h-11 rounded-xl bg-emerald-50 flex items-center justify-center shrink-0">
                             <Pill className="w-5 h-5 text-emerald-700" />
                           </div>
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2 flex-wrap mb-1">
-                              <h4 className="font-semibold text-slate-900 text-base truncate">
+                              <h4 className="font-semibold text-emerald-900 text-base truncate">
                                 {p.name}
                               </h4>
-                              <span className="text-xs font-bold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-100 shrink-0">
+                              <span className="text-xs font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-100 shrink-0">
                                 {p.sourceType === "hospital"
                                   ? "Hospital"
                                   : "External"}
                               </span>
                             </div>
-                            <p className="text-sm text-slate-600 font-medium">
+                            <p className="text-sm text-emerald-700/80 font-medium">
                               {p.dosage} · {p.frequency}
                             </p>
-                            <p className="text-xs text-slate-500 mt-0.5 truncate">
+                            <p className="text-xs text-emerald-700/60 mt-0.5 truncate">
                               From {p.centerName}
                               {p.prescribedBy && ` · ${p.prescribedBy}`}
                             </p>
@@ -2692,13 +2737,13 @@ export default function MedicationPanel() {
                         </div>
 
                         <div className="flex items-center gap-2 flex-wrap mb-4">
-                          <span className="inline-flex items-center gap-1 bg-slate-50 px-2 py-1 rounded-md text-xs text-slate-700 font-medium">
-                            <Pill className="w-3 h-3 text-slate-500" />
+                          <span className="inline-flex items-center gap-1 bg-emerald-50 px-2 py-1 rounded-md text-xs text-emerald-700 font-medium border border-emerald-100">
+                            <Pill className="w-3 h-3" />
                             {p.totalQuantity || "Ongoing"} doses
                           </span>
                           {p.durationDays && (
-                            <span className="inline-flex items-center gap-1 bg-slate-50 px-2 py-1 rounded-md text-xs text-slate-700 font-medium">
-                              <Calendar className="w-3 h-3 text-slate-500" />
+                            <span className="inline-flex items-center gap-1 bg-emerald-50 px-2 py-1 rounded-md text-xs text-emerald-700 font-medium border border-emerald-100">
+                              <Calendar className="w-3 h-3" />
                               {p.durationDays} days
                             </span>
                           )}
@@ -2707,7 +2752,7 @@ export default function MedicationPanel() {
                         <button
                           onClick={() => startPrescribedMedication(p)}
                           className={cn(
-                            "w-full min-h-11 inline-flex items-center justify-center gap-2 bg-emerald-600 text-white rounded-xl font-semibold text-sm hover:bg-emerald-700 transition-colors shadow-sm",
+                            "w-full min-h-10 inline-flex items-center justify-center gap-2 bg-emerald-600 text-white rounded-xl font-semibold text-sm hover:bg-emerald-700 transition-colors shadow-sm",
                             FOCUS,
                           )}
                         >
@@ -2722,7 +2767,7 @@ export default function MedicationPanel() {
             )}
           </div>
         )}
-      </div>
+      </main>
 
       {/* HELP MODAL */}
       <AnimatePresence>
@@ -2744,10 +2789,10 @@ export default function MedicationPanel() {
                   <div className="w-16 h-16 bg-emerald-50 rounded-full flex items-center justify-center mb-4">
                     {helpSlides[helpSlide].icon}
                   </div>
-                  <h3 className="text-lg font-semibold text-slate-800 mb-2">
+                  <h3 className="text-lg font-semibold text-emerald-900 mb-2">
                     {helpSlides[helpSlide].title}
                   </h3>
-                  <p className="text-sm text-slate-600">
+                  <p className="text-sm text-emerald-700/80">
                     {helpSlides[helpSlide].description}
                   </p>
                 </motion.div>
@@ -2762,7 +2807,7 @@ export default function MedicationPanel() {
                       "h-2 rounded-full transition-all",
                       i === helpSlide
                         ? "bg-emerald-600 w-4"
-                        : "bg-slate-300 w-2",
+                        : "bg-emerald-200 w-2",
                     )}
                   />
                 ))}
@@ -2773,11 +2818,11 @@ export default function MedicationPanel() {
                 }
                 aria-label="Previous slide"
                 className={cn(
-                  "absolute left-0 top-1/2 -translate-y-1/2 min-h-10 min-w-10 inline-flex items-center justify-center bg-white rounded-full shadow-md border border-slate-200",
+                  "absolute left-0 top-1/2 -translate-y-1/2 min-h-10 min-w-10 inline-flex items-center justify-center bg-white rounded-full shadow-md border border-emerald-100",
                   FOCUS,
                 )}
               >
-                <ChevronLeft size={16} />
+                <ChevronLeft size={16} className="text-emerald-700" />
               </button>
               <button
                 onClick={() =>
@@ -2785,11 +2830,11 @@ export default function MedicationPanel() {
                 }
                 aria-label="Next slide"
                 className={cn(
-                  "absolute right-0 top-1/2 -translate-y-1/2 min-h-10 min-w-10 inline-flex items-center justify-center bg-white rounded-full shadow-md border border-slate-200",
+                  "absolute right-0 top-1/2 -translate-y-1/2 min-h-10 min-w-10 inline-flex items-center justify-center bg-white rounded-full shadow-md border border-emerald-100",
                   FOCUS,
                 )}
               >
-                <ChevronRight size={16} />
+                <ChevronRight size={16} className="text-emerald-700" />
               </button>
             </div>
             <button
@@ -2812,137 +2857,201 @@ export default function MedicationPanel() {
             onClose={() => setShowAddMedModal(false)}
             title="New Medication"
             icon={Plus}
-          >
-            <form
-              onSubmit={handleSubmit(onSubmitNewMed)}
-              className="space-y-4 mt-2"
-            >
-              <div className="flex items-center gap-2">
-                <div className="flex-1 relative">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
-                  <input
-                    type="text"
-                    placeholder="Search for drug…"
-                    value={searchQuery}
-                    onChange={(e) => {
-                      setSearchQuery(e.target.value);
-                      handleDrugSearch(e.target.value);
-                    }}
-                    className={cn(
-                      "w-full min-h-12 pl-9 pr-4 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:bg-white focus:border-emerald-600 focus:ring-2 focus:ring-emerald-600/20 text-slate-900 placeholder:text-slate-500",
-                      FOCUS,
-                    )}
-                  />
-                  {searching && (
-                    <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 animate-spin text-emerald-600" />
-                  )}
-                </div>
+            footer={
+              <div className="flex gap-3">
                 <button
                   type="button"
-                  onClick={() => setShowSnapModal(true)}
+                  onClick={() => setShowAddMedModal(false)}
                   className={cn(
-                    "inline-flex items-center gap-1.5 min-h-12 px-4 bg-slate-800 text-white rounded-xl text-sm font-semibold hover:bg-slate-700 transition-colors",
+                    "flex-1 min-h-12 text-sm bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-xl hover:bg-emerald-100 font-semibold",
                     FOCUS,
                   )}
                 >
-                  <Camera className="w-4 h-4" /> Snap
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  form="add-med-form"
+                  disabled={isSubmitting}
+                  className={cn(
+                    "flex-[2] inline-flex items-center justify-center gap-2 min-h-12 text-sm bg-emerald-600 text-white rounded-xl hover:bg-emerald-700 disabled:opacity-50 shadow-sm font-semibold",
+                    FOCUS,
+                  )}
+                >
+                  {isSubmitting && <Loader2 className="w-4 h-4 animate-spin" />}
+                  Save Medication
                 </button>
               </div>
-
-              {searchResults.length > 0 && (
-                <div className="bg-slate-50 rounded-xl border border-slate-200 divide-y divide-slate-100 max-h-48 overflow-y-auto">
-                  {searchResults.map((drug, idx) => (
-                    <button
-                      key={idx}
-                      type="button"
-                      onClick={() => selectDrug(drug)}
-                      className="w-full text-left px-4 py-2.5 hover:bg-slate-100 transition-colors flex justify-between items-start gap-3"
-                    >
-                      <div className="min-w-0">
-                        <p className="text-sm font-medium text-slate-800 truncate">
-                          {drug.name}
-                        </p>
-                        {drug.dosage && (
-                          <span className="text-xs text-slate-600">
-                            {drug.dosage}
-                          </span>
-                        )}
-                      </div>
-                      <span className="text-xs text-emerald-700 font-semibold shrink-0">
-                        Select
-                      </span>
-                    </button>
-                  ))}
+            }
+          >
+            <form
+              id="add-med-form"
+              onSubmit={handleSubmit(onSubmitNewMed)}
+              className="space-y-6"
+            >
+              <div className="space-y-2">
+                <div className="flex items-stretch gap-2">
+                  <div className="flex-1 relative">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-emerald-600 pointer-events-none" />
+                    <input
+                      type="text"
+                      placeholder="Search for drug…"
+                      value={searchQuery}
+                      onChange={(e) => {
+                        setSearchQuery(e.target.value);
+                        handleDrugSearch(e.target.value);
+                      }}
+                      className={cn(
+                        "w-full min-h-12 pl-9 pr-9 text-base sm:text-sm bg-emerald-50/40 border border-emerald-100 rounded-xl focus:outline-none focus:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/15 text-emerald-900 placeholder:text-emerald-700/40",
+                        FOCUS,
+                      )}
+                    />
+                    {searching && (
+                      <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 animate-spin text-emerald-600" />
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowSnapModal(true)}
+                    aria-label="Scan medication label"
+                    className={cn(
+                      "shrink-0 inline-flex items-center justify-center gap-1.5 min-h-12 w-12 sm:w-auto sm:px-4 bg-emerald-700 text-white rounded-xl text-sm font-semibold hover:bg-emerald-800 transition-colors",
+                      FOCUS,
+                    )}
+                  >
+                    <Camera className="w-4 h-4" />
+                    <span className="hidden sm:inline">Snap</span>
+                  </button>
                 </div>
-              )}
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {searchResults.length > 0 && (
+                  <div className="bg-emerald-50 border border-emerald-100 rounded-xl divide-y divide-emerald-100 max-h-52 overflow-y-auto custom-emerald-scrollbar">
+                    {searchResults.map((drug, idx) => (
+                      <button
+                        key={idx}
+                        type="button"
+                        onClick={() => selectDrug(drug)}
+                        className="w-full text-left px-4 py-3 hover:bg-emerald-100 transition-colors flex justify-between items-start gap-3"
+                      >
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium text-emerald-900 truncate">
+                            {drug.name}
+                          </p>
+                          {drug.dosage && (
+                            <span className="text-xs text-emerald-700/70">
+                              {drug.dosage}
+                            </span>
+                          )}
+                        </div>
+                        <span className="text-xs text-emerald-700 font-semibold shrink-0 pt-0.5">
+                          Select
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <section className="space-y-3">
+                <SectionLabel icon={Pill}>Drug Details</SectionLabel>
                 <Input
                   {...register("name")}
                   label="Name *"
                   placeholder="Amoxicillin"
                   error={errors.name?.message}
                 />
-                <Input
-                  {...register("dosage")}
-                  label="Dosage *"
-                  placeholder="500mg"
-                  error={errors.dosage?.message}
-                />
-                <Input
-                  type="number"
-                  step="0.1"
-                  inputMode="decimal"
-                  {...register("quantityPerDose")}
-                  label="Qty per dose *"
-                  error={errors.quantityPerDose?.message}
-                />
-                <Input
-                  type="number"
-                  inputMode="numeric"
-                  {...register("totalQuantity")}
-                  label="Total quantity (0 = ongoing)"
-                  error={errors.totalQuantity?.message}
-                />
-                <Input
-                  type="number"
-                  step="1"
-                  inputMode="numeric"
-                  {...register("durationDays")}
-                  label="Duration (days) — optional"
-                  placeholder="e.g., 7"
-                  error={errors.durationDays?.message}
-                />
-                <div className="text-xs text-slate-500 -mt-2 col-span-2">
-                  * Leave both blank for "ongoing" (no fixed end date)
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <Input
+                    {...register("dosage")}
+                    label="Dosage *"
+                    placeholder="500mg"
+                    error={errors.dosage?.message}
+                  />
+                  <Input
+                    {...register("ailment")}
+                    label="Ailment"
+                    placeholder="Infection"
+                  />
                 </div>
-                <Input
-                  {...register("ailment")}
-                  label="Ailment"
-                  placeholder="Infection"
-                />
+              </section>
 
-                <Controller
-                  control={control}
-                  name="frequency"
-                  render={({ field }) => (
-                    <SelectDropdown
-                      label="Frequency *"
-                      value={field.value}
-                      onChange={(v) =>
-                        field.onChange(v as MedicationForm["frequency"])
-                      }
-                      options={[
-                        { value: "once", label: "Once daily" },
-                        { value: "twice", label: "Twice daily" },
-                        { value: "thrice", label: "Thrice daily" },
-                        { value: "custom", label: "Custom" },
-                      ]}
-                      error={errors.frequency?.message}
-                    />
-                  )}
-                />
+              <section className="space-y-3">
+                <SectionLabel icon={Clock}>Dosing</SectionLabel>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <Input
+                    type="number"
+                    step="0.1"
+                    inputMode="decimal"
+                    {...register("quantityPerDose")}
+                    label="Qty per dose *"
+                    error={errors.quantityPerDose?.message}
+                  />
+                  <Controller
+                    control={control}
+                    name="frequency"
+                    render={({ field }) => (
+                      <SelectDropdown
+                        label="Frequency *"
+                        value={field.value}
+                        onChange={(v) =>
+                          field.onChange(v as MedicationForm["frequency"])
+                        }
+                        options={[
+                          { value: "once", label: "Once daily" },
+                          { value: "twice", label: "Twice daily" },
+                          { value: "thrice", label: "Thrice daily" },
+                          { value: "custom", label: "Custom" },
+                        ]}
+                        error={errors.frequency?.message}
+                      />
+                    )}
+                  />
+                </div>
 
+                {frequency === "custom" && (
+                  <Input
+                    {...register("times")}
+                    label="Times (comma separated) *"
+                    placeholder="08:00, 14:00, 20:00"
+                    error={errors.times?.message}
+                  />
+                )}
+              </section>
+
+              <section className="space-y-3">
+                <SectionLabel icon={Calendar}>
+                  Duration &amp; Stock
+                </SectionLabel>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <Input
+                    type="number"
+                    inputMode="numeric"
+                    {...register("totalQuantity")}
+                    label="Total quantity"
+                    placeholder="0"
+                    error={errors.totalQuantity?.message}
+                  />
+                  <Input
+                    type="number"
+                    step="1"
+                    inputMode="numeric"
+                    {...register("durationDays")}
+                    label="Duration (days)"
+                    placeholder="e.g., 7"
+                    error={errors.durationDays?.message}
+                  />
+                </div>
+                <p className="text-xs text-emerald-700/60 leading-relaxed">
+                  Leave both at{" "}
+                  <span className="font-semibold text-emerald-800">0</span> for
+                  ongoing medication (no fixed end date).
+                </p>
+              </section>
+
+              <section className="space-y-3">
+                <SectionLabel icon={Users}>
+                  Assignment &amp; Schedule
+                </SectionLabel>
                 <Controller
                   control={control}
                   name="assignedTo"
@@ -2963,18 +3072,8 @@ export default function MedicationPanel() {
                   )}
                 />
 
-                {frequency === "custom" && (
-                  <Input
-                    {...register("times")}
-                    label="Times (comma separated) *"
-                    placeholder="08:00, 14:00, 20:00"
-                    error={errors.times?.message}
-                    className="sm:col-span-2"
-                  />
-                )}
-
-                <div className="space-y-1.5 sm:col-span-2">
-                  <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider">
+                <div className="space-y-1.5">
+                  <label className="block text-[11px] sm:text-xs font-bold text-emerald-700/80 uppercase tracking-wider">
                     Start Date *
                   </label>
                   <Controller
@@ -2995,38 +3094,16 @@ export default function MedicationPanel() {
                     </p>
                   )}
                 </div>
+              </section>
 
+              <section className="space-y-3">
+                <SectionLabel icon={HelpCircle}>Notes</SectionLabel>
                 <Input
                   {...register("instructions")}
                   label="Instructions"
                   placeholder="Take with food"
-                  className="sm:col-span-2"
                 />
-              </div>
-
-              <div className="flex justify-end gap-3 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setShowAddMedModal(false)}
-                  className={cn(
-                    "min-h-11 px-5 text-sm bg-slate-100 text-slate-700 rounded-xl hover:bg-slate-200 font-semibold",
-                    FOCUS,
-                  )}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={isSubmitting}
-                  className={cn(
-                    "inline-flex items-center gap-2 min-h-11 px-5 text-sm bg-emerald-600 text-white rounded-xl hover:bg-emerald-700 disabled:opacity-50 shadow-sm font-semibold",
-                    FOCUS,
-                  )}
-                >
-                  {isSubmitting && <Loader2 className="w-4 h-4 animate-spin" />}
-                  Save
-                </button>
-              </div>
+              </section>
             </form>
           </Modal>
         )}
@@ -3039,10 +3116,39 @@ export default function MedicationPanel() {
             onClose={() => setShowAddFamilyModal(false)}
             title="Add Family Member"
             icon={UserPlus}
+            footer={
+              <div className="flex gap-3">
+                <button
+                  type="button"
+                  onClick={() => setShowAddFamilyModal(false)}
+                  className={cn(
+                    "flex-1 min-h-12 text-sm bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-xl hover:bg-emerald-100 font-semibold",
+                    FOCUS,
+                  )}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  form="add-family-form"
+                  disabled={familyForm.formState.isSubmitting}
+                  className={cn(
+                    "flex-[2] inline-flex items-center justify-center gap-2 min-h-12 text-sm bg-emerald-600 text-white rounded-xl hover:bg-emerald-700 disabled:opacity-50 shadow-sm font-semibold",
+                    FOCUS,
+                  )}
+                >
+                  {familyForm.formState.isSubmitting && (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  )}
+                  Add Member
+                </button>
+              </div>
+            }
           >
             <form
+              id="add-family-form"
               onSubmit={familyForm.handleSubmit(addFamilyMember)}
-              className="space-y-4 mt-2"
+              className="space-y-4"
             >
               <Input
                 {...familyForm.register("name")}
@@ -3062,31 +3168,6 @@ export default function MedicationPanel() {
                 placeholder="Spouse, Child"
                 error={familyForm.formState.errors.relationship?.message}
               />
-              <div className="flex justify-end gap-3 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setShowAddFamilyModal(false)}
-                  className={cn(
-                    "min-h-11 px-5 text-sm bg-slate-100 text-slate-700 rounded-xl hover:bg-slate-200 font-semibold",
-                    FOCUS,
-                  )}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={familyForm.formState.isSubmitting}
-                  className={cn(
-                    "inline-flex items-center gap-2 min-h-11 px-5 text-sm bg-emerald-600 text-white rounded-xl hover:bg-emerald-700 disabled:opacity-50 shadow-sm font-semibold",
-                    FOCUS,
-                  )}
-                >
-                  {familyForm.formState.isSubmitting && (
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                  )}
-                  Add
-                </button>
-              </div>
             </form>
           </Modal>
         )}
@@ -3099,8 +3180,37 @@ export default function MedicationPanel() {
             onClose={() => setShowReactionModal(null)}
             title="Report Reaction"
             icon={AlertCircle}
+            footer={
+              <div className="flex gap-3">
+                <button
+                  type="button"
+                  onClick={() => setShowReactionModal(null)}
+                  className={cn(
+                    "flex-1 min-h-12 text-sm bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-xl hover:bg-emerald-100 font-semibold",
+                    FOCUS,
+                  )}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  form="reaction-form"
+                  disabled={reactionForm.formState.isSubmitting}
+                  className={cn(
+                    "flex-[2] inline-flex items-center justify-center gap-2 min-h-12 text-sm bg-emerald-600 text-white rounded-xl hover:bg-emerald-700 disabled:opacity-50 shadow-sm font-semibold",
+                    FOCUS,
+                  )}
+                >
+                  {reactionForm.formState.isSubmitting && (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  )}
+                  Submit Report
+                </button>
+              </div>
+            }
           >
             <form
+              id="reaction-form"
               onSubmit={reactionForm.handleSubmit(async (data) => {
                 if (showReactionModal) {
                   await logDose(
@@ -3113,40 +3223,15 @@ export default function MedicationPanel() {
                 setShowReactionModal(null);
                 reactionForm.reset();
               })}
-              className="space-y-4 mt-2"
+              className="space-y-4"
             >
               <Textarea
                 {...reactionForm.register("reaction")}
                 label="How did you feel? *"
                 placeholder="Describe any side effects…"
-                className="min-h-[80px]"
+                className="min-h-[120px]"
                 error={reactionForm.formState.errors.reaction?.message}
               />
-              <div className="flex justify-end gap-3">
-                <button
-                  type="button"
-                  onClick={() => setShowReactionModal(null)}
-                  className={cn(
-                    "min-h-11 px-5 text-sm bg-slate-100 text-slate-700 rounded-xl hover:bg-slate-200 font-semibold",
-                    FOCUS,
-                  )}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={reactionForm.formState.isSubmitting}
-                  className={cn(
-                    "inline-flex items-center gap-2 min-h-11 px-5 text-sm bg-emerald-600 text-white rounded-xl hover:bg-emerald-700 disabled:opacity-50 shadow-sm font-semibold",
-                    FOCUS,
-                  )}
-                >
-                  {reactionForm.formState.isSubmitting && (
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                  )}
-                  Submit
-                </button>
-              </div>
             </form>
           </Modal>
         )}
@@ -3159,19 +3244,12 @@ export default function MedicationPanel() {
             onClose={() => setStopConfirm(null)}
             title="Stop Medication?"
             icon={StopCircle}
-          >
-            <div className="text-center space-y-4">
-              <div className="mx-auto w-16 h-16 bg-amber-100 rounded-full flex items-center justify-center">
-                <StopCircle className="w-8 h-8 text-amber-700" />
-              </div>
-              <p className="text-sm text-slate-600">
-                This will mark it as finished and move it to Past.
-              </p>
-              <div className="flex justify-center gap-3 pt-2">
+            footer={
+              <div className="flex gap-3">
                 <button
                   onClick={() => setStopConfirm(null)}
                   className={cn(
-                    "min-h-11 px-5 text-sm bg-slate-100 text-slate-700 rounded-xl hover:bg-slate-200 font-semibold",
+                    "flex-1 min-h-12 text-sm bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-xl hover:bg-emerald-100 font-semibold",
                     FOCUS,
                   )}
                 >
@@ -3180,13 +3258,22 @@ export default function MedicationPanel() {
                 <button
                   onClick={() => stopConfirm && stopMedication(stopConfirm)}
                   className={cn(
-                    "min-h-11 px-5 text-sm bg-amber-600 text-white rounded-xl hover:bg-amber-700 shadow-sm font-semibold",
+                    "flex-1 min-h-12 text-sm bg-emerald-700 text-white rounded-xl hover:bg-emerald-800 shadow-sm font-semibold",
                     FOCUS,
                   )}
                 >
                   Finish
                 </button>
               </div>
+            }
+          >
+            <div className="text-center space-y-4 py-2">
+              <div className="mx-auto w-16 h-16 bg-emerald-100 rounded-full flex items-center justify-center">
+                <StopCircle className="w-8 h-8 text-emerald-700" />
+              </div>
+              <p className="text-sm text-emerald-700/80">
+                This will mark the medication as finished and move it to Past.
+              </p>
             </div>
           </Modal>
         )}

@@ -1,3 +1,4 @@
+// app/dashboard/components/panels/ProfilePanel.tsx
 "use client";
 
 import { useEffect, useState } from "react";
@@ -9,22 +10,20 @@ import {
   Plus,
   Trash2,
   Loader2,
-  Mail,
   Phone,
   User,
   ShieldCheck,
   Dna,
   Save,
-  Fingerprint,
   HeartPulse,
-  ChevronRight,
-  Sparkles,
-  ShieldAlert,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { cn } from "@/app/utils/utils";
 import { authPut } from "@/app/utils/client-auth";
 import { poppins } from "@/app/constants";
+
+const FOCUS =
+  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:ring-offset-2";
 
 // Avatar Assets
 const AVATARS = [
@@ -114,105 +113,90 @@ export default function ProfilePanel() {
     }
   };
 
+  /* ─── Skeleton ─────────────────────────────────────────── */
   if (isLoading)
     return (
       <div
         className={cn(
-          "min-h-screen bg-[#F8FAFC] pb-44 pt-8",
+          "min-h-screen bg-[#F8FAFC] pb-28 pt-2 animate-pulse",
           poppins.className,
         )}
       >
-        <div className="max-w-6xl mx-auto px-4 md:px-6 space-y-10 animate-pulse">
-          {/* Hero Skeleton */}
-          <div className="h-64 rounded-[36px] bg-slate-200 w-full" />
-
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-10">
-            <div className="lg:col-span-8 space-y-10">
-              <div className="h-48 rounded-[36px] bg-white border border-slate-200" />
-              <div className="h-80 rounded-[36px] bg-white border border-slate-200" />
-            </div>
-            <div className="lg:col-span-4">
-              <div className="h-96 rounded-[36px] bg-white border border-slate-200" />
-            </div>
+        <div className="max-w-5xl mx-auto px-4 pt-3 sm:px-6 lg:px-8 space-y-4 lg:space-y-5">
+          <div className="space-y-2">
+            <div className="h-9 w-56 rounded-lg bg-emerald-100" />
+            <div className="h-3.5 w-72 rounded-lg bg-emerald-100/70" />
           </div>
+          <div className="h-40 rounded-2xl bg-emerald-100/50" />
+          <div className="h-64 rounded-2xl bg-emerald-100/50" />
+          <div className="h-56 rounded-2xl bg-emerald-100/50" />
         </div>
       </div>
     );
 
   return (
-    <div
+    <motion.div
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.2, ease: "easeOut" }}
       className={cn(
-        "min-h-screen bg-[#F8FAFC] pb-44 pt-8 selection:bg-emerald-500 selection:text-white",
+        "min-h-screen bg-[#F8FAFC] pb-32 pt-2 text-slate-900",
         poppins.className,
       )}
     >
-      <div className="max-w-6xl mx-auto px-4 md:px-6">
-        {/* --- HERO SECTION --- */}
-        <section className="relative rounded-[36px] md:rounded-[48px] bg-slate-900 overflow-hidden mb-12 shadow-sm border border-slate-800">
-          <div className="absolute top-0 right-0 w-1/2 h-full bg-gradient-to-l from-emerald-500/10 to-transparent pointer-events-none" />
-
-          <div className="relative z-10 p-8 md:p-14 flex flex-col md:flex-row items-center gap-8">
-            <div className="w-32 h-32 md:w-36 md:h-36 rounded-[32px] overflow-hidden border-4 border-slate-800 shadow-lg bg-slate-800 shrink-0">
-              <img
-                src={
-                  AVATARS.find((a) => a.id === watchedAvatar)?.src ||
-                  AVATARS[0].src
-                }
-                className="w-full h-full object-cover"
-                alt="Profile"
-              />
-            </div>
-
-            <div className="flex-1 text-center md:text-left space-y-2">
-              <span className="text-xs font-bold text-emerald-400 uppercase tracking-wider">
-                Account Settings
-              </span>
-              <h1 className="text-4xl md:text-5xl font-bold text-white tracking-tight">
-                Profile & Information
-              </h1>
-              <p className="text-slate-400 text-sm max-w-lg font-medium leading-relaxed">
-                Update your personal details, physical metrics, and emergency
-                contacts.
-              </p>
-            </div>
+      <main className="mx-auto max-w-5xl px-4 pt-3 sm:px-6 lg:px-8 space-y-4 lg:space-y-5">
+        {/* ─── HEADER ──────────────────────────────────────── */}
+        <header className="pt-1 lg:pt-2 flex flex-col gap-3">
+          <div className="min-w-0 flex-1">
+            <h1 className="text-2xl sm:text-3xl lg:text-4xl font-bold text-slate-900 tracking-tight leading-tight">
+              Profile &amp; Information
+            </h1>
+            <p className="text-xs sm:text-sm text-slate-500 mt-1 max-w-lg">
+              Update your personal details, physical metrics, and emergency
+              contacts.
+            </p>
           </div>
-        </section>
+        </header>
 
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-10">
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-10">
-            {/* LEFT: PRIMARY DATA */}
-            <div className="lg:col-span-8 space-y-10">
-              {/* Avatar Selection */}
-              <section className="bg-white rounded-[36px] p-8 md:p-10 border border-slate-200/80 shadow-sm">
-                <div className="flex items-center gap-4 mb-6">
-                  <div className="w-12 h-12 bg-emerald-50 rounded-2xl flex items-center justify-center border border-emerald-100/60">
-                    <User className="text-emerald-600" size={22} />
+        <form
+          onSubmit={handleSubmit(onSubmit)}
+          className="space-y-4 lg:space-y-5"
+        >
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 lg:gap-5">
+            {/* ─── LEFT COLUMN ─────────────────────────────── */}
+            <div className="lg:col-span-8 space-y-4 lg:space-y-5">
+              {/* Avatar Picker */}
+              <section className="bg-white rounded-2xl p-5 sm:p-6 border border-emerald-100 shadow-xs">
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="w-10 h-10 bg-emerald-50 rounded-xl flex items-center justify-center">
+                    <User className="text-emerald-600" size={18} />
                   </div>
                   <div>
-                    <h3 className="text-2xl font-bold text-slate-900 leading-none mb-1">
+                    <h3 className="text-base font-bold text-slate-900 leading-tight">
                       Profile Picture
                     </h3>
-                    <p className="text-xs text-slate-400 font-medium">
+                    <p className="text-[11px] text-emerald-700/60 font-medium">
                       Choose an avatar for your account
                     </p>
                   </div>
                 </div>
 
-                <div className="grid grid-cols-4 sm:grid-cols-8 gap-3 sm:gap-4">
+                <div className="grid grid-cols-4 sm:grid-cols-8 gap-2 sm:gap-2.5">
                   {AVATARS.map((avatar) => (
                     <motion.button
                       key={avatar.id}
                       type="button"
-                      whileHover={{ scale: 1.05 }}
-                      whileTap={{ scale: 0.95 }}
+                      whileHover={{ scale: 1.04 }}
+                      whileTap={{ scale: 0.96 }}
                       onClick={() =>
                         reset({ ...watch(), avatarId: avatar.id } as any)
                       }
                       className={cn(
-                        "aspect-square rounded-2xl overflow-hidden border-2 transition-all relative",
+                        "aspect-square rounded-xl overflow-hidden border-2 transition-all relative",
                         watchedAvatar === avatar.id
-                          ? "border-emerald-500 ring-4 ring-emerald-500/10 shadow-md"
-                          : "border-slate-100 opacity-60 hover:opacity-100",
+                          ? "border-emerald-500 ring-2 ring-emerald-500/20 shadow-sm"
+                          : "border-emerald-100 opacity-70 hover:opacity-100 hover:border-emerald-200",
+                        FOCUS,
                       )}
                     >
                       <img
@@ -225,91 +209,91 @@ export default function ProfilePanel() {
                 </div>
               </section>
 
-              {/* Personal Information */}
-              <section className="bg-white rounded-[36px] p-8 md:p-10 border border-slate-200/80 shadow-sm space-y-8">
-                <div className="flex items-center gap-4 mb-2">
-                  <div className="w-12 h-12 bg-emerald-50 rounded-2xl flex items-center justify-center border border-emerald-100/60">
-                    <ShieldCheck className="text-emerald-600" size={22} />
+              {/* Personal Details */}
+              <section className="bg-white rounded-2xl p-5 sm:p-6 border border-emerald-100 shadow-xs space-y-5">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 bg-emerald-50 rounded-xl flex items-center justify-center">
+                    <ShieldCheck className="text-emerald-600" size={18} />
                   </div>
                   <div>
-                    <h3 className="text-2xl font-bold text-slate-900 leading-none mb-1">
+                    <h3 className="text-base font-bold text-slate-900 leading-tight">
                       Personal Details
                     </h3>
-                    <p className="text-xs text-slate-400 font-medium">
+                    <p className="text-[11px] text-emerald-700/60 font-medium">
                       Your primary identification information
                     </p>
                   </div>
                 </div>
 
-                <div className="grid md:grid-cols-2 gap-6">
+                <div className="grid sm:grid-cols-2 gap-4">
                   <InputGroup
                     label="Full Name"
                     error={errors.displayName?.message}
                   >
-                    <User size={20} className="text-emerald-600 shrink-0" />
+                    <User size={18} className="text-emerald-600 shrink-0" />
                     <input
                       {...register("displayName")}
                       placeholder="Enter your name"
-                      className="bg-transparent outline-none w-full text-base font-medium text-slate-800 placeholder:text-slate-300"
+                      className="bg-transparent outline-none w-full text-base sm:text-sm font-medium text-emerald-900 placeholder:text-emerald-700/30"
                     />
                   </InputGroup>
                   <InputGroup label="Phone Number">
-                    <Phone size={20} className="text-emerald-600 shrink-0" />
+                    <Phone size={18} className="text-emerald-600 shrink-0" />
                     <input
                       {...register("phone")}
                       placeholder="Enter phone number"
-                      className="bg-transparent outline-none w-full text-base font-medium text-slate-800 placeholder:text-slate-300"
+                      className="bg-transparent outline-none w-full text-base sm:text-sm font-medium text-emerald-900 placeholder:text-emerald-700/30"
                     />
                   </InputGroup>
                 </div>
 
-                <div className="bg-slate-900 rounded-[28px] p-7 flex items-center justify-between shadow-sm border border-slate-800">
-                  <div className="space-y-1">
-                    <label className="text-[11px] font-bold text-emerald-400 uppercase tracking-wider block">
+                <div className="bg-emerald-50 border border-emerald-100 rounded-2xl p-4 flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <label className="text-[10px] font-bold text-emerald-700 uppercase tracking-wider block mb-0.5">
                       Email Address
                     </label>
-                    <span className="text-lg md:text-xl font-medium text-white tracking-tight">
+                    <span className="text-sm sm:text-base font-bold text-emerald-900 truncate block">
                       {profile?.email}
                     </span>
                   </div>
-                  <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center shrink-0">
-                    <ShieldCheck className="text-emerald-400 w-6 h-6" />
+                  <div className="w-10 h-10 rounded-xl bg-white border border-emerald-100 flex items-center justify-center shrink-0">
+                    <ShieldCheck className="text-emerald-600 w-5 h-5" />
                   </div>
                 </div>
               </section>
             </div>
 
-            {/* RIGHT: HEALTH METRICS */}
+            {/* ─── RIGHT COLUMN ────────────────────────────── */}
             <div className="lg:col-span-4">
-              <section className="bg-white rounded-[36px] p-8 border border-slate-200/80 shadow-sm space-y-8 sticky top-8">
-                <div className="flex items-center justify-between">
+              <section className="bg-white rounded-2xl p-5 sm:p-6 border border-emerald-100 shadow-xs space-y-5 lg:sticky lg:top-4">
+                <div className="flex items-center justify-between gap-3">
                   <div>
-                    <h3 className="text-2xl font-bold text-slate-900 leading-none mb-1">
+                    <h3 className="text-base font-bold text-slate-900 leading-tight">
                       Health Metrics
                     </h3>
-                    <p className="text-xs text-slate-400 font-medium">
+                    <p className="text-[11px] text-emerald-700/60 font-medium">
                       Physical attributes
                     </p>
                   </div>
-                  <div className="w-11 h-11 bg-emerald-50 rounded-2xl flex items-center justify-center border border-emerald-100/60">
-                    <Dna size={22} className="text-emerald-600" />
+                  <div className="w-10 h-10 bg-emerald-50 rounded-xl flex items-center justify-center shrink-0">
+                    <Dna size={18} className="text-emerald-600" />
                   </div>
                 </div>
 
-                <div className="space-y-5">
+                <div className="space-y-3">
                   <MetricInput label="Blood Group">
-                    <HeartPulse className="w-4 h-4 text-rose-500 shrink-0" />
+                    <HeartPulse className="w-4 h-4 text-emerald-600 shrink-0" />
                     <input
                       {...register("bloodGroup")}
                       placeholder="e.g. O+"
-                      className="bg-transparent outline-none w-full text-slate-900 font-bold text-center placeholder:text-slate-300"
+                      className="bg-transparent outline-none w-full text-base sm:text-sm text-emerald-900 font-bold text-center placeholder:text-emerald-700/30"
                     />
                   </MetricInput>
 
                   <MetricInput label="Gender">
                     <select
                       {...register("gender")}
-                      className="bg-transparent outline-none w-full text-xs font-bold text-slate-700 cursor-pointer appearance-none text-center"
+                      className="bg-transparent outline-none w-full text-base sm:text-sm font-bold text-emerald-900 cursor-pointer appearance-none text-center"
                     >
                       <option value="male">Male</option>
                       <option value="female">Female</option>
@@ -320,13 +304,13 @@ export default function ProfilePanel() {
                     </select>
                   </MetricInput>
 
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-2 gap-3">
                     <MetricInput label="Height (cm)">
                       <input
                         type="number"
                         {...register("height", { valueAsNumber: true })}
                         placeholder="175"
-                        className="bg-transparent outline-none w-full font-bold text-sm text-center placeholder:text-slate-300"
+                        className="bg-transparent outline-none w-full font-bold text-base sm:text-sm text-center text-emerald-900 placeholder:text-emerald-700/30"
                       />
                     </MetricInput>
                     <MetricInput label="Weight (kg)">
@@ -334,29 +318,27 @@ export default function ProfilePanel() {
                         type="number"
                         {...register("weight", { valueAsNumber: true })}
                         placeholder="70"
-                        className="bg-transparent outline-none w-full font-bold text-sm text-center placeholder:text-slate-300"
+                        className="bg-transparent outline-none w-full font-bold text-base sm:text-sm text-center text-emerald-900 placeholder:text-emerald-700/30"
                       />
                     </MetricInput>
                   </div>
                 </div>
 
-                <div className="pt-6 border-t border-slate-100 bg-slate-50/50 -mx-8 -mb-8 p-8 rounded-b-[36px]">
-                  <p className="text-xs text-slate-400 font-medium leading-relaxed">
-                    Your health information is kept private and secure.
-                  </p>
-                </div>
+                <p className="text-[11px] text-emerald-700/60 font-medium leading-relaxed pt-3 border-t border-emerald-100">
+                  Your health information is kept private and secure.
+                </p>
               </section>
             </div>
           </div>
 
-          {/* EMERGENCY CONTACTS (Full Width) */}
-          <section className="bg-rose-50/30 rounded-[40px] md:rounded-[48px] p-8 md:p-12 border border-rose-100 shadow-sm">
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 mb-10">
-              <div className="space-y-1">
-                <h3 className="text-3xl md:text-4xl font-bold text-rose-950 leading-none">
+          {/* ─── EMERGENCY CONTACTS ────────────────────────── */}
+          <section className="bg-emerald-50/60 rounded-2xl p-5 sm:p-6 border border-emerald-100 shadow-xs">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-5">
+              <div className="min-w-0">
+                <h3 className="text-base font-bold text-emerald-900 leading-tight">
                   Emergency Contacts
                 </h3>
-                <p className="text-xs text-rose-600 font-medium mt-1">
+                <p className="text-[11px] text-emerald-700/70 font-medium mt-0.5">
                   People to reach out to in case of an emergency
                 </p>
               </div>
@@ -372,65 +354,70 @@ export default function ProfilePanel() {
                     relationship: "",
                   })
                 }
-                className="flex items-center justify-center gap-2 bg-rose-600 text-white px-6 py-3.5 rounded-2xl font-bold text-xs shadow-md transition-all"
+                className={cn(
+                  "inline-flex items-center justify-center gap-1.5 bg-emerald-600 text-white px-4 min-h-10 rounded-xl font-bold text-xs shadow-sm shadow-emerald-600/20 hover:bg-emerald-700 transition-all shrink-0",
+                  FOCUS,
+                )}
               >
-                <Plus size={18} /> Add Contact
+                <Plus size={14} /> Add Contact
               </motion.button>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
               <AnimatePresence>
                 {fields.map((field, index) => (
                   <motion.div
                     key={field.id}
-                    initial={{ opacity: 0, y: 15, scale: 0.95 }}
+                    initial={{ opacity: 0, y: 12, scale: 0.97 }}
                     animate={{ opacity: 1, y: 0, scale: 1 }}
-                    exit={{ opacity: 0, scale: 0.95 }}
-                    className="bg-white p-6 rounded-[28px] border border-rose-100 shadow-sm relative group transition-all hover:shadow-md"
+                    exit={{ opacity: 0, scale: 0.97 }}
+                    className="bg-white p-4 rounded-xl border border-emerald-100 shadow-xs relative group transition-shadow hover:shadow-sm"
                   >
-                    <motion.button
+                    <button
                       type="button"
-                      whileHover={{ scale: 1.1 }}
-                      whileTap={{ scale: 0.9 }}
                       onClick={() => remove(index)}
-                      className="absolute top-4 right-4 w-9 h-9 bg-rose-50 text-rose-500 rounded-xl flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all hover:bg-rose-500 hover:text-white"
+                      aria-label="Remove contact"
+                      className={cn(
+                        "absolute top-3 right-3 w-8 h-8 bg-emerald-50 text-emerald-600 rounded-lg flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all hover:bg-emerald-600 hover:text-white",
+                        FOCUS,
+                      )}
                     >
-                      <Trash2 size={16} />
-                    </motion.button>
+                      <Trash2 size={14} />
+                    </button>
 
-                    <div className="space-y-4 pt-1">
-                      <div className="space-y-1.5">
-                        <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider ml-1">
+                    <div className="space-y-3 pt-0.5">
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-bold text-emerald-700/70 uppercase tracking-wider ml-0.5">
                           Contact Name
                         </label>
                         <input
                           {...register(`emergencyContacts.${index}.name`)}
                           placeholder="Full Name"
-                          className="w-full bg-slate-50 border border-slate-200 px-4 py-3 rounded-2xl text-sm font-medium text-slate-800 outline-none focus:bg-white focus:border-rose-400 transition-all placeholder:text-slate-300"
+                          className="w-full bg-emerald-50/40 border border-emerald-100 px-3 py-2.5 rounded-lg text-base sm:text-sm font-medium text-emerald-900 outline-none focus:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/15 transition-all placeholder:text-emerald-700/30"
                         />
                       </div>
 
-                      <div className="grid grid-cols-2 gap-3">
-                        <div className="space-y-1.5">
-                          <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider ml-1">
+                      <div className="grid grid-cols-2 gap-2.5">
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-bold text-emerald-700/70 uppercase tracking-wider ml-0.5">
                             Phone
                           </label>
                           <input
                             {...register(`emergencyContacts.${index}.phone`)}
                             placeholder="Mobile"
-                            className="w-full bg-slate-50 border border-slate-200 px-4 py-3 rounded-2xl text-sm font-medium text-slate-800 outline-none focus:bg-white focus:border-rose-400 transition-all placeholder:text-slate-300"
+                            className="w-full bg-emerald-50/40 border border-emerald-100 px-3 py-2.5 rounded-lg text-base sm:text-sm font-medium text-emerald-900 outline-none focus:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/15 transition-all placeholder:text-emerald-700/30"
                           />
                         </div>
-                        <div className="space-y-1.5">
-                          <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider ml-1">
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-bold text-emerald-700/70 uppercase tracking-wider ml-0.5">
                             Relation
                           </label>
                           <input
                             {...register(
                               `emergencyContacts.${index}.relationship`,
                             )}
-                            placeholder="e.g. Spouse"
-                            className="w-full bg-slate-50 border border-slate-200 px-4 py-3 rounded-2xl text-sm font-medium text-slate-800 outline-none focus:bg-white focus:border-rose-400 transition-all placeholder:text-slate-300"
+                            placeholder="Spouse"
+                            className="w-full bg-emerald-50/40 border border-emerald-100 px-3 py-2.5 rounded-lg text-base sm:text-sm font-medium text-emerald-900 outline-none focus:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/15 transition-all placeholder:text-emerald-700/30"
                           />
                         </div>
                       </div>
@@ -441,48 +428,51 @@ export default function ProfilePanel() {
             </div>
 
             {fields.length === 0 && (
-              <div className="text-center py-12 border-2 border-dashed border-rose-200 rounded-[28px] bg-white/50">
-                <p className="text-rose-400 font-medium text-sm">
-                  No emergency contacts added yet. Click &quot;Add Contact&quot;
+              <div className="text-center py-8 border-2 border-dashed border-emerald-200 rounded-xl bg-white/60">
+                <p className="text-emerald-700/70 font-medium text-xs px-4">
+                  No emergency contacts yet. Tap{" "}
+                  <span className="font-bold text-emerald-700">
+                    Add Contact
+                  </span>{" "}
                   to include one.
                 </p>
               </div>
             )}
           </section>
-
-          {/* FLOATING ACTION BAR */}
-          <div className="fixed bottom-10 left-0 right-0 px-4 flex justify-center z-50 pointer-events-none">
-            <motion.div
-              initial={{ y: 20, opacity: 0 }}
-              animate={{ y: 0, opacity: 1 }}
-              className="pointer-events-auto w-full max-w-sm p-2 bg-slate-900/95 backdrop-blur-xl rounded-[28px] shadow-xl border border-slate-800"
-            >
-              <motion.button
-                type="submit"
-                disabled={!isDirty || isSaving}
-                whileHover={{ scale: 1.01 }}
-                whileTap={{ scale: 0.98 }}
-                className="w-full h-14 bg-emerald-500 text-slate-950 rounded-[20px] shadow-md flex items-center justify-center gap-3 disabled:opacity-40 disabled:grayscale transition-all font-bold cursor-pointer hover:bg-emerald-400"
-              >
-                {isSaving ? (
-                  <Loader2 className="animate-spin text-slate-950" size={20} />
-                ) : (
-                  <Save className="text-slate-950" size={18} />
-                )}
-                <span className="text-xs uppercase tracking-wider font-extrabold">
-                  {isSaving ? "Saving..." : "Save Changes"}
-                </span>
-              </motion.button>
-            </motion.div>
-          </div>
         </form>
+      </main>
+
+      {/* ─── FLOATING SAVE BAR ──────────────────────────── */}
+      <div className="fixed bottom-24 sm:bottom-8 left-0 right-0 px-4 flex justify-center z-50 pointer-events-none">
+        <motion.div
+          initial={{ y: 20, opacity: 0 }}
+          animate={{ y: 0, opacity: 1 }}
+          className="pointer-events-auto w-full max-w-sm p-2 bg-white/95 backdrop-blur-md rounded-2xl shadow-xl border border-emerald-100"
+        >
+          <button
+            type="submit"
+            form=""
+            disabled={!isDirty || isSaving}
+            onClick={handleSubmit(onSubmit)}
+            className={cn(
+              "w-full h-12 bg-emerald-600 text-white rounded-xl shadow-sm shadow-emerald-600/20 flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed transition-all font-bold text-xs uppercase tracking-wider hover:bg-emerald-700 active:scale-[0.98]",
+              FOCUS,
+            )}
+          >
+            {isSaving ? (
+              <Loader2 className="animate-spin" size={16} />
+            ) : (
+              <Save size={16} />
+            )}
+            <span>{isSaving ? "Saving…" : "Save Changes"}</span>
+          </button>
+        </motion.div>
       </div>
-    </div>
+    </motion.div>
   );
 }
 
-// --- SUB-COMPONENTS ---
-
+/* ─── Input wrapper ─────────────────────────────────────── */
 function InputGroup({
   label,
   children,
@@ -493,22 +483,22 @@ function InputGroup({
   error?: string;
 }) {
   return (
-    <div className="space-y-2">
-      <label className="text-xs font-bold text-slate-700 uppercase tracking-wider ml-1">
+    <div className="space-y-1.5">
+      <label className="text-[10px] font-bold text-emerald-700 uppercase tracking-wider ml-0.5 block">
         {label}
       </label>
       <div
         className={cn(
-          "h-16 px-5 rounded-[22px] border flex items-center gap-4 transition-all duration-200",
+          "h-12 px-4 rounded-xl border flex items-center gap-3 transition-all duration-200",
           error
-            ? "border-rose-500 bg-rose-50/50"
-            : "border-slate-200 bg-slate-50/60 focus-within:border-emerald-500 focus-within:bg-white focus-within:shadow-sm",
+            ? "border-rose-300 bg-rose-50/60"
+            : "border-emerald-100 bg-emerald-50/40 focus-within:border-emerald-500 focus-within:bg-white focus-within:ring-2 focus-within:ring-emerald-500/15",
         )}
       >
         {children}
       </div>
       {error && (
-        <p className="text-[10px] text-rose-600 font-bold ml-2 uppercase tracking-tight">
+        <p className="text-[11px] text-rose-700 font-semibold ml-0.5">
           {error}
         </p>
       )}
@@ -524,11 +514,11 @@ function MetricInput({
   children: React.ReactNode;
 }) {
   return (
-    <div className="space-y-2">
-      <label className="text-xs font-bold text-slate-600 uppercase tracking-wider ml-1">
+    <div className="space-y-1.5">
+      <label className="text-[10px] font-bold text-emerald-700 uppercase tracking-wider ml-0.5 block">
         {label}
       </label>
-      <div className="h-14 px-4 rounded-2xl bg-slate-50/80 border border-slate-200 flex items-center gap-3 focus-within:border-emerald-500 focus-within:bg-white transition-all">
+      <div className="h-11 px-3 rounded-xl bg-emerald-50/40 border border-emerald-100 flex items-center gap-2.5 focus-within:border-emerald-500 focus-within:bg-white focus-within:ring-2 focus-within:ring-emerald-500/15 transition-all">
         {children}
       </div>
     </div>

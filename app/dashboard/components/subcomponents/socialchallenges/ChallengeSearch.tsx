@@ -1,3 +1,4 @@
+// app/dashboard/components/subcomponents/socialchallenges/ChallengeSearch.tsx
 import { motion, AnimatePresence } from "framer-motion";
 import { useState, useRef, useEffect } from "react";
 import {
@@ -14,10 +15,11 @@ import {
   Check,
 } from "lucide-react";
 import { cn } from "@/app/utils/utils";
-import { bebasNeue } from "@/app/constants";
 import { activityOptions } from "@/app/types/challengeConstant";
 
-// Helper map to replace string/emoji icons with high-end clean Lucide SVG icons
+const FOCUS =
+  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:ring-offset-2";
+
 const getActivityIcon = (value: string) => {
   const props = { className: "w-3.5 h-3.5 text-emerald-600" };
   switch (value) {
@@ -60,32 +62,35 @@ export function ChallengeSearch({
 }) {
   return (
     <motion.div
-      initial={{ opacity: 0, y: -12 }}
+      initial={{ opacity: 0, y: -8 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ type: "spring", damping: 20 }}
-      className="relative z-50 mb-8 px-0.5"
+      transition={{ type: "spring", damping: 22, stiffness: 300 }}
+      className="space-y-2"
     >
-      <div className="bg-white/95 backdrop-blur-2xl rounded-[32px] p-3 border border-slate-200/80 shadow-[0_16px_48px_rgba(0,0,0,0.04)]">
-        <div className="flex flex-col lg:flex-row items-stretch gap-3">
-          {/* Main Search Input */}
-          <div className="flex-1 relative group">
-            <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none">
-              <Search className="text-slate-400 group-focus-within:text-emerald-600 transition-colors w-4 h-4" />
-            </div>
+      {/* Controls bar */}
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-xs p-2">
+        <div className="flex flex-col lg:flex-row lg:items-center gap-2">
+          {/* Search input */}
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
             <input
               type="text"
-              placeholder="Search challenges by name or keyword..."
+              placeholder="Search challenges…"
               value={search}
               onChange={(e) => onSearchChange(e.target.value)}
-              className="w-full pl-11 pr-4 py-4 text-sm bg-slate-50/80 border border-slate-200/80 rounded-[22px] focus:bg-white focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10 transition-all duration-300 outline-none text-slate-900 placeholder:text-slate-400 font-medium shadow-2xs"
+              className={cn(
+                "w-full h-11 pl-9 pr-3 text-base sm:text-sm bg-slate-50 border border-slate-200 rounded-xl outline-none transition-all text-slate-900 placeholder:text-slate-400 font-medium",
+                "focus:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/15",
+                FOCUS,
+              )}
             />
           </div>
 
-          {/* Filtering Custom Dropdown Group */}
-          <div className="flex flex-col sm:flex-row gap-3 flex-none lg:flex-initial">
+          {/* Filters + desktop reset */}
+          <div className="grid grid-cols-2 lg:flex lg:items-center gap-2">
             <CustomSelectFilter
               icon={<Activity className="w-4 h-4 text-emerald-600" />}
-              label="Activity Type"
+              label="Activity"
               value={activity}
               onChange={onActivityChange}
               options={[
@@ -98,8 +103,8 @@ export function ChallengeSearch({
               isActivity={true}
             />
             <CustomSelectFilter
-              icon={<Calendar className="w-4 h-4 text-blue-600" />}
-              label="Season Month"
+              icon={<Calendar className="w-4 h-4 text-slate-500" />}
+              label="Month"
               value={month}
               onChange={onMonthChange}
               options={[
@@ -112,47 +117,37 @@ export function ChallengeSearch({
                 })),
               ]}
             />
-          </div>
 
-          {/* Desktop Reset Button */}
-          <button
-            onClick={onReset}
-            className="hidden lg:flex items-center justify-center gap-2 px-6 py-4 bg-slate-900 text-white rounded-[22px] text-xs font-bold uppercase tracking-wider hover:bg-emerald-600 active:scale-95 transition-all shadow-sm hover:shadow-md hover:shadow-emerald-600/20 shrink-0"
-          >
-            <RotateCcw className="w-3.5 h-3.5" />
-            Reset
-          </button>
+            <button
+              onClick={onReset}
+              className={cn(
+                "hidden lg:inline-flex items-center justify-center gap-1.5 h-11 px-4 bg-slate-900 text-white rounded-xl text-xs font-bold hover:bg-emerald-600 transition-colors shrink-0 shadow-xs",
+                FOCUS,
+              )}
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+              Reset
+            </button>
+          </div>
         </div>
       </div>
 
-      {/* Sub-bar Indicators */}
-      <div className="mt-3.5 px-4 flex items-center justify-between">
-        <div className="flex items-center gap-2.5">
-          <span className="relative flex h-2 w-2">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
-            <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.8)]" />
-          </span>
-          <span
-            className={cn(
-              "text-xs font-bold text-slate-700 tracking-wider uppercase",
-              bebasNeue.className,
-            )}
-          >
-            Showing{" "}
-            <span className="text-emerald-600 font-extrabold">
-              {resultCount}
-            </span>{" "}
-            Active Rounds
-          </span>
-        </div>
+      {/* Sub-bar */}
+      <div className="flex items-center justify-between px-1">
+        <span className="text-[11px] sm:text-xs text-slate-500 font-medium">
+          <span className="font-bold text-slate-900">{resultCount}</span>{" "}
+          {resultCount === 1 ? "challenge" : "challenges"} found
+        </span>
 
-        {/* Mobile Reset */}
         <button
           onClick={onReset}
-          className="flex lg:hidden items-center gap-1.5 text-[11px] font-bold text-slate-500 uppercase tracking-wider hover:text-slate-900 transition-colors bg-white px-3 py-1.5 rounded-full border border-slate-200/80 shadow-2xs"
+          className={cn(
+            "lg:hidden inline-flex items-center gap-1 text-[11px] font-semibold text-slate-600 hover:text-emerald-700 transition-colors h-8 px-2 rounded-lg",
+            FOCUS,
+          )}
         >
-          <RotateCcw className="w-3 h-3 text-emerald-600" />
-          Clear Filters
+          <RotateCcw className="w-3 h-3" />
+          Reset
         </button>
       </div>
     </motion.div>
@@ -174,7 +169,6 @@ function CustomSelectFilter({
   const displayLabel = selectedOption?.label || "All";
   const displayIcon = isActivity && value ? getActivityIcon(value) : null;
 
-  // Close dropdown on outside click
   useEffect(() => {
     const handleOutsideClick = (event: MouseEvent) => {
       if (
@@ -189,96 +183,94 @@ function CustomSelectFilter({
   }, []);
 
   return (
-    <div className="relative flex-1 lg:w-56" ref={dropdownRef}>
-      {/* Trigger Button */}
-      <div
+    <div className="relative lg:w-44" ref={dropdownRef}>
+      <button
+        type="button"
         onClick={() => setIsOpen(!isOpen)}
+        aria-haspopup="listbox"
+        aria-expanded={isOpen}
         className={cn(
-          "relative flex items-center gap-3.5 px-3.5 py-2.5 bg-slate-50/80 border rounded-[22px] transition-all duration-300 h-16 lg:h-auto cursor-pointer shadow-2xs group",
+          "w-full flex items-center gap-2 h-11 px-3 bg-slate-50 border rounded-xl transition-colors text-left",
           isOpen
-            ? "bg-white border-emerald-500 ring-4 ring-emerald-500/10 shadow-md"
-            : "border-slate-200/80 hover:bg-white hover:border-slate-300 hover:shadow-md",
+            ? "bg-white border-emerald-500 ring-2 ring-emerald-500/15"
+            : "border-slate-200 hover:bg-white hover:border-slate-300",
+          FOCUS,
         )}
       >
-        {/* Icon Box */}
-        <div className="p-2.5 bg-white rounded-2xl border border-slate-200/60 shadow-xs flex items-center justify-center shrink-0 group-hover:scale-105 group-hover:border-emerald-500/30 transition-all">
+        <div className="w-7 h-7 rounded-lg bg-white border border-slate-200 flex items-center justify-center shrink-0">
           {displayIcon || icon}
         </div>
 
-        {/* Label + Selected Value */}
-        <div className="flex flex-col min-w-0 flex-1">
-          <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest leading-none mb-1">
+        <div className="flex flex-col min-w-0 flex-1 leading-none">
+          <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">
             {label}
           </span>
-          <span className="text-xs font-extrabold text-slate-900 truncate tracking-tight">
+          <span className="text-xs font-semibold text-slate-900 truncate">
             {displayLabel}
           </span>
         </div>
 
-        {/* Chevron Indicator */}
-        <div className="text-slate-400 group-hover:text-slate-700 transition-colors shrink-0 pr-1">
-          <ChevronDown
-            className={cn(
-              "w-4 h-4 transition-transform duration-300",
-              isOpen && "rotate-180 text-emerald-600",
-            )}
-          />
-        </div>
-      </div>
+        <ChevronDown
+          className={cn(
+            "w-3.5 h-3.5 text-slate-400 shrink-0 transition-transform duration-200",
+            isOpen && "rotate-180 text-emerald-600",
+          )}
+        />
+      </button>
 
-      {/* Styled Floating Options Menu */}
       <AnimatePresence>
         {isOpen && (
           <motion.div
-            initial={{ opacity: 0, y: 8, scale: 0.98 }}
-            animate={{ opacity: 1, y: 4, scale: 1 }}
-            exit={{ opacity: 0, y: 8, scale: 0.98 }}
-            transition={{ duration: 0.2, ease: "easeOut" }}
-            className="absolute left-0 right-0 top-full mt-2 bg-white/95 backdrop-blur-2xl border border-slate-200/80 rounded-[24px] shadow-2xl p-2 z-50 max-h-64 overflow-y-auto scrollbar-thin scrollbar-thumb-slate-200 scrollbar-track-transparent"
+            initial={{ opacity: 0, y: 6, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 6, scale: 0.98 }}
+            transition={{ duration: 0.15, ease: "easeOut" }}
+            role="listbox"
+            className="absolute left-0 right-0 top-full mt-1.5 bg-white border border-slate-200 rounded-xl shadow-lg p-1 z-50 max-h-64 overflow-y-auto custom-emerald-scrollbar"
           >
-            <div className="space-y-1">
-              {options.map((opt: any) => {
-                const isSelected = opt.value === value;
-                const optIcon =
-                  isActivity && opt.value ? getActivityIcon(opt.value) : null;
+            {options.map((opt: any) => {
+              const isSelected = opt.value === value;
+              const optIcon =
+                isActivity && opt.value ? getActivityIcon(opt.value) : null;
 
-                return (
-                  <div
-                    key={opt.value}
-                    onClick={() => {
-                      onChange(opt.value);
-                      setIsOpen(false);
-                    }}
-                    className={cn(
-                      "flex items-center justify-between px-3.5 py-3 rounded-xl text-xs font-bold cursor-pointer transition-all duration-200",
-                      isSelected
-                        ? "bg-gradient-to-r from-emerald-500 to-teal-600 text-white shadow-md shadow-emerald-500/20"
-                        : "text-slate-700 hover:bg-emerald-50 hover:text-emerald-900",
+              return (
+                <button
+                  key={opt.value}
+                  type="button"
+                  role="option"
+                  aria-selected={isSelected}
+                  onClick={() => {
+                    onChange(opt.value);
+                    setIsOpen(false);
+                  }}
+                  className={cn(
+                    "w-full flex items-center justify-between gap-2 px-2.5 py-2 rounded-lg text-xs font-semibold text-left transition-colors",
+                    isSelected
+                      ? "bg-emerald-600 text-white"
+                      : "text-slate-700 hover:bg-emerald-50 hover:text-emerald-900",
+                    FOCUS,
+                  )}
+                >
+                  <div className="flex items-center gap-2 min-w-0">
+                    {optIcon && (
+                      <div
+                        className={cn(
+                          "w-5 h-5 rounded flex items-center justify-center shrink-0",
+                          isSelected ? "text-white" : "text-emerald-600",
+                        )}
+                      >
+                        {optIcon}
+                      </div>
                     )}
-                  >
-                    <div className="flex items-center gap-2.5 min-w-0">
-                      {optIcon && (
-                        <div
-                          className={cn(
-                            "p-1.5 rounded-lg shrink-0",
-                            isSelected
-                              ? "bg-white/20 text-white"
-                              : "bg-emerald-100/60 text-emerald-700",
-                          )}
-                        >
-                          {optIcon}
-                        </div>
-                      )}
-                      <span className="truncate">{opt.label}</span>
-                    </div>
-
-                    {isSelected && (
-                      <Check className="w-4 h-4 text-white shrink-0 ml-2" />
-                    )}
+                    <span className="truncate">{opt.label}</span>
                   </div>
-                );
-              })}
-            </div>
+
+                  {isSelected && (
+                    <Check className="w-3.5 h-3.5 text-white shrink-0" />
+                  )}
+                </button>
+              );
+            })}
           </motion.div>
         )}
       </AnimatePresence>

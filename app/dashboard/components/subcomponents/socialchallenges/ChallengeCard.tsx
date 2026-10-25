@@ -1,6 +1,8 @@
+// app/dashboard/components/subcomponents/socialchallenges/ChallengeCard.tsx
 import { motion } from "framer-motion";
-import { Trophy, Globe, Lock, Target, Users } from "lucide-react";
+import { Trophy, Globe, Lock, Target, Users, Flame } from "lucide-react";
 import { activityOptions } from "@/app/types/challengeConstant";
+import { getChallengeImage } from "./challengeImages";
 import { cn } from "@/app/utils/utils";
 
 export function ChallengeCard({
@@ -16,8 +18,9 @@ export function ChallengeCard({
   const now = new Date();
   const isActive = now >= start && now <= end;
 
-  const daysLeft = Math.ceil(
-    (end.getTime() - now.getTime()) / (1000 * 3600 * 24),
+  const daysLeft = Math.max(
+    0,
+    Math.ceil((end.getTime() - now.getTime()) / (1000 * 3600 * 24)),
   );
 
   const rawProgress = challenge.participants?.[user?.id || ""]?.progress;
@@ -26,63 +29,60 @@ export function ChallengeCard({
     typeof rawProgress === "number"
       ? Math.min(100, (rawProgress / challenge.targetValue) * 100)
       : 0;
+
   const activity = activityOptions.find((a) => a.value === challenge.activity);
+  const image = getChallengeImage(challenge);
+
+  const statusBadge = isActive ? (
+    <span className="inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-wider bg-emerald-500 text-white px-2.5 py-1 rounded-full shadow-md backdrop-blur-md">
+      <Flame className="w-3 h-3" />
+      {daysLeft}d left
+    </span>
+  ) : now < start ? (
+    <span className="text-[10px] font-black uppercase tracking-wider bg-sky-500 text-white px-2.5 py-1 rounded-full shadow-md backdrop-blur-md">
+      Starts soon
+    </span>
+  ) : (
+    <span className="text-[10px] font-black uppercase tracking-wider bg-slate-700/90 text-white px-2.5 py-1 rounded-full shadow-md backdrop-blur-md">
+      Ended
+    </span>
+  );
 
   return (
     <motion.div
       layout
       whileHover={{ y: -4 }}
       transition={{ type: "spring", stiffness: 300, damping: 25 }}
-      className="bg-white border border-slate-200/80 rounded-[28px] shadow-sm hover:shadow-xl hover:border-emerald-500/30 transition-all overflow-hidden cursor-pointer flex flex-col group relative"
       onClick={onView}
+      className="group cursor-pointer bg-white border border-slate-200/80 rounded-[28px] shadow-sm hover:shadow-xl hover:border-emerald-500/30 transition-all overflow-hidden flex flex-col"
     >
-      {/* CARD BANNER CONTAINER */}
-      <div className="h-40 w-full overflow-hidden relative bg-slate-900">
-        {challenge.imageUrl ? (
-          <img
-            src={challenge.imageUrl}
-            alt={challenge.name}
-            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700 opacity-90"
-          />
-        ) : (
-          <div className="w-full h-full bg-gradient-to-br from-slate-900 via-slate-800 to-emerald-950 flex items-center justify-center">
-            <Trophy className="w-10 h-10 text-emerald-500/30" />
-          </div>
-        )}
+      {/* ─── HERO IMAGE (Tinder-style) ─────────────────────────── */}
+      <div className="relative w-full aspect-[16/11] overflow-hidden bg-gradient-to-br from-slate-900 via-slate-800 to-emerald-950">
+        <img
+          src={image}
+          alt={challenge.name}
+          loading="lazy"
+          className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110"
+        />
+        {/* Cinematic gradient overlay for legible text */}
+        <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/30 to-transparent" />
 
-        {/* SUBTLE GRADIENT OVERLAY */}
-        <div className="absolute inset-0 bg-gradient-to-t from-slate-950/70 via-transparent to-black/20" />
-
-        {/* TOP STATUS OVERLAYS */}
-        <div className="absolute top-3.5 left-3.5 right-3.5 flex items-center justify-between pointer-events-none">
-          <div className="flex items-center gap-2">
-            {isActive ? (
-              <span className="text-[10px] font-black uppercase tracking-wider bg-emerald-500 text-white px-3 py-1 rounded-full shadow-md backdrop-blur-md">
-                {daysLeft}d left
-              </span>
-            ) : now < start ? (
-              <span className="text-[10px] font-black uppercase tracking-wider bg-sky-500 text-white px-3 py-1 rounded-full shadow-md backdrop-blur-md">
-                Starts soon
-              </span>
-            ) : (
-              <span className="text-[10px] font-black uppercase tracking-wider bg-slate-700 text-white px-3 py-1 rounded-full shadow-md backdrop-blur-md">
-                Ended
-              </span>
-            )}
-
+        {/* Top row — status + privacy */}
+        <div className="absolute top-3 left-3 right-3 flex items-start justify-between gap-2">
+          <div className="flex flex-wrap items-center gap-1.5">
+            {statusBadge}
             {isCreator && (
-              <span className="text-[10px] font-black uppercase tracking-wider bg-emerald-950/80 text-emerald-300 border border-emerald-500/30 px-3 py-1 rounded-full backdrop-blur-md">
+              <span className="text-[10px] font-black uppercase tracking-wider bg-emerald-950/80 text-emerald-300 border border-emerald-500/40 px-2 py-1 rounded-full backdrop-blur-md">
                 Creator
               </span>
             )}
             {isParticipant && !isCreator && (
-              <span className="text-[10px] font-black uppercase tracking-wider bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 px-3 py-1 rounded-full backdrop-blur-md">
+              <span className="text-[10px] font-black uppercase tracking-wider bg-emerald-500/25 text-emerald-200 border border-emerald-400/40 px-2 py-1 rounded-full backdrop-blur-md">
                 Joined
               </span>
             )}
           </div>
-
-          <div className="w-8 h-8 bg-white/90 backdrop-blur-md rounded-full shadow-md flex items-center justify-center">
+          <div className="shrink-0 w-8 h-8 bg-white/95 backdrop-blur-md rounded-full shadow-md flex items-center justify-center">
             {challenge.isPublic ? (
               <Globe className="w-4 h-4 text-emerald-600" />
             ) : (
@@ -90,98 +90,92 @@ export function ChallengeCard({
             )}
           </div>
         </div>
-      </div>
 
-      {/* BODY CONTENT */}
-      <div className="p-6 flex-1 flex flex-col justify-between space-y-5">
-        <div className="space-y-2">
-          <div className="flex items-center gap-2">
-            <span className="text-[10px] font-extrabold text-emerald-600 bg-emerald-50 border border-emerald-100/60 px-2.5 py-0.5 rounded-md uppercase tracking-wider">
-              {activity?.label || challenge.activity}
-            </span>
-          </div>
-
-          <h3 className="font-bold text-slate-900 text-lg line-clamp-1 group-hover:text-emerald-600 transition-colors">
+        {/* Bottom overlay — activity, title, description */}
+        <div className="absolute bottom-0 left-0 right-0 p-4 sm:p-5 space-y-1.5">
+          <span className="inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-wider text-emerald-200 bg-emerald-500/25 border border-emerald-400/40 backdrop-blur-md px-2 py-0.5 rounded-md">
+            {activity?.label || challenge.activity}
+          </span>
+          <h3 className="text-lg sm:text-xl font-bold text-white leading-tight line-clamp-1">
             {challenge.name}
           </h3>
-
-          <p className="text-xs text-slate-500 line-clamp-2 leading-relaxed font-medium">
+          <p className="text-xs text-white/80 line-clamp-2 leading-relaxed">
             {challenge.description}
           </p>
         </div>
+      </div>
 
-        <div className="space-y-4">
-          {/* STATS MATRIX SECTION */}
-          <div className="grid grid-cols-2 gap-3 p-3 bg-slate-50 rounded-2xl border border-slate-100 text-xs text-slate-600">
-            <div className="flex items-center gap-2">
-              <div className="p-1.5 bg-white rounded-lg shadow-sm border border-slate-200/60 text-emerald-600">
-                <Target className="w-3.5 h-3.5" />
-              </div>
-              <span className="truncate">
-                <strong className="text-slate-900 font-bold">
-                  {challenge.targetValue}
-                </strong>{" "}
-                <span className="text-[10px] text-slate-400 font-semibold">
-                  {challenge.targetUnit}
-                </span>
+      {/* ─── BODY ──────────────────────────────────────────────── */}
+      <div className="p-4 sm:p-5 flex-1 flex flex-col justify-between gap-3">
+        {/* Compact stat row */}
+        <div className="flex items-center gap-3 text-xs">
+          <div className="flex items-center gap-1.5 min-w-0">
+            <Target className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+            <span className="font-bold text-slate-900">
+              {challenge.targetValue}
+            </span>
+            <span className="text-slate-500 truncate">
+              {challenge.targetUnit}
+            </span>
+          </div>
+          <div className="w-px h-4 bg-slate-200 shrink-0" />
+          <div className="flex items-center gap-1.5 min-w-0">
+            <Users className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+            <span className="font-bold text-slate-900">
+              {challenge.participantCount}
+            </span>
+            <span className="text-slate-500 truncate">joined</span>
+          </div>
+        </div>
+
+        {/* Progress bar — only when joined and progress is numeric */}
+        {isParticipant && typeof rawProgress === "number" && (
+          <div className="space-y-1.5">
+            <div className="flex justify-between text-[11px] font-bold">
+              <span className="text-slate-600">Your progress</span>
+              <span className="text-emerald-700">
+                {userProgress} / {challenge.targetValue}
               </span>
             </div>
-            <div className="flex items-center gap-2 justify-end">
-              <div className="p-1.5 bg-white rounded-lg shadow-sm border border-slate-200/60 text-emerald-600">
-                <Users className="w-3.5 h-3.5" />
-              </div>
-              <span>
-                <strong className="text-slate-900 font-bold">
-                  {challenge.participantCount}
-                </strong>{" "}
-                <span className="text-[10px] text-slate-400 font-semibold">
-                  entered
-                </span>
-              </span>
+            <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
+              <motion.div
+                initial={{ width: 0 }}
+                animate={{ width: `${percent}%` }}
+                transition={{ duration: 0.8, ease: "easeOut" }}
+                className="bg-emerald-500 h-full rounded-full"
+              />
             </div>
           </div>
+        )}
 
-          {/* PROGRESS SLIDER OVERLAY */}
-          {isParticipant && typeof rawProgress === "number" && (
-            <div className="bg-emerald-50/50 p-3.5 rounded-2xl border border-emerald-100/60 space-y-2">
-              <div className="flex justify-between text-xs font-bold">
-                <span className="text-slate-600">Your Progress</span>
-                <span className="text-emerald-700">
-                  {userProgress} / {challenge.targetValue}
-                </span>
-              </div>
-              <div className="w-full bg-slate-200/70 h-2 rounded-full overflow-hidden">
-                <motion.div
-                  initial={{ width: 0 }}
-                  animate={{ width: `${percent}%` }}
-                  transition={{ duration: 0.8, ease: "easeOut" }}
-                  className="bg-emerald-500 h-full rounded-full"
-                />
-              </div>
+        {/* Footer — creator + CTA */}
+        <div className="flex items-center justify-between pt-2 border-t border-slate-100 gap-2">
+          <div className="flex items-center gap-1.5 text-xs min-w-0">
+            <div className="w-6 h-6 rounded-full bg-emerald-50 border border-emerald-100 flex items-center justify-center shrink-0">
+              <Trophy className="w-3 h-3 text-emerald-600" />
             </div>
-          )}
-
-          {/* FOOTER CREATOR FLAG & MAIN CTA ACTIONS */}
-          <div className="flex items-center justify-between pt-3 border-t border-slate-100">
-            <div className="flex items-center gap-1.5 text-xs text-slate-400 font-medium truncate">
-              <span>by</span>
-              <span className="font-bold text-slate-700 truncate">
+            <span className="text-slate-500 truncate">
+              by{" "}
+              <span className="font-bold text-slate-800">
                 {challenge.creatorName}
               </span>
-            </div>
-
-            {!isCreator && !isParticipant && challenge.isPublic && isActive && (
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onJoin();
-                }}
-                className="px-5 py-2.5 bg-slate-900 hover:bg-emerald-600 text-white text-[11px] font-black uppercase tracking-wider rounded-xl active:scale-95 transition-all shadow-md hover:shadow-lg"
-              >
-                Join Team
-              </button>
-            )}
+            </span>
           </div>
+
+          {!isCreator && !isParticipant && challenge.isPublic && isActive && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onJoin();
+              }}
+              className={cn(
+                "shrink-0 px-4 py-2.5 bg-slate-900 hover:bg-emerald-600 text-white text-[11px] font-black uppercase tracking-wider rounded-xl active:scale-95 transition-all shadow-md hover:shadow-lg",
+                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:ring-offset-2",
+              )}
+            >
+              Join
+            </button>
+          )}
         </div>
       </div>
     </motion.div>

@@ -1,9 +1,11 @@
+// app/dashboard/components/panels/SocialChallengesPanel.tsx
 "use client";
 
 import { useUser } from "@/app/dashboard/hooks/useProfile";
 import { useDashboard } from "../../DashboardContext";
 import { useChallenges } from "../../hooks/useChallenge";
 import { useChallengeMutations } from "../../hooks/useChallengeMutations";
+import { ChallengeHeader } from "../subcomponents/socialchallenges/ChallengeHeader";
 import { ChallengeStats } from "../subcomponents/socialchallenges/ChallengeStats";
 import { ChallengeLeaderboard } from "../subcomponents/socialchallenges/ChallengeLeaderboard";
 import { ChallengeToolbar } from "../subcomponents/socialchallenges/ChallengeToolbar";
@@ -16,9 +18,9 @@ import { HelpCarousel } from "../subcomponents/socialchallenges/HelpCarousel";
 import { EmptyState } from "../subcomponents/socialchallenges/EmptyState";
 import { RequestCard } from "../subcomponents/socialchallenges/RequestCard";
 import { FloatingTrophy } from "../subcomponents/socialchallenges/FloatingTrophy";
-import { Globe, Users, UserPlus, HelpCircle } from "lucide-react";
+import { Globe, Users, UserPlus } from "lucide-react";
 import { cn } from "@/app/utils/utils";
-import { poppins, bebasNeue } from "@/app/constants";
+import { poppins } from "@/app/constants";
 
 export default function SocialChallengesPanel() {
   const { user, isLoading: userLoading } = useUser();
@@ -62,12 +64,10 @@ export default function SocialChallengesPanel() {
     handleAddComment,
   } = useChallengeMutations(user);
 
-  // --- RESPONSIVE MEDICAL SKELETON LOADER ---
-  if (userLoading || isLoading) {
-    return <ChallengesSkeletonLoader />;
-  }
+  // ─── SKELETON ──────────────────────────────────────────────
+  if (userLoading || isLoading) return <ChallengesSkeletonLoader />;
 
-  // --- SAFE FALLBACK STATE ---
+  // ─── SAFE FALLBACK ─────────────────────────────────────────
   if (!user) {
     return (
       <div className="max-w-7xl mx-auto px-4 sm:px-6 pb-24 min-h-screen pt-12 text-center text-slate-600 font-semibold text-sm">
@@ -82,55 +82,26 @@ export default function SocialChallengesPanel() {
     challenge.participants && !!challenge.participants[user.id];
 
   return (
-    <div className="min-h-screen bg-[#F8FAFC] pb-32 pt-6">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 space-y-6">
-        {/* ─── NEW DOZA-STYLE HEADER ─────────────────────────────── */}
-        <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-6">
-          <div>
-            <div className="flex items-center gap-3 mb-2">
-              <div className="h-8 w-1 rounded-full bg-gradient-to-b from-emerald-500 to-teal-600" />
-              <span className="text-[11px] font-bold text-emerald-600 uppercase tracking-[0.25em]">
-                Social Wellness
-              </span>
-            </div>
-            <h1
-              className={cn(
-                "text-4xl md:text-5xl text-slate-900 leading-[1.1] tracking-tight",
-                bebasNeue.className,
-              )}
-            >
-              Challenges <span className="text-emerald-600">Hub</span>
-            </h1>
-            <p className="text-sm text-slate-600 mt-2 max-w-md">
-              Join groups, compete with friends, and stay active together.
-            </p>
-          </div>
+    <div className="min-h-screen bg-[#F8FAFC] pb-24 sm:pb-28 lg:pb-32 pt-4 sm:pt-5 lg:pt-6">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 space-y-4 sm:space-y-5 lg:space-y-6">
+        {/* ─── HEADER ──────────────────────────────────────────── */}
+        <ChallengeHeader onHelp={() => setShowHelp(true)} />
 
-          {/* Help Button */}
-          <button
-            onClick={() => setShowHelp(true)}
-            className="flex items-center gap-2 px-5 py-3 bg-slate-800 text-white rounded-xl font-medium hover:bg-slate-700 transition shadow-sm"
-          >
-            <HelpCircle size={16} />
-            <span className="hidden sm:inline">Help</span>
-          </button>
-        </div>
-
-        {/* STATS + LEADERBOARD DISPLAY */}
+        {/* ─── STATS + LEADERBOARD ─────────────────────────────── */}
         <div
           className={cn(
-            "grid grid-cols-1 lg:grid-cols-12 gap-6",
+            "grid grid-cols-1 lg:grid-cols-12 gap-4 sm:gap-5 lg:gap-6",
             poppins.className,
           )}
         >
-          <div className="lg:col-span-8">
+          <div className="lg:col-span-8 min-w-0">
             <ChallengeStats
               user={user}
               stats={userStats}
               trophy={<FloatingTrophy />}
             />
           </div>
-          <div className="lg:col-span-4">
+          <div className="lg:col-span-4 min-w-0">
             <ChallengeLeaderboard
               entries={leaderboard}
               currentUserId={user.id}
@@ -138,7 +109,7 @@ export default function SocialChallengesPanel() {
           </div>
         </div>
 
-        {/* CONTROLS TOOLBAR */}
+        {/* ─── TOOLBAR ─────────────────────────────────────────── */}
         <ChallengeToolbar
           activeTab={activeTab}
           onTabChange={setActiveTab}
@@ -147,7 +118,7 @@ export default function SocialChallengesPanel() {
           pendingCount={pendingRequests.length}
         />
 
-        {/* SEARCH & FILTERS — Only displayed in Discover array */}
+        {/* ─── SEARCH (Discover only) ──────────────────────────── */}
         {activeTab === "discover" && (
           <ChallengeSearch
             search={search}
@@ -165,11 +136,11 @@ export default function SocialChallengesPanel() {
           />
         )}
 
-        {/* PENDING ACTIONS INBOX */}
+        {/* ─── PENDING REQUESTS ────────────────────────────────── */}
         {activeTab === "requests" && (
           <div className="space-y-4">
             {pendingRequests.length > 0 ? (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 lg:gap-5">
                 {pendingRequests.map((req: any) => (
                   <RequestCard
                     key={req.id}
@@ -188,7 +159,7 @@ export default function SocialChallengesPanel() {
           </div>
         )}
 
-        {/* MAIN INTERACTIVE CHALLENGE TILES */}
+        {/* ─── CHALLENGE GRID ──────────────────────────────────── */}
         {activeTab !== "requests" && (
           <ChallengeGrid
             challenges={filteredChallenges}
@@ -201,7 +172,7 @@ export default function SocialChallengesPanel() {
           />
         )}
 
-        {/* EMPTY STATES — Discover Tab */}
+        {/* ─── EMPTY — DISCOVER ────────────────────────────────── */}
         {activeTab === "discover" &&
           filteredChallenges.ongoing.length === 0 &&
           filteredChallenges.ended.length === 0 && (
@@ -214,7 +185,7 @@ export default function SocialChallengesPanel() {
             />
           )}
 
-        {/* EMPTY STATES — Active Tab */}
+        {/* ─── EMPTY — MY ──────────────────────────────────────── */}
         {activeTab === "my" &&
           filteredChallenges.ongoing.length === 0 &&
           filteredChallenges.ended.length === 0 && (
@@ -228,7 +199,7 @@ export default function SocialChallengesPanel() {
           )}
       </div>
 
-      {/* OVERLAY INTERACTION DIALOGUES */}
+      {/* ─── OVERLAYS ──────────────────────────────────────────── */}
       {showCreateModal && (
         <CreateChallengeModal
           onClose={() => setShowCreateModal(false)}
@@ -266,45 +237,35 @@ export default function SocialChallengesPanel() {
   );
 }
 
-/* --- RESILIENT SHIMMER SKELETON LAYOUT MOCK (unchanged) --- */
+/* ─── SKELETON ──────────────────────────────────────────────── */
 function ChallengesSkeletonLoader() {
   return (
-    <div className="min-h-screen bg-[#F8FAFC] pb-32 pt-6 animate-pulse">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 space-y-6">
-        {/* Header Module Mock */}
-        <div className="h-32 bg-white rounded-[32px] border border-slate-200/60" />
+    <div className="min-h-screen bg-[#F8FAFC] pb-24 sm:pb-28 lg:pb-32 pt-4 sm:pt-5 lg:pt-6 animate-pulse">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 space-y-4 sm:space-y-5 lg:space-y-6">
+        <div className="h-28 sm:h-32 bg-white rounded-[24px] sm:rounded-[32px] border border-slate-200/60" />
 
-        {/* Grid Stats Stack Mock */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-          <div className="lg:col-span-8 h-48 bg-white rounded-[32px] border border-slate-200/60" />
-          <div className="lg:col-span-4 h-48 bg-white rounded-[32px] border border-slate-200/60" />
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 sm:gap-5 lg:gap-6">
+          <div className="lg:col-span-8 h-40 sm:h-48 bg-white rounded-[24px] sm:rounded-[32px] border border-slate-200/60" />
+          <div className="lg:col-span-4 h-40 sm:h-48 bg-white rounded-[24px] sm:rounded-[32px] border border-slate-200/60" />
         </div>
 
-        {/* Toolbar Tabs Row Mock */}
-        <div className="h-16 bg-white rounded-2xl border border-slate-200/60 w-full" />
+        <div className="h-14 sm:h-16 bg-white rounded-2xl border border-slate-200/60 w-full" />
 
-        {/* Main Feed Challenge Layout Grid Mock */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-5 lg:gap-6">
           {Array.from({ length: 3 }).map((_, i) => (
             <div
               key={i}
-              className="bg-white p-6 rounded-[28px] border border-slate-200/60 space-y-4 min-h-[280px]"
+              className="bg-white rounded-[28px] border border-slate-200/60 overflow-hidden min-h-[340px]"
             >
-              <div className="flex justify-between items-start">
-                <div className="w-12 h-12 rounded-xl bg-slate-200" />
-                <div className="h-6 bg-slate-100 rounded-full w-20" />
-              </div>
-              <div className="space-y-2">
-                <div className="h-5 bg-slate-200 rounded-md w-3/4" />
-                <div className="h-3 bg-slate-100 rounded-md w-1/2" />
-              </div>
-              <div className="pt-4 space-y-2">
-                <div className="h-2 bg-slate-100 rounded-full w-full" />
-                <div className="h-3 bg-slate-200/80 rounded-md w-1/4" />
-              </div>
-              <div className="pt-4 flex justify-between items-center">
-                <div className="w-16 h-4 bg-slate-100 rounded" />
-                <div className="w-24 h-10 bg-slate-200 rounded-xl" />
+              <div className="h-40 sm:h-44 bg-slate-200" />
+              <div className="p-4 space-y-3">
+                <div className="h-4 bg-slate-200 rounded-md w-2/3" />
+                <div className="h-3 bg-slate-100 rounded-md w-full" />
+                <div className="h-3 bg-slate-100 rounded-md w-3/4" />
+                <div className="pt-3 flex justify-between items-center">
+                  <div className="w-16 h-4 bg-slate-100 rounded" />
+                  <div className="w-20 h-9 bg-slate-200 rounded-xl" />
+                </div>
               </div>
             </div>
           ))}

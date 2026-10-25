@@ -1,3 +1,4 @@
+// app/dashboard/components/subcomponents/socialchallenges/CreateChallengeModal.tsx
 import { useEffect, useState, useRef } from "react";
 import { z } from "zod";
 import { motion, AnimatePresence } from "framer-motion";
@@ -24,6 +25,7 @@ import { cn } from "@/app/utils/utils";
 import { bebasNeue } from "@/app/constants";
 import { challengeSchema } from "@/app/types/schemas";
 import { activityOptions } from "@/app/types/challengeConstant";
+import { getChallengeImage } from "./challengeImages";
 
 type FormValues = z.infer<typeof challengeSchema>;
 
@@ -81,6 +83,9 @@ export function CreateChallengeModal({
   });
 
   const watchActivity = watch("activity");
+  const watchName = watch("name");
+  const watchDescription = watch("description");
+  const watchImageUrl = watch("imageUrl");
 
   useEffect(() => {
     const activeOption = activityOptions.find((a) => a.value === watchActivity);
@@ -94,80 +99,109 @@ export function CreateChallengeModal({
     if (success) onClose();
   };
 
+  const previewImage = getChallengeImage({
+    imageUrl: watchImageUrl,
+    activity: watchActivity,
+  });
+
+  const activityLabel =
+    activityOptions.find((a) => a.value === watchActivity)?.label ||
+    "Your Challenge";
+
   return (
     <motion.div
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      className="fixed inset-0 bg-slate-950/60 backdrop-blur-md flex items-center justify-center z-50 p-4 sm:p-6"
+      className="fixed inset-0 bg-slate-950/70 backdrop-blur-md flex items-end sm:items-center justify-center z-50 sm:p-6"
       onClick={onClose}
     >
       <motion.div
-        initial={{ scale: 0.95, y: 20, opacity: 0 }}
-        animate={{ scale: 1, y: 0, opacity: 1 }}
-        exit={{ scale: 0.95, y: 20, opacity: 0 }}
+        initial={{ y: "10%", scale: 0.98, opacity: 0 }}
+        animate={{ y: 0, scale: 1, opacity: 1 }}
+        exit={{ y: "10%", scale: 0.98, opacity: 0 }}
         transition={{ type: "spring", damping: 28, stiffness: 320 }}
-        className="bg-white rounded-[32px] max-w-xl w-full max-h-[90vh] flex flex-col shadow-[0_30px_90px_-20px_rgba(15,23,42,0.3)] border border-slate-100 overflow-hidden relative"
+        className="bg-white rounded-t-[28px] sm:rounded-[32px] max-w-xl w-full max-h-[94dvh] sm:max-h-[90vh] flex flex-col shadow-2xl border border-slate-100 overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Ambient background glow accents */}
-        <div className="absolute top-0 right-0 w-64 h-64 bg-emerald-500/5 rounded-full blur-3xl pointer-events-none -mr-20 -mt-20" />
-        <div className="absolute bottom-0 left-0 w-64 h-64 bg-teal-500/5 rounded-full blur-3xl pointer-events-none -ml-20 -mb-20" />
+        {/* Mobile drag handle */}
+        <div
+          className="sm:hidden flex justify-center pt-3 shrink-0"
+          aria-hidden
+        >
+          <div className="w-10 h-1 rounded-full bg-slate-300" />
+        </div>
 
-        {/* Modal Header */}
-        <div className="px-7 py-5 border-b border-slate-100 flex items-center justify-between bg-white/80 backdrop-blur-md sticky top-0 z-20">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-emerald-500 to-teal-400 flex items-center justify-center text-white shadow-md shadow-emerald-500/20">
-              <Trophy className="w-5 h-5" />
+        {/* ─── SCROLLABLE BODY ─────────────────────────────────── */}
+        <div className="flex-1 overflow-y-auto overscroll-contain">
+          {/* Live banner preview */}
+          <div className="relative aspect-[16/9] overflow-hidden bg-slate-900">
+            <img
+              src={previewImage}
+              alt="Preview"
+              className="w-full h-full object-cover"
+            />
+            <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/40 to-transparent" />
+
+            {/* Close on top of banner */}
+            <button
+              onClick={onClose}
+              aria-label="Close"
+              className="absolute top-3 right-3 w-9 h-9 rounded-full bg-white/95 backdrop-blur-md shadow-lg flex items-center justify-center text-slate-700 hover:bg-white active:scale-95 transition-all"
+            >
+              <X className="w-4 h-4" />
+            </button>
+
+            {/* Top-left banner chip */}
+            <div className="absolute top-3 left-3">
+              <span className="text-[10px] font-black uppercase tracking-wider bg-emerald-500 text-white px-2.5 py-1 rounded-full shadow-md backdrop-blur-md inline-flex items-center gap-1">
+                <Trophy className="w-3 h-3" /> New Challenge
+              </span>
             </div>
-            <div>
+
+            {/* Title overlay */}
+            <div className="absolute bottom-0 left-0 right-0 p-4 sm:p-5 space-y-1">
               <h2
                 className={cn(
-                  "text-2xl font-bold text-slate-900 tracking-wide uppercase",
+                  "text-2xl sm:text-3xl text-white tracking-tight leading-tight line-clamp-1",
                   bebasNeue.className,
                 )}
               >
-                Create Fitness Challenge
+                {watchName || "Name your challenge…"}
               </h2>
-              <p className="text-[11px] text-slate-400 font-semibold uppercase tracking-wider flex items-center gap-1 mt-0.5">
-                Set your goals & invite friends
+              <p className="text-[11px] sm:text-xs text-white/80 font-medium line-clamp-1">
+                {watchDescription || activityLabel}
               </p>
             </div>
           </div>
-          <button
-            onClick={onClose}
-            className="w-9 h-9 flex items-center justify-center text-slate-400 hover:text-slate-700 bg-slate-50 hover:bg-slate-100 rounded-xl transition-all border border-slate-200/60 shadow-2xs group"
+
+          {/* Form */}
+          <form
+            id="create-challenge-form"
+            onSubmit={handleSubmit(handleFormSubmit)}
+            className="p-4 sm:p-7 space-y-4 sm:space-y-5"
           >
-            <X className="w-4 h-4 group-hover:rotate-90 transition-transform duration-300" />
-          </button>
-        </div>
+            <InputField label="Challenge Name" error={errors.name?.message}>
+              <input
+                {...register("name")}
+                className="w-full px-4 py-3 text-base sm:text-sm bg-slate-50/80 border border-slate-200/80 rounded-2xl focus:bg-white focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10 transition-all outline-none font-semibold text-slate-900 placeholder:text-slate-400 shadow-2xs"
+                placeholder="e.g., 7-Day Morning Run Challenge"
+              />
+            </InputField>
 
-        {/* Form Body */}
-        <form
-          onSubmit={handleSubmit(handleFormSubmit)}
-          className="flex-1 overflow-y-auto p-7 space-y-5 custom-scrollbar"
-        >
-          <InputField label="Challenge Name" error={errors.name?.message}>
-            <input
-              {...register("name")}
-              className="w-full px-4 py-3 text-sm bg-slate-50/80 border border-slate-200/80 rounded-2xl focus:bg-white focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10 transition-all outline-none font-semibold text-slate-900 placeholder:text-slate-400 shadow-2xs"
-              placeholder="e.g., 7-Day Morning Run Challenge"
-            />
-          </InputField>
+            <InputField
+              label="Description & Rules"
+              error={errors.description?.message}
+            >
+              <textarea
+                {...register("description")}
+                rows={3}
+                className="w-full px-4 py-3 text-base sm:text-sm bg-slate-50/80 border border-slate-200/80 rounded-2xl focus:bg-white focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10 transition-all outline-none font-medium text-slate-900 placeholder:text-slate-400 resize-none shadow-2xs"
+                placeholder="What's this challenge about and what are the rules?"
+              />
+            </InputField>
 
-          <InputField
-            label="Description & Rules"
-            error={errors.description?.message}
-          >
-            <textarea
-              {...register("description")}
-              rows={3}
-              className="w-full px-4 py-3 text-sm bg-slate-50/80 border border-slate-200/80 rounded-2xl focus:bg-white focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10 transition-all outline-none font-medium text-slate-900 placeholder:text-slate-400 resize-none shadow-2xs"
-              placeholder="Share what this challenge is about and any specific rules for participants..."
-            />
-          </InputField>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {/* Activity */}
             <InputField label="Activity Type" error={errors.activity?.message}>
               <CustomDropdownSelect
                 value={watchActivity}
@@ -185,6 +219,7 @@ export function CreateChallengeModal({
               />
             </InputField>
 
+            {/* Target */}
             <InputField label="Target Goal" error={errors.targetValue?.message}>
               <div className="flex gap-2.5">
                 <div className="relative flex-1 flex items-center">
@@ -193,7 +228,7 @@ export function CreateChallengeModal({
                     type="number"
                     step="0.1"
                     {...register("targetValue", { valueAsNumber: true })}
-                    className="w-full pl-10 pr-4 py-3 text-sm bg-slate-50/80 border border-slate-200/80 rounded-2xl focus:bg-white focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10 transition-all outline-none font-bold text-slate-900 shadow-2xs"
+                    className="w-full pl-10 pr-4 py-3 text-base sm:text-sm bg-slate-50/80 border border-slate-200/80 rounded-2xl focus:bg-white focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10 transition-all outline-none font-bold text-slate-900 shadow-2xs"
                     placeholder="0.0"
                   />
                 </div>
@@ -204,97 +239,114 @@ export function CreateChallengeModal({
                 />
               </div>
             </InputField>
-          </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <InputField label="Start Date" error={errors.startDate?.message}>
-              <div className="relative flex items-center">
-                <Calendar className="w-4 h-4 absolute left-3.5 text-slate-400 pointer-events-none" />
+            {/* Dates — stacked on mobile, side-by-side on sm+ */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <InputField label="Start Date" error={errors.startDate?.message}>
+                <div className="relative flex items-center">
+                  <Calendar className="w-4 h-4 absolute left-3.5 text-slate-400 pointer-events-none" />
+                  <input
+                    type="date"
+                    {...register("startDate")}
+                    className="w-full pl-10 pr-4 py-3 text-base sm:text-sm bg-slate-50/80 border border-slate-200/80 rounded-2xl focus:bg-white focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10 transition-all outline-none font-semibold text-slate-700 shadow-2xs"
+                  />
+                </div>
+              </InputField>
+              <InputField label="End Date" error={errors.endDate?.message}>
+                <div className="relative flex items-center">
+                  <Calendar className="w-4 h-4 absolute left-3.5 text-slate-400 pointer-events-none" />
+                  <input
+                    type="date"
+                    {...register("endDate")}
+                    className="w-full pl-10 pr-4 py-3 text-base sm:text-sm bg-slate-50/80 border border-slate-200/80 rounded-2xl focus:bg-white focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10 transition-all outline-none font-semibold text-slate-700 shadow-2xs"
+                  />
+                </div>
+              </InputField>
+            </div>
+
+            {/* Custom cover image */}
+            <InputField
+              label="Custom Cover Image (optional)"
+              error={errors.imageUrl?.message}
+            >
+              <input
+                {...register("imageUrl")}
+                className="w-full px-4 py-3 text-base sm:text-sm bg-slate-50/80 border border-slate-200/80 rounded-2xl focus:bg-white focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10 transition-all outline-none font-medium text-slate-900 placeholder:text-slate-400 shadow-2xs"
+                placeholder="https://… (leave blank to auto-use activity image)"
+              />
+            </InputField>
+
+            {/* Public toggle */}
+            <div className="p-4 bg-slate-50/80 border border-slate-200/60 rounded-2xl flex items-center justify-between gap-3 shadow-2xs">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="w-10 h-10 bg-white rounded-xl border border-slate-200/60 shadow-xs flex items-center justify-center text-slate-500 shrink-0">
+                  <Globe className="w-5 h-5 text-emerald-500" />
+                </div>
+                <div className="flex flex-col min-w-0">
+                  <span className="text-xs font-bold text-slate-800 leading-tight">
+                    Public Challenge
+                  </span>
+                  <span className="text-[11px] text-slate-400 font-medium mt-0.5">
+                    Anyone on Doza can discover and join
+                  </span>
+                </div>
+              </div>
+              <label className="relative inline-flex items-center cursor-pointer select-none shrink-0">
                 <input
-                  type="date"
-                  {...register("startDate")}
-                  className="w-full pl-10 pr-4 py-3 text-sm bg-slate-50/80 border border-slate-200/80 rounded-2xl focus:bg-white focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10 transition-all outline-none font-semibold text-slate-700 shadow-2xs"
+                  type="checkbox"
+                  {...register("isPublic")}
+                  className="sr-only peer"
+                />
+                <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-500 shadow-inner" />
+              </label>
+            </div>
+
+            <InputField
+              label="Invite Friends by Email"
+              error={errors.invitedEmails?.message}
+            >
+              <div className="relative flex items-center">
+                <Mail className="w-4 h-4 absolute left-3.5 text-slate-400 pointer-events-none" />
+                <input
+                  {...register("invitedEmails")}
+                  className="w-full pl-10 pr-4 py-3 text-base sm:text-sm bg-slate-50/80 border border-slate-200/80 rounded-2xl focus:bg-white focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10 transition-all outline-none font-medium text-slate-900 placeholder:text-slate-400 shadow-2xs"
+                  placeholder="friend1@email.com, friend2@email.com"
                 />
               </div>
             </InputField>
+          </form>
+        </div>
 
-            <InputField label="End Date" error={errors.endDate?.message}>
-              <div className="relative flex items-center">
-                <Calendar className="w-4 h-4 absolute left-3.5 text-slate-400 pointer-events-none" />
-                <input
-                  type="date"
-                  {...register("endDate")}
-                  className="w-full pl-10 pr-4 py-3 text-sm bg-slate-50/80 border border-slate-200/80 rounded-2xl focus:bg-white focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10 transition-all outline-none font-semibold text-slate-700 shadow-2xs"
-                />
-              </div>
-            </InputField>
+        {/* ─── STICKY FOOTER ────────────────────────────────────── */}
+        <div className="shrink-0 px-4 sm:px-7 py-3 sm:py-4 bg-white/95 backdrop-blur-md border-t border-slate-100 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:pb-4">
+          <div className="flex gap-2.5">
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex-1 min-h-12 text-xs font-black uppercase tracking-wider text-slate-500 hover:text-slate-800 rounded-2xl bg-slate-100 hover:bg-slate-200/60 transition-all"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              form="create-challenge-form"
+              disabled={isSubmitting}
+              className="flex-[2] flex items-center justify-center gap-2 min-h-12 px-6 bg-gradient-to-r from-emerald-600 to-teal-500 hover:from-emerald-500 hover:to-teal-400 text-white rounded-2xl text-xs font-black uppercase tracking-wider shadow-lg shadow-emerald-500/25 transition-all disabled:opacity-50 active:scale-[0.98]"
+            >
+              {isSubmitting ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                "Create Challenge"
+              )}
+            </button>
           </div>
-
-          <div className="p-4 bg-slate-50/80 border border-slate-200/60 rounded-2xl flex items-center justify-between shadow-2xs">
-            <div className="flex items-center gap-3.5">
-              <div className="w-10 h-10 bg-white rounded-xl border border-slate-200/60 shadow-xs flex items-center justify-center text-slate-500">
-                <Globe className="w-5 h-5 text-emerald-500" />
-              </div>
-              <div className="flex flex-col">
-                <span className="text-xs font-bold text-slate-800 leading-tight">
-                  Public Challenge
-                </span>
-                <span className="text-[11px] text-slate-400 font-medium mt-0.5">
-                  Allow anyone on Doza to discover and join
-                </span>
-              </div>
-            </div>
-            <label className="relative inline-flex items-center cursor-pointer select-none">
-              <input
-                type="checkbox"
-                {...register("isPublic")}
-                className="sr-only peer"
-              />
-              <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-500 shadow-inner" />
-            </label>
-          </div>
-
-          <InputField
-            label="Invite Friends by Email"
-            error={errors.invitedEmails?.message}
-          >
-            <div className="relative flex items-center">
-              <Mail className="w-4 h-4 absolute left-3.5 text-slate-400 pointer-events-none" />
-              <input
-                {...register("invitedEmails")}
-                className="w-full pl-10 pr-4 py-3 text-sm bg-slate-50/80 border border-slate-200/80 rounded-2xl focus:bg-white focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10 transition-all outline-none font-medium text-slate-900 placeholder:text-slate-400 shadow-2xs"
-                placeholder="friend1@email.com, friend2@email.com"
-              />
-            </div>
-          </InputField>
-        </form>
-
-        {/* Modal Footer */}
-        <div className="px-7 py-4 bg-slate-50/80 border-t border-slate-100 flex items-center justify-end gap-3 backdrop-blur-md">
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-5 py-3 text-xs font-bold uppercase tracking-wider text-slate-500 hover:text-slate-800 rounded-2xl hover:bg-slate-200/50 transition-all"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={handleSubmit(handleFormSubmit)}
-            disabled={isSubmitting}
-            className="flex items-center justify-center gap-2 px-7 py-3 bg-gradient-to-r from-emerald-600 to-teal-500 hover:from-emerald-500 hover:to-teal-400 text-white rounded-2xl text-xs font-bold uppercase tracking-wider shadow-lg shadow-emerald-500/25 transition-all disabled:opacity-50 active:scale-98"
-          >
-            {isSubmitting ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
-            ) : (
-              "Create Challenge"
-            )}
-          </button>
         </div>
       </motion.div>
     </motion.div>
   );
 }
 
+/* ─── Dropdown ─────────────────────────────────────────────── */
 function CustomDropdownSelect({ value, onChange, options, icon }: any) {
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -335,7 +387,7 @@ function CustomDropdownSelect({ value, onChange, options, icon }: any) {
         </span>
         <ChevronDown
           className={cn(
-            "w-4 h-4 text-slate-400 group-hover:text-slate-700 transition-transform duration-300",
+            "w-4 h-4 text-slate-400 group-hover:text-slate-700 transition-transform duration-300 shrink-0",
             isOpen && "rotate-180 text-emerald-600",
           )}
         />
@@ -348,13 +400,12 @@ function CustomDropdownSelect({ value, onChange, options, icon }: any) {
             animate={{ opacity: 1, y: 4, scale: 1 }}
             exit={{ opacity: 0, y: 8, scale: 0.98 }}
             transition={{ duration: 0.2, ease: "easeOut" }}
-            className="absolute left-0 right-0 top-full mt-2 bg-white/95 backdrop-blur-2xl border border-slate-200/80 rounded-2xl shadow-2xl p-2 z-50 max-h-56 overflow-y-auto scrollbar-thin scrollbar-thumb-slate-200 scrollbar-track-transparent"
+            className="absolute left-0 right-0 top-full mt-2 bg-white/95 backdrop-blur-2xl border border-slate-200/80 rounded-2xl shadow-2xl p-2 z-50 max-h-56 overflow-y-auto"
           >
             <div className="space-y-1">
               {options.map((opt: any) => {
                 const isSelected = opt.value === value;
                 const optIcon = opt.value ? getActivityIcon(opt.value) : icon;
-
                 return (
                   <div
                     key={opt.value}
@@ -382,7 +433,6 @@ function CustomDropdownSelect({ value, onChange, options, icon }: any) {
                       </div>
                       <span className="truncate">{opt.label}</span>
                     </div>
-
                     {isSelected && (
                       <Check className="w-4 h-4 text-white shrink-0 ml-2" />
                     )}
@@ -413,7 +463,7 @@ function InputField({
       </label>
       {children}
       {error && (
-        <p className="text-rose-500 text-[11px] font-semibold mt-1.5 flex items-center gap-1.5 ml-1 animate-headShake">
+        <p className="text-rose-500 text-[11px] font-semibold mt-1.5 flex items-center gap-1.5 ml-1">
           <span className="w-1.5 h-1.5 bg-rose-500 rounded-full" />
           {error}
         </p>

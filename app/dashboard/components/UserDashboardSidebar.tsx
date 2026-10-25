@@ -240,18 +240,18 @@ export default function UserDashboardSidebar({
             <button
               onClick={() => setShowSearch(true)}
               aria-label="Search"
-              className="min-h-11 min-w-11 inline-flex items-center justify-center rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-700 active:scale-95 transition-all"
+              className="min-h-11 min-w-11 inline-flex items-center justify-center rounded-xl bg-emerald-600 text-white shadow-sm shadow-emerald-600/20 hover:bg-emerald-700 active:scale-95 transition-all"
             >
-              <Search size={18} strokeWidth={2.2} />
+              <Search size={22} strokeWidth={2.1} />
             </button>
             <button
               onClick={() => handleNavigation("notifications")}
               aria-label="Notifications"
-              className="relative min-h-11 min-w-11 inline-flex items-center justify-center rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-700 active:scale-95 transition-all"
+              className="relative min-h-11 min-w-11 inline-flex items-center justify-center rounded-xl bg-emerald-600 text-white shadow-sm shadow-emerald-600/20 hover:bg-emerald-700 active:scale-95 transition-all"
             >
-              <Bell size={18} strokeWidth={2.2} />
+              <Bell size={22} strokeWidth={2.1} />
               {unreadCount > 0 && (
-                <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-emerald-500 rounded-full ring-2 ring-white" />
+                <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-white rounded-full ring-2 ring-emerald-600" />
               )}
             </button>
           </div>

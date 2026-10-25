@@ -24,11 +24,10 @@ import {
   SmilePlus,
   Calendar as CalendarIcon,
   ShieldCheck,
-  CheckCircle,
 } from "lucide-react";
 import { cn } from "@/app/utils/utils";
 import { authFetcher, authPost } from "@/app/utils/client-auth";
-import { poppins, bebasNeue } from "@/app/constants";
+import { poppins } from "@/app/constants";
 
 // ─── sessionStorage helpers ────────────────────────────
 function ssGet(key: string): string | null {
@@ -83,25 +82,25 @@ const VALID_CATEGORY_IDS = new Set(CATEGORIES.map((c) => c.id));
 // --- Skeleton Loader ---
 function SkeletonCard() {
   return (
-    <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm animate-pulse flex flex-col justify-between">
+    <div className="bg-white rounded-2xl border border-emerald-100 p-4 lg:p-5 shadow-xs animate-pulse flex flex-col justify-between">
       <div>
         <div className="flex justify-between items-start mb-4">
-          <div className="w-16 h-16 rounded-2xl bg-slate-100" />
-          <div className="w-11 h-11 rounded-xl bg-slate-100" />
+          <div className="w-14 h-14 rounded-2xl bg-emerald-100" />
+          <div className="w-10 h-10 rounded-xl bg-emerald-50" />
         </div>
-        <div className="h-5 w-3/4 bg-slate-200 rounded-md mb-2" />
-        <div className="h-3 w-1/3 bg-slate-100 rounded-md mb-4" />
-        <div className="space-y-2 mb-6">
-          <div className="h-3 w-1/2 bg-slate-100 rounded-md" />
-          <div className="h-3 w-2/3 bg-slate-100 rounded-md" />
+        <div className="h-4 w-3/4 bg-emerald-200 rounded-md mb-2" />
+        <div className="h-3 w-1/3 bg-emerald-100 rounded-md mb-4" />
+        <div className="space-y-2 mb-5">
+          <div className="h-3 w-1/2 bg-emerald-100 rounded-md" />
+          <div className="h-3 w-2/3 bg-emerald-100 rounded-md" />
         </div>
       </div>
-      <div className="flex justify-between items-center pt-4 border-t border-slate-100">
+      <div className="flex justify-between items-center pt-3 border-t border-emerald-100">
         <div>
-          <div className="h-3 w-10 bg-slate-100 rounded mb-1.5" />
-          <div className="h-6 w-20 bg-slate-200 rounded-lg" />
+          <div className="h-2.5 w-10 bg-emerald-100 rounded mb-1.5" />
+          <div className="h-5 w-20 bg-emerald-200 rounded-lg" />
         </div>
-        <div className="w-11 h-11 rounded-xl bg-slate-200" />
+        <div className="w-10 h-10 rounded-xl bg-emerald-100" />
       </div>
     </div>
   );
@@ -301,7 +300,7 @@ export default function DozaMedicsPanel({ user }: any) {
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.2, ease: "easeOut" }}
       className={cn(
-        "min-h-screen bg-[#F8FAFC] pb-24 selection:bg-emerald-100 selection:text-emerald-900",
+        "min-h-screen bg-[#F8FAFC] pb-28 pt-2 text-slate-900",
         poppins.className,
       )}
     >
@@ -309,7 +308,7 @@ export default function DozaMedicsPanel({ user }: any) {
         .react-datepicker {
           border: none !important;
           border-radius: 16px !important;
-          box-shadow: 0 20px 40px -15px rgba(0, 0, 0, 0.1) !important;
+          box-shadow: 0 20px 40px -15px rgba(5, 150, 105, 0.15) !important;
           font-family: inherit !important;
           padding: 16px !important;
           background: white !important;
@@ -317,16 +316,16 @@ export default function DozaMedicsPanel({ user }: any) {
         }
         .react-datepicker__header {
           background: white !important;
-          border-bottom: 1px solid #f1f5f9 !important;
+          border-bottom: 1px solid #ecfdf5 !important;
           padding-top: 8px !important;
         }
         .react-datepicker__current-month {
           font-weight: 700 !important;
           font-size: 0.9rem !important;
-          color: #0f172a !important;
+          color: #064e3b !important;
         }
         .react-datepicker__day-name {
-          color: #64748b !important;
+          color: #059669 !important;
           font-weight: 600 !important;
           font-size: 0.75rem !important;
         }
@@ -334,7 +333,7 @@ export default function DozaMedicsPanel({ user }: any) {
           font-weight: 500 !important;
           border-radius: 10px !important;
           transition: all 0.2s !important;
-          color: #475569 !important;
+          color: #047857 !important;
         }
         .react-datepicker__day:hover {
           background-color: #ecfdf5 !important;
@@ -346,7 +345,7 @@ export default function DozaMedicsPanel({ user }: any) {
           box-shadow: 0 4px 12px rgba(5, 150, 105, 0.25) !important;
         }
         .react-datepicker__day--disabled {
-          color: #cbd5e1 !important;
+          color: #a7f3d0 !important;
         }
         .react-datepicker__navigation {
           top: 20px !important;
@@ -371,56 +370,45 @@ export default function DozaMedicsPanel({ user }: any) {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -20, scale: 0.95 }}
             className={cn(
-              "fixed top-6 left-1/2 -translate-x-1/2 z-[300] px-5 py-3 rounded-xl shadow-xl flex items-center gap-3 font-semibold text-sm tracking-wide",
+              "fixed top-20 sm:top-6 left-1/2 -translate-x-1/2 z-[300] px-5 py-3 rounded-xl shadow-xl flex items-center gap-3 font-semibold text-sm tracking-wide max-w-[calc(100vw-2rem)]",
               notification.type === "success"
                 ? "bg-emerald-600 text-white"
                 : "bg-rose-600 text-white",
             )}
             role="alert"
           >
-            <span className="flex h-5 w-5 items-center justify-center rounded-full bg-white/20 text-xs">
+            <span className="flex h-5 w-5 items-center justify-center rounded-full bg-white/20 text-xs shrink-0">
               {notification.type === "success" ? "✓" : "!"}
             </span>
-            {notification.msg}
+            <span className="truncate">{notification.msg}</span>
           </motion.div>
         )}
       </AnimatePresence>
 
-      {/* HEADER */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 pt-4 pb-2">
-        <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-5">
-          <div>
-            <div className="flex items-center gap-3 mb-2">
-              <div className="h-8 w-1 rounded-full bg-gradient-to-b from-emerald-500 to-emerald-700" />
-              <span className="text-xs font-bold text-emerald-700 uppercase tracking-[0.22em]">
-                Healthcare Professionals
-              </span>
-            </div>
-            <h1
-              className={cn(
-                "text-3xl sm:text-4xl md:text-5xl text-slate-900 leading-[1.1] tracking-tight",
-                bebasNeue.className,
-              )}
-            >
-              Doza <span className="text-emerald-600">Medics</span>
+      <main className="mx-auto max-w-7xl px-4 pt-3 sm:px-6 lg:px-8 space-y-4 lg:space-y-5">
+        {/* ─── HEADER ──────────────────────────────────────── */}
+        <header className="pt-1 lg:pt-2 flex flex-col gap-3">
+          <div className="min-w-0 flex-1">
+            <h1 className="text-2xl sm:text-3xl lg:text-4xl font-bold text-slate-900 tracking-tight leading-tight">
+              Doza Medics
             </h1>
-            <p className="text-sm text-slate-600 mt-1.5 max-w-md">
+            <p className="text-xs sm:text-sm text-slate-500 mt-1 max-w-md">
               Verified healthcare professionals on demand.
             </p>
           </div>
-        </div>
+        </header>
 
-        {/* Category tabs */}
-        <nav className="flex overflow-x-auto gap-1.5 p-1 mt-4 bg-slate-100 rounded-xl border border-slate-200 w-full md:w-auto scrollbar-none [&::-webkit-scrollbar]:hidden">
+        {/* ─── CATEGORY TABS ───────────────────────────────── */}
+        <nav className="flex overflow-x-auto gap-1 p-1 bg-emerald-50 rounded-2xl border border-emerald-100 w-full md:w-fit scrollbar-none [&::-webkit-scrollbar]:hidden">
           {CATEGORIES.map((cat) => (
             <button
               key={cat.id}
               onClick={() => setSelectedCategory(cat.id)}
               className={cn(
-                "flex items-center gap-2 min-h-11 px-3.5 rounded-lg text-xs font-semibold transition-all shrink-0",
+                "flex items-center gap-1.5 min-h-10 px-3 rounded-xl text-xs font-semibold transition-all shrink-0",
                 selectedCategory === cat.id
-                  ? "bg-white text-emerald-700 shadow-sm"
-                  : "text-slate-600 hover:text-slate-900 hover:bg-slate-200/60",
+                  ? "bg-emerald-600 text-white shadow-sm shadow-emerald-600/20"
+                  : "text-emerald-700/80 hover:bg-white hover:text-emerald-800",
                 FOCUS,
               )}
             >
@@ -429,73 +417,73 @@ export default function DozaMedicsPanel({ user }: any) {
             </button>
           ))}
         </nav>
-      </div>
 
-      {/* Main content */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-8 pt-4 pb-12">
-        <div className="flex justify-between items-center mb-4">
-          <h2 className="text-xs font-bold uppercase tracking-wider text-slate-600">
-            Available Specialists {!isColdStart && `(${medics.length})`}
-          </h2>
-        </div>
-
-        {isColdStart ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-5">
-            {[...Array(6)].map((_, i) => (
-              <SkeletonCard key={i} />
-            ))}
+        {/* ─── SPECIALISTS GRID ────────────────────────────── */}
+        <section>
+          <div className="flex justify-between items-center mb-3">
+            <h2 className="text-xs font-bold uppercase tracking-wider text-emerald-700/70">
+              Available Specialists {!isColdStart && `(${medics.length})`}
+            </h2>
           </div>
-        ) : medics.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-16 px-6 gap-3 bg-white rounded-2xl border border-slate-200 shadow-sm text-center">
-            <div className="w-14 h-14 rounded-2xl bg-emerald-50 flex items-center justify-center text-emerald-600 mb-1">
-              <Stethoscope size={26} />
+
+          {isColdStart ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 lg:gap-4">
+              {[...Array(6)].map((_, i) => (
+                <SkeletonCard key={i} />
+              ))}
             </div>
-            <p className="text-base font-bold text-slate-900">
-              No professionals found
-            </p>
-            <p className="text-sm text-slate-600 max-w-xs mx-auto leading-relaxed">
-              We couldn't find any active specialists in this category right
-              now. Try switching to a different category.
-            </p>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-5">
-            {medics.map((m: any) => (
-              <MedicCard
-                key={m.id}
-                medic={m}
-                onOpen={() => setViewingMedic(m)}
-                isComparing={compareList.some((c) => c.id === m.id)}
-                onCompare={() => {
-                  if (compareList.find((c) => c.id === m.id)) {
-                    setCompareList(compareList.filter((c) => c.id !== m.id));
-                  } else if (compareList.length < 3) {
-                    setCompareList([...compareList, m]);
-                  } else {
-                    triggerNotify(
-                      "You can compare up to 3 medics at a time",
-                      "error",
-                    );
-                  }
-                }}
-              />
-            ))}
-          </div>
-        )}
+          ) : medics.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-12 px-6 gap-3 bg-white rounded-2xl border border-emerald-100 shadow-xs text-center">
+              <div className="w-14 h-14 rounded-2xl bg-emerald-50 flex items-center justify-center text-emerald-600 mb-1">
+                <Stethoscope size={26} />
+              </div>
+              <p className="text-base font-bold text-emerald-900">
+                No professionals found
+              </p>
+              <p className="text-sm text-emerald-700/70 max-w-xs mx-auto leading-relaxed">
+                We couldn't find any active specialists in this category right
+                now. Try switching to a different category.
+              </p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 lg:gap-4">
+              {medics.map((m: any) => (
+                <MedicCard
+                  key={m.id}
+                  medic={m}
+                  onOpen={() => setViewingMedic(m)}
+                  isComparing={compareList.some((c) => c.id === m.id)}
+                  onCompare={() => {
+                    if (compareList.find((c) => c.id === m.id)) {
+                      setCompareList(compareList.filter((c) => c.id !== m.id));
+                    } else if (compareList.length < 3) {
+                      setCompareList([...compareList, m]);
+                    } else {
+                      triggerNotify(
+                        "You can compare up to 3 medics at a time",
+                        "error",
+                      );
+                    }
+                  }}
+                />
+              ))}
+            </div>
+          )}
+        </section>
       </main>
 
-      {/* Comparison floating tray */}
+      {/* ─── COMPARE TRAY ────────────────────────────────── */}
       <AnimatePresence>
         {compareList.length > 0 && (
           <motion.div
             initial={{ y: 50, opacity: 0 }}
             animate={{ y: 0, opacity: 1 }}
             exit={{ y: 50, opacity: 0 }}
-            className="fixed bottom-4 inset-x-0 z-[110] flex justify-center px-4 pointer-events-none"
+            className="fixed bottom-24 sm:bottom-6 inset-x-0 z-[110] flex justify-center px-4 pointer-events-none"
           >
-            <div className="pointer-events-auto bg-slate-900 text-white border border-slate-800 rounded-2xl shadow-2xl px-4 py-3 flex items-center gap-3 sm:gap-4">
+            <div className="pointer-events-auto bg-emerald-700 text-white rounded-2xl shadow-2xl shadow-emerald-900/30 px-3 sm:px-4 py-2.5 flex items-center gap-2.5 sm:gap-4">
               <div className="flex items-center gap-2">
-                <span className="text-xs font-bold text-slate-400 uppercase tracking-wider hidden sm:inline">
+                <span className="text-[10px] font-bold text-emerald-200 uppercase tracking-wider hidden sm:inline">
                   Comparing:
                 </span>
                 <div className="flex -space-x-2">
@@ -504,17 +492,17 @@ export default function DozaMedicsPanel({ user }: any) {
                       key={m.id}
                       src={m.profileImage}
                       alt={m.name}
-                      className="w-9 h-9 rounded-full border-2 border-slate-900 object-cover shadow"
+                      className="w-8 h-8 sm:w-9 sm:h-9 rounded-full border-2 border-emerald-700 object-cover shadow"
                     />
                   ))}
                 </div>
               </div>
-              <div className="h-6 w-px bg-slate-700" />
-              <div className="flex items-center gap-2">
+              <div className="h-6 w-px bg-emerald-500/60" />
+              <div className="flex items-center gap-1.5 sm:gap-2">
                 <button
                   onClick={() => setShowCompareModal(true)}
                   className={cn(
-                    "min-h-10 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold tracking-wide transition-colors",
+                    "min-h-9 px-3 rounded-xl bg-white text-emerald-700 hover:bg-emerald-50 text-xs font-bold tracking-wide transition-colors",
                     FOCUS,
                   )}
                 >
@@ -524,7 +512,7 @@ export default function DozaMedicsPanel({ user }: any) {
                   onClick={() => setCompareList([])}
                   aria-label="Clear comparison"
                   className={cn(
-                    "min-h-10 min-w-10 inline-flex items-center justify-center rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition-colors",
+                    "min-h-9 min-w-9 inline-flex items-center justify-center rounded-xl text-emerald-200 hover:text-white hover:bg-emerald-800 transition-colors",
                     FOCUS,
                   )}
                 >
@@ -536,7 +524,7 @@ export default function DozaMedicsPanel({ user }: any) {
         )}
       </AnimatePresence>
 
-      {/* Compare modal */}
+      {/* ─── COMPARE MODAL ───────────────────────────────── */}
       <AnimatePresence>
         {showCompareModal && (
           <div className="fixed inset-0 z-[250] flex items-center justify-center p-3 sm:p-4">
@@ -552,61 +540,55 @@ export default function DozaMedicsPanel({ user }: any) {
               initial={{ scale: 0.95, opacity: 0, y: 10 }}
               animate={{ scale: 1, opacity: 1, y: 0 }}
               exit={{ scale: 0.95, opacity: 0, y: 10 }}
-              className="relative bg-white w-full max-w-4xl rounded-2xl shadow-2xl overflow-hidden p-5 sm:p-6 max-h-[88vh] flex flex-col"
+              className="relative bg-white w-full max-w-4xl rounded-2xl shadow-2xl overflow-hidden p-4 sm:p-6 max-h-[88vh] flex flex-col border border-emerald-100"
               role="dialog"
               aria-modal="true"
             >
-              <div className="flex justify-between items-center pb-4 border-b border-slate-200 gap-3">
+              <div className="flex justify-between items-center pb-3 border-b border-emerald-100 gap-3">
                 <div className="min-w-0">
-                  <h2
-                    className={cn(
-                      "text-xl sm:text-2xl text-slate-900",
-                      bebasNeue.className,
-                    )}
-                  >
-                    Professional{" "}
-                    <span className="text-emerald-600">Comparison</span>
+                  <h2 className="text-lg sm:text-xl font-bold text-emerald-900 leading-tight">
+                    Professional Comparison
                   </h2>
-                  <p className="text-xs text-slate-500">
-                    Side-by-side breakdown of your selections
+                  <p className="text-xs text-emerald-700/70">
+                    Side-by-side breakdown
                   </p>
                 </div>
                 <button
                   onClick={() => setShowCompareModal(false)}
                   aria-label="Close"
                   className={cn(
-                    "min-h-11 min-w-11 inline-flex items-center justify-center bg-slate-100 text-slate-600 rounded-xl hover:bg-slate-200 transition-colors shrink-0",
+                    "min-h-10 min-w-10 inline-flex items-center justify-center bg-emerald-50 text-emerald-600 rounded-xl hover:bg-emerald-100 transition-colors shrink-0",
                     FOCUS,
                   )}
                 >
                   <X size={18} />
                 </button>
               </div>
-              <div className="overflow-x-auto py-4 flex-1">
+              <div className="overflow-x-auto py-3 flex-1 custom-emerald-scrollbar">
                 <table className="w-full text-left border-collapse min-w-[520px]">
                   <thead>
-                    <tr className="border-b border-slate-200">
-                      <th className="pb-4 text-xs font-bold text-slate-500 uppercase w-1/4">
+                    <tr className="border-b border-emerald-100">
+                      <th className="pb-3 text-[10px] font-bold text-emerald-700/70 uppercase">
                         Attributes
                       </th>
                       {compareList.map((m) => (
-                        <th key={m.id} className="pb-4 px-3 text-center w-1/4">
+                        <th key={m.id} className="pb-3 px-3 text-center">
                           <img
                             src={m.profileImage}
                             alt={m.name}
-                            className="w-16 h-16 rounded-2xl mx-auto object-cover mb-2 shadow-sm border border-slate-200"
+                            className="w-14 h-14 rounded-2xl mx-auto object-cover mb-2 shadow-sm border border-emerald-100"
                           />
-                          <p className="text-sm font-bold text-slate-900 truncate">
+                          <p className="text-sm font-bold text-emerald-900 truncate">
                             {m.name}
                           </p>
-                          <p className="text-xs text-emerald-700 font-semibold uppercase tracking-wider mt-0.5">
+                          <p className="text-[10px] text-emerald-600 font-bold uppercase tracking-wider mt-0.5">
                             {m.specialty}
                           </p>
                         </th>
                       ))}
                     </tr>
                   </thead>
-                  <tbody className="text-sm divide-y divide-slate-100">
+                  <tbody className="text-sm divide-y divide-emerald-100">
                     <CompareRow
                       label="Experience"
                       values={compareList.map((m) => `${m.experience} years`)}
@@ -622,14 +604,14 @@ export default function DozaMedicsPanel({ user }: any) {
                       )}
                     />
                     <CompareRow
-                      label="Consultation Fee"
+                      label="Fee"
                       values={compareList.map(
                         (m) => `₦${m.price.toLocaleString()}`,
                       )}
                       isPrice
                     />
                     <CompareRow
-                      label="Rating Score"
+                      label="Rating"
                       values={compareList.map(() => "4.9 / 5.0")}
                     />
                     <CompareRow
@@ -642,11 +624,11 @@ export default function DozaMedicsPanel({ user }: any) {
                             setShowCompareModal(false);
                           }}
                           className={cn(
-                            "w-full min-h-10 px-3 bg-emerald-600 text-white rounded-xl text-xs font-bold hover:bg-emerald-700 transition-colors",
+                            "w-full min-h-9 px-3 bg-emerald-600 text-white rounded-lg text-xs font-bold hover:bg-emerald-700 transition-colors",
                             FOCUS,
                           )}
                         >
-                          Select & Book
+                          Select
                         </button>
                       ))}
                       isButton
@@ -659,7 +641,7 @@ export default function DozaMedicsPanel({ user }: any) {
         )}
       </AnimatePresence>
 
-      {/* Booking modal */}
+      {/* ─── BOOKING MODAL ───────────────────────────────── */}
       <AnimatePresence>
         {viewingMedic && (
           <div className="fixed inset-0 z-[200] flex items-end sm:items-center justify-center p-0 sm:p-4">
@@ -675,38 +657,33 @@ export default function DozaMedicsPanel({ user }: any) {
               initial={{ scale: 0.98, opacity: 0, y: 20 }}
               animate={{ scale: 1, opacity: 1, y: 0 }}
               exit={{ scale: 0.98, opacity: 0, y: 20 }}
-              className="relative bg-white w-full sm:max-w-2xl rounded-t-3xl sm:rounded-2xl shadow-2xl overflow-hidden max-h-[92vh] sm:max-h-[90vh] flex flex-col pb-[max(1rem,env(safe-area-inset-bottom))] sm:pb-0"
+              className="relative bg-white w-full sm:max-w-2xl rounded-t-3xl sm:rounded-2xl shadow-2xl overflow-hidden max-h-[92dvh] sm:max-h-[90vh] flex flex-col border border-emerald-100 pb-[max(1rem,env(safe-area-inset-bottom))] sm:pb-0"
               role="dialog"
               aria-modal="true"
             >
               {/* Drag handle (mobile only) */}
               <div className="sm:hidden flex justify-center pt-3" aria-hidden>
-                <div className="w-10 h-1 rounded-full bg-slate-300" />
+                <div className="w-10 h-1 rounded-full bg-emerald-200" />
               </div>
 
               {/* Modal header */}
-              <div className="px-5 py-4 border-b border-slate-200 flex justify-between items-center bg-white sticky top-0 z-20 gap-3">
+              <div className="px-4 sm:px-5 py-3 border-b border-emerald-100 flex justify-between items-center bg-white sticky top-0 z-20 gap-3 shrink-0">
                 <div className="flex items-center gap-3 min-w-0">
                   <img
                     src={viewingMedic.profileImage}
                     alt={viewingMedic.name}
-                    className="w-12 h-12 rounded-xl object-cover border border-slate-200 shrink-0"
+                    className="w-11 h-11 sm:w-12 sm:h-12 rounded-xl object-cover border border-emerald-100 shrink-0"
                   />
                   <div className="min-w-0">
-                    <h2
-                      className={cn(
-                        "text-lg sm:text-xl text-slate-900 leading-tight truncate",
-                        bebasNeue.className,
-                      )}
-                    >
+                    <h2 className="text-base sm:text-lg font-bold text-emerald-900 leading-tight truncate">
                       {viewingMedic.name}
                     </h2>
                     <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-                      <span className="text-xs font-bold text-emerald-700 uppercase tracking-wider bg-emerald-50 px-2 py-0.5 rounded-md">
+                      <span className="text-[10px] font-bold text-emerald-700 uppercase tracking-wider bg-emerald-50 px-1.5 py-0.5 rounded-md">
                         {viewingMedic.specialty}
                       </span>
-                      <span className="text-xs text-slate-600 flex items-center gap-1">
-                        <Languages size={12} />{" "}
+                      <span className="text-[11px] text-emerald-700/70 flex items-center gap-1">
+                        <Languages size={11} />{" "}
                         {viewingMedic.languages?.join(", ") || "English"}
                       </span>
                     </div>
@@ -716,7 +693,7 @@ export default function DozaMedicsPanel({ user }: any) {
                   onClick={() => setViewingMedic(null)}
                   aria-label="Close"
                   className={cn(
-                    "min-h-11 min-w-11 inline-flex items-center justify-center bg-slate-100 text-slate-600 rounded-xl hover:bg-slate-200 transition-colors shrink-0",
+                    "min-h-10 min-w-10 inline-flex items-center justify-center bg-emerald-50 text-emerald-600 rounded-xl hover:bg-emerald-100 transition-colors shrink-0",
                     FOCUS,
                   )}
                 >
@@ -725,9 +702,9 @@ export default function DozaMedicsPanel({ user }: any) {
               </div>
 
               {/* Modal body */}
-              <div className="p-5 overflow-y-auto space-y-5 flex-1">
+              <div className="p-4 sm:p-5 overflow-y-auto space-y-4 flex-1 custom-emerald-scrollbar">
                 {/* Step indicator */}
-                <div className="flex gap-1 p-1 bg-slate-100 rounded-xl border border-slate-200">
+                <div className="flex gap-1 p-1 bg-emerald-50 rounded-xl border border-emerald-100">
                   {[
                     { id: "details", label: "1. Profile" },
                     { id: "schedule", label: "2. Schedule" },
@@ -741,10 +718,10 @@ export default function DozaMedicsPanel({ user }: any) {
                           setBookingStep("schedule");
                       }}
                       className={cn(
-                        "flex-1 min-h-10 text-xs font-semibold rounded-lg transition-all text-center",
+                        "flex-1 min-h-9 text-[11px] sm:text-xs font-semibold rounded-lg transition-all text-center",
                         bookingStep === s.id
-                          ? "bg-white text-slate-900 shadow-sm"
-                          : "text-slate-500 hover:text-slate-800",
+                          ? "bg-emerald-600 text-white shadow-sm"
+                          : "text-emerald-700/70 hover:text-emerald-900",
                         FOCUS,
                       )}
                     >
@@ -754,11 +731,11 @@ export default function DozaMedicsPanel({ user }: any) {
                 </div>
 
                 {bookingStep === "details" && (
-                  <div className="space-y-5">
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                  <div className="space-y-4">
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                       <DetailBox
                         label="Experience"
-                        value={`${viewingMedic.experience} years`}
+                        value={`${viewingMedic.experience} yrs`}
                       />
                       <DetailBox
                         label="Languages"
@@ -767,12 +744,12 @@ export default function DozaMedicsPanel({ user }: any) {
                       <DetailBox label="Location" value={viewingMedic.city} />
                       <DetailBox label="Rating" value="4.9 / 5" />
                     </div>
-                    <div className="space-y-2 bg-slate-50 p-4 rounded-xl border border-slate-200">
-                      <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
-                        <ShieldCheck size={16} className="text-emerald-600" />
+                    <div className="space-y-1.5 bg-emerald-50 p-3.5 rounded-xl border border-emerald-100">
+                      <h4 className="text-[10px] font-bold text-emerald-700 uppercase tracking-wider flex items-center gap-1.5">
+                        <ShieldCheck size={14} />
                         Professional Bio
                       </h4>
-                      <p className="text-sm text-slate-600 leading-relaxed">
+                      <p className="text-xs sm:text-sm text-emerald-700/80 leading-relaxed">
                         {viewingMedic.bio ||
                           "No biography provided for this professional."}
                       </p>
@@ -780,7 +757,7 @@ export default function DozaMedicsPanel({ user }: any) {
                     <button
                       onClick={() => setBookingStep("schedule")}
                       className={cn(
-                        "w-full min-h-12 bg-emerald-600 text-white rounded-xl font-bold text-sm hover:bg-emerald-700 transition-colors shadow-sm",
+                        "w-full min-h-11 bg-emerald-600 text-white rounded-xl font-bold text-sm hover:bg-emerald-700 transition-colors shadow-sm",
                         FOCUS,
                       )}
                     >
@@ -790,33 +767,33 @@ export default function DozaMedicsPanel({ user }: any) {
                 )}
 
                 {bookingStep === "schedule" && (
-                  <div className="space-y-5">
-                    <div className="grid grid-cols-2 gap-2.5">
+                  <div className="space-y-4">
+                    <div className="grid grid-cols-2 gap-2">
                       <button
                         onClick={() => setConsultType("inPerson")}
                         className={cn(
-                          "flex items-center gap-2.5 p-3 rounded-xl border-2 transition-all text-left min-h-[72px]",
+                          "flex items-center gap-2 p-2.5 rounded-xl border-2 transition-all text-left min-h-[68px]",
                           consultType === "inPerson"
                             ? "border-emerald-500 bg-emerald-50"
-                            : "border-slate-200 bg-slate-50 hover:border-slate-300",
+                            : "border-emerald-100 bg-white hover:border-emerald-200",
                           FOCUS,
                         )}
                       >
                         <div
                           className={cn(
-                            "p-2 rounded-lg shrink-0",
+                            "p-1.5 rounded-lg shrink-0",
                             consultType === "inPerson"
                               ? "bg-emerald-600 text-white"
-                              : "bg-white text-slate-500",
+                              : "bg-emerald-50 text-emerald-600",
                           )}
                         >
-                          <Home size={18} />
+                          <Home size={16} />
                         </div>
                         <div className="min-w-0">
-                          <span className="block text-xs font-bold text-slate-900">
+                          <span className="block text-xs font-bold text-emerald-900">
                             In-Person
                           </span>
-                          <span className="block text-xs text-slate-500">
+                          <span className="block text-[10px] text-emerald-700/70">
                             At your address
                           </span>
                         </div>
@@ -824,28 +801,28 @@ export default function DozaMedicsPanel({ user }: any) {
                       <button
                         onClick={() => setConsultType("online")}
                         className={cn(
-                          "flex items-center gap-2.5 p-3 rounded-xl border-2 transition-all text-left min-h-[72px]",
+                          "flex items-center gap-2 p-2.5 rounded-xl border-2 transition-all text-left min-h-[68px]",
                           consultType === "online"
                             ? "border-emerald-500 bg-emerald-50"
-                            : "border-slate-200 bg-slate-50 hover:border-slate-300",
+                            : "border-emerald-100 bg-white hover:border-emerald-200",
                           FOCUS,
                         )}
                       >
                         <div
                           className={cn(
-                            "p-2 rounded-lg shrink-0",
+                            "p-1.5 rounded-lg shrink-0",
                             consultType === "online"
                               ? "bg-emerald-600 text-white"
-                              : "bg-white text-slate-500",
+                              : "bg-emerald-50 text-emerald-600",
                           )}
                         >
-                          <Video size={18} />
+                          <Video size={16} />
                         </div>
                         <div className="min-w-0">
-                          <span className="block text-xs font-bold text-slate-900">
+                          <span className="block text-xs font-bold text-emerald-900">
                             Online Call
                           </span>
-                          <span className="block text-xs text-slate-500">
+                          <span className="block text-[10px] text-emerald-700/70">
                             Virtual session
                           </span>
                         </div>
@@ -856,7 +833,7 @@ export default function DozaMedicsPanel({ user }: any) {
                       <div className="space-y-1.5">
                         <label
                           htmlFor="patient-address"
-                          className="block text-xs font-bold text-slate-600 uppercase tracking-wider"
+                          className="block text-[10px] font-bold text-emerald-700 uppercase tracking-wider"
                         >
                           Patient residential address
                         </label>
@@ -865,10 +842,10 @@ export default function DozaMedicsPanel({ user }: any) {
                           type="text"
                           value={patientAddress}
                           onChange={(e) => setPatientAddress(e.target.value)}
-                          placeholder="e.g., 14 Admiralty Way, Lekki Phase 1"
+                          placeholder="e.g., 14 Admiralty Way, Lekki"
                           autoComplete="street-address"
                           className={cn(
-                            "w-full min-h-12 px-3.5 bg-slate-50 border border-slate-200 text-slate-800 rounded-xl text-sm focus:bg-white focus:border-emerald-600 focus:ring-2 focus:ring-emerald-600/20 outline-none transition",
+                            "w-full min-h-11 px-3.5 bg-emerald-50/50 border border-emerald-100 text-emerald-900 rounded-xl text-base sm:text-sm focus:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/15 outline-none transition",
                             FOCUS,
                           )}
                         />
@@ -876,8 +853,8 @@ export default function DozaMedicsPanel({ user }: any) {
                     )}
 
                     {consultType === "online" && (
-                      <div className="space-y-2">
-                        <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider">
+                      <div className="space-y-1.5">
+                        <label className="block text-[10px] font-bold text-emerald-700 uppercase tracking-wider">
                           Consultation duration
                         </label>
                         <div className="grid grid-cols-3 sm:grid-cols-5 gap-1.5">
@@ -886,10 +863,10 @@ export default function DozaMedicsPanel({ user }: any) {
                               key={d}
                               onClick={() => setSelectedDuration(d)}
                               className={cn(
-                                "min-h-11 px-2 rounded-xl text-xs font-bold transition-colors border",
+                                "min-h-10 px-2 rounded-xl text-xs font-bold transition-colors border",
                                 selectedDuration === d
                                   ? "bg-emerald-600 text-white border-emerald-600"
-                                  : "bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100",
+                                  : "bg-white text-emerald-700 border-emerald-100 hover:bg-emerald-50",
                                 FOCUS,
                               )}
                             >
@@ -901,11 +878,11 @@ export default function DozaMedicsPanel({ user }: any) {
                     )}
 
                     <div className="space-y-1.5">
-                      <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider">
+                      <label className="block text-[10px] font-bold text-emerald-700 uppercase tracking-wider">
                         Appointment date
                       </label>
                       <div className="relative">
-                        <div className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-500 z-10 pointer-events-none">
+                        <div className="absolute left-3.5 top-1/2 -translate-y-1/2 text-emerald-600 z-10 pointer-events-none">
                           <CalendarIcon size={16} />
                         </div>
                         <DatePicker
@@ -915,13 +892,13 @@ export default function DozaMedicsPanel({ user }: any) {
                           maxDate={maxDate}
                           dateFormat="MMMM d, yyyy"
                           placeholderText="Select date"
-                          className="w-full min-h-12 pl-10 pr-4 bg-slate-50 text-slate-800 font-semibold border border-slate-200 rounded-xl text-sm focus:bg-white focus:border-emerald-600 focus:ring-2 focus:ring-emerald-600/20 outline-none cursor-pointer"
+                          className="w-full min-h-11 pl-10 pr-4 bg-emerald-50/50 text-emerald-900 font-semibold border border-emerald-100 rounded-xl text-base sm:text-sm focus:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/15 outline-none cursor-pointer"
                         />
                       </div>
                     </div>
 
-                    <div className="space-y-2">
-                      <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider">
+                    <div className="space-y-1.5">
+                      <label className="block text-[10px] font-bold text-emerald-700 uppercase tracking-wider">
                         Available time slot
                       </label>
                       <div className="grid grid-cols-3 sm:grid-cols-4 gap-1.5">
@@ -930,10 +907,10 @@ export default function DozaMedicsPanel({ user }: any) {
                             key={t}
                             onClick={() => setSelectedTime(t)}
                             className={cn(
-                              "min-h-11 rounded-xl text-xs font-semibold border transition-colors",
+                              "min-h-10 rounded-xl text-xs font-semibold border transition-colors",
                               selectedTime === t
                                 ? "border-emerald-600 bg-emerald-50 text-emerald-700"
-                                : "border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100",
+                                : "border-emerald-100 bg-white text-emerald-700 hover:bg-emerald-50",
                               FOCUS,
                             )}
                           >
@@ -952,7 +929,7 @@ export default function DozaMedicsPanel({ user }: any) {
                       }
                       onClick={() => setBookingStep("payment")}
                       className={cn(
-                        "w-full min-h-12 bg-emerald-600 text-white rounded-xl font-bold text-sm disabled:opacity-40 disabled:cursor-not-allowed hover:bg-emerald-700 transition-colors shadow-sm",
+                        "w-full min-h-11 bg-emerald-600 text-white rounded-xl font-bold text-sm disabled:opacity-40 disabled:cursor-not-allowed hover:bg-emerald-700 transition-colors shadow-sm",
                         FOCUS,
                       )}
                     >
@@ -962,53 +939,53 @@ export default function DozaMedicsPanel({ user }: any) {
                 )}
 
                 {bookingStep === "payment" && (
-                  <div className="space-y-5">
-                    <div className="bg-emerald-50 border border-emerald-200 p-5 rounded-xl space-y-4">
+                  <div className="space-y-4">
+                    <div className="bg-emerald-50 border border-emerald-200 p-4 rounded-xl space-y-3">
                       <div className="flex justify-between items-center gap-2">
-                        <span className="text-xs font-bold text-emerald-800 uppercase tracking-wider">
+                        <span className="text-[10px] font-bold text-emerald-800 uppercase tracking-wider">
                           Total Payable Fee
                         </span>
-                        <span className="text-2xl sm:text-3xl font-black text-slate-900">
+                        <span className="text-xl sm:text-2xl font-bold text-emerald-900">
                           ₦{viewingMedic.price?.toLocaleString()}
                         </span>
                       </div>
                       <div className="h-px bg-emerald-200" />
                       <div className="grid grid-cols-2 gap-3 text-xs">
                         <div>
-                          <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">
+                          <p className="text-[10px] font-bold text-emerald-700/70 uppercase tracking-wider">
                             Type
                           </p>
-                          <p className="font-semibold text-slate-800 mt-0.5">
+                          <p className="font-semibold text-emerald-900 mt-0.5">
                             {consultType === "online"
                               ? "Online Consultation"
                               : "In-Person Visit"}
                           </p>
                         </div>
                         <div>
-                          <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">
+                          <p className="text-[10px] font-bold text-emerald-700/70 uppercase tracking-wider">
                             Date & Time
                           </p>
-                          <p className="font-semibold text-slate-800 mt-0.5">
+                          <p className="font-semibold text-emerald-900 mt-0.5">
                             {selectedDate?.toLocaleDateString()} @{" "}
                             {selectedTime}
                           </p>
                         </div>
                         {consultType === "online" && (
                           <div>
-                            <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">
+                            <p className="text-[10px] font-bold text-emerald-700/70 uppercase tracking-wider">
                               Duration
                             </p>
-                            <p className="font-semibold text-slate-800 mt-0.5">
+                            <p className="font-semibold text-emerald-900 mt-0.5">
                               {selectedDuration}
                             </p>
                           </div>
                         )}
                         {consultType === "inPerson" && (
                           <div className="col-span-2">
-                            <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">
+                            <p className="text-[10px] font-bold text-emerald-700/70 uppercase tracking-wider">
                               Address
                             </p>
-                            <p className="font-semibold text-slate-800 mt-0.5 truncate">
+                            <p className="font-semibold text-emerald-900 mt-0.5 truncate">
                               {patientAddress}
                             </p>
                           </div>
@@ -1047,7 +1024,6 @@ export default function DozaMedicsPanel({ user }: any) {
 function MedicCard({ medic, onOpen, isComparing, onCompare }: any) {
   return (
     <div
-      className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm transition-all duration-200 flex flex-col justify-between group cursor-pointer md:hover:-translate-y-0.5 md:hover:shadow-lg md:hover:border-slate-300"
       onClick={onOpen}
       role="button"
       tabIndex={0}
@@ -1057,57 +1033,75 @@ function MedicCard({ medic, onOpen, isComparing, onCompare }: any) {
           onOpen();
         }
       }}
+      className={cn(
+        "group relative w-full overflow-hidden rounded-3xl bg-white",
+        "border border-emerald-100 shadow-xs transition-all duration-300 cursor-pointer",
+        "hover:-translate-y-0.5 hover:shadow-lg hover:border-emerald-200",
+        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:ring-offset-2",
+      )}
     >
-      <div>
-        <div className="flex justify-between items-start mb-3">
-          <img
-            src={medic.profileImage}
-            alt={medic.name}
-            className="w-16 h-16 rounded-2xl object-cover border border-slate-200"
-          />
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              onCompare();
-            }}
-            className={cn(
-              "min-h-11 min-w-11 inline-flex items-center justify-center rounded-xl transition-colors border",
-              isComparing
-                ? "bg-emerald-600 text-white border-emerald-600"
-                : "bg-slate-50 text-slate-500 border-slate-200 hover:text-slate-900 hover:bg-slate-100",
-              FOCUS,
-            )}
-            title="Compare professional"
-            aria-label={
-              isComparing ? "Remove from comparison" : "Add to comparison"
-            }
-          >
-            <Scale size={15} />
-          </button>
-        </div>
-        <h3 className="text-base font-bold text-slate-900 mb-0.5 group-hover:text-emerald-700 transition-colors truncate">
-          {medic.name}
-        </h3>
-        <p className="text-emerald-700 text-xs font-bold uppercase tracking-wider mb-3">
-          {medic.specialty}
-        </p>
-        <div className="flex flex-wrap items-center gap-3 text-xs text-slate-600 mb-4">
-          <div className="flex items-center gap-1">
-            <MapPin size={13} className="text-slate-500" /> {medic.city}
-          </div>
-          <div className="flex items-center gap-1">
-            <Clock size={13} className="text-slate-500" /> {medic.experience}{" "}
-            yrs exp
+      {/* ─── HERO IMAGE ─────────────────────────────────── */}
+      <div className="relative aspect-[4/5] w-full overflow-hidden bg-emerald-100">
+        <img
+          src={medic.profileImage}
+          alt={medic.name}
+          className="w-full h-full object-cover transition-transform duration-500 ease-out group-hover:scale-105"
+        />
+
+        {/* Cinematic gradient for text legibility */}
+        <div className="absolute inset-0 bg-gradient-to-t from-emerald-950 via-emerald-950/40 to-transparent" />
+
+        {/* Floating compare button — top-right */}
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onCompare();
+          }}
+          aria-label={
+            isComparing ? "Remove from comparison" : "Add to comparison"
+          }
+          title="Compare professional"
+          className={cn(
+            "absolute top-3 right-3 w-10 h-10 inline-flex items-center justify-center rounded-full",
+            "backdrop-blur-md transition-all duration-200 active:scale-95",
+            isComparing
+              ? "bg-emerald-600 text-white shadow-lg shadow-emerald-600/40"
+              : "bg-white/20 text-white border border-white/30 hover:bg-white/30 hover:scale-105",
+            FOCUS,
+          )}
+        >
+          <Scale size={16} />
+        </button>
+
+        {/* Bottom overlay — identity */}
+        <div className="absolute bottom-0 left-0 right-0 p-4 space-y-1">
+          <p className="text-[10px] font-bold uppercase tracking-widest text-emerald-200">
+            {medic.specialty}
+          </p>
+          <h3 className="text-lg sm:text-xl font-bold text-white leading-tight tracking-tight truncate">
+            {medic.name}
+          </h3>
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 pt-1">
+            <div className="flex items-center gap-1 text-[11px] text-white/90 font-medium">
+              <MapPin size={11} className="text-emerald-300 shrink-0" />
+              {medic.city}
+            </div>
+            <span className="text-white/40 text-[10px]">•</span>
+            <div className="flex items-center gap-1 text-[11px] text-white/90 font-medium">
+              <Clock size={11} className="text-emerald-300 shrink-0" />
+              {medic.experience} yrs
+            </div>
           </div>
         </div>
       </div>
 
-      <div className="flex items-center justify-between pt-3 border-t border-slate-100">
-        <div>
-          <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">
+      {/* ─── BOTTOM ACTION STRIP ────────────────────────── */}
+      <div className="flex items-center justify-between gap-2 px-3 py-2.5 bg-white">
+        <div className="min-w-0">
+          <p className="text-[9px] font-bold uppercase tracking-wider text-emerald-700/60 leading-none">
             Rate
           </p>
-          <p className="text-base font-black text-slate-900">
+          <p className="text-base font-bold text-emerald-900 leading-tight mt-0.5 tabular-nums">
             ₦{medic.price?.toLocaleString()}
           </p>
         </div>
@@ -1118,11 +1112,18 @@ function MedicCard({ medic, onOpen, isComparing, onCompare }: any) {
           }}
           aria-label={`Book ${medic.name}`}
           className={cn(
-            "min-h-11 min-w-11 inline-flex items-center justify-center bg-slate-900 group-hover:bg-emerald-600 text-white rounded-xl transition-colors shadow-sm",
+            "inline-flex items-center gap-1 h-10 pl-3 pr-2.5 rounded-xl",
+            "bg-emerald-600 group-hover:bg-emerald-700 text-white",
+            "text-[11px] font-bold uppercase tracking-wider",
+            "shadow-sm shadow-emerald-600/20 transition-all active:scale-95",
             FOCUS,
           )}
         >
-          <ChevronRight size={16} />
+          Book
+          <ChevronRight
+            size={14}
+            className="transition-transform group-hover:translate-x-0.5"
+          />
         </button>
       </div>
     </div>
@@ -1131,11 +1132,11 @@ function MedicCard({ medic, onOpen, isComparing, onCompare }: any) {
 
 function DetailBox({ label, value }: any) {
   return (
-    <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 text-center">
-      <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">
+    <div className="bg-emerald-50 p-2.5 rounded-xl border border-emerald-100 text-center">
+      <p className="text-[9px] font-bold text-emerald-700/70 uppercase tracking-wider mb-0.5">
         {label}
       </p>
-      <p className="text-sm font-bold text-slate-800 truncate">
+      <p className="text-xs sm:text-sm font-bold text-emerald-900 truncate">
         {value || "—"}
       </p>
     </div>
@@ -1144,16 +1145,16 @@ function DetailBox({ label, value }: any) {
 
 function CompareRow({ label, values, isPrice, isButton }: any) {
   return (
-    <tr className="border-b border-slate-100">
-      <td className="py-3 font-bold text-slate-500 uppercase text-xs tracking-wider">
+    <tr className="border-b border-emerald-100">
+      <td className="py-2.5 font-bold text-emerald-700/70 uppercase text-[10px] tracking-wider">
         {label}
       </td>
       {values.map((v: any, i: number) => (
         <td
           key={i}
           className={cn(
-            "py-3 px-3 text-center font-semibold text-slate-700 text-sm",
-            isPrice && "text-emerald-700 font-bold text-base",
+            "py-2.5 px-2 text-center font-semibold text-emerald-900 text-xs sm:text-sm",
+            isPrice && "text-emerald-700 font-bold text-sm sm:text-base",
             isButton && "text-center",
           )}
         >
