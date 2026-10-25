@@ -35,6 +35,9 @@ import {
   Store,
   Play,
   Flame,
+  Infinity,
+  RefreshCw,
+  type LucideIcon,
 } from "lucide-react";
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -64,7 +67,7 @@ const EMERALD = "#059669";
 const EMERALD_LIGHT = "#d1fae5";
 const EMERALD_SOFT = "#6ee7b7";
 const NOTIFIED_KEY = "med:notified:v1";
-const DUE_GRACE_MS = 30 * 60 * 1000; // 30 min — keeps "Due now" alive
+const DUE_GRACE_MS = 30 * 60 * 1000;
 
 const FOCUS =
   "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:ring-offset-2";
@@ -205,9 +208,6 @@ function getTimeOfDay(hour: number) {
   return "night";
 }
 
-// ─── Countdown formatter ────────────────────────────────────
-// Shows seconds when close, hours when far. Called every render
-// with a pre-computed diff (cheap, no allocations).
 function formatCountdown(diffMs: number): string {
   if (diffMs <= 0) return "Due now";
   const totalSec = Math.floor(diffMs / 1000);
@@ -219,8 +219,6 @@ function formatCountdown(diffMs: number): string {
   return `${s}s`;
 }
 
-// ─── Fire an OS notification (SW preferred, plain Notification fallback) ─
-// Safe against: missing SW, missing permission, iOS limitations.
 async function fireDoseNotification(
   title: string,
   body: string,
@@ -234,10 +232,9 @@ async function fireDoseNotification(
     typeof window !== "undefined"
       ? window.location.origin
       : "https://users.dozamedic.com";
-  const clickUrl = `${origin}/dashboard`;
+  const clickUrl = `${origin}/dashboard?panel=medications`;
   const iconUrl = `${origin}/logo.png`;
 
-  // Preferred path: Service Worker (required on Android Chrome)
   try {
     if ("serviceWorker" in navigator) {
       const reg = await navigator.serviceWorker.getRegistration();
@@ -247,7 +244,6 @@ async function fireDoseNotification(
           tag,
           icon: iconUrl,
           badge: iconUrl,
-          // vibrate: [200, 100, 200],
           silent: false,
           requireInteraction: false,
           data: { url: clickUrl },
@@ -255,11 +251,8 @@ async function fireDoseNotification(
         return;
       }
     }
-  } catch {
-    // fall through to plain Notification
-  }
+  } catch {}
 
-  // Fallback: plain Notification (desktop, some mobile)
   try {
     new Notification(title, { body, icon: iconUrl, tag });
   } catch {}
@@ -680,7 +673,7 @@ const SelectDropdown = ({
   options,
   label,
   error,
-  placeholder = "Select…",
+  placeholder = "Select...",
 }: {
   value: string;
   onChange: (v: string) => void;
@@ -871,10 +864,7 @@ const MedicationCard = ({
     : false;
 
   const nextDoseCountdown = nextDose
-    ? (() => {
-        const diff = new Date(nextDose.scheduledTime).getTime() - now;
-        return formatCountdown(diff);
-      })()
+    ? formatCountdown(new Date(nextDose.scheduledTime).getTime() - now)
     : "";
 
   const next7 = Array.from({ length: 7 }, (_, i) => {
@@ -942,7 +932,7 @@ const MedicationCard = ({
                 <span className="font-medium text-emerald-900">
                   {medication.centerName}
                 </span>
-                {medication.prescribedBy && ` · by ${medication.prescribedBy}`}
+                {medication.prescribedBy && ` by ${medication.prescribedBy}`}
               </p>
             )}
 
@@ -1223,7 +1213,7 @@ const UpcomingDosePill = ({
             hour: "2-digit",
             minute: "2-digit",
           })}{" "}
-          · {dose.dosage} · {dose.assignedToName}
+          {dose.dosage} {dose.assignedToName}
         </p>
       </div>
       <span
@@ -1457,12 +1447,13 @@ const SnapDrugModal = ({ onClose, onSnap }: any) => {
                   onChange={(e: ChangeEvent<HTMLTextAreaElement>) =>
                     setExtractedText(e.target.value)
                   }
-                  placeholder="OCR result will appear here…"
+                  placeholder="OCR result will appear here..."
                   className="min-h-[80px]"
                 />
                 {isProcessing && (
                   <div className="flex items-center gap-2 mt-2 text-sm text-emerald-700 font-medium">
-                    <Loader2 className="w-4 h-4 animate-spin" /> Reading image…
+                    <Loader2 className="w-4 h-4 animate-spin" /> Reading
+                    image...
                   </div>
                 )}
               </div>
@@ -1509,7 +1500,6 @@ export default function MedicationPanel() {
   const user = useUserContext();
   const { profile } = useProfile();
 
-  // ─── Shared 1s tick — powers countdown AND notification scheduler ─
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
     const interval = setInterval(() => setNow(Date.now()), 1000);
@@ -1558,7 +1548,27 @@ export default function MedicationPanel() {
   const [searching, setSearching] = useState(false);
   const [showSnapModal, setShowSnapModal] = useState(false);
 
-  // ─── In-app toast for dose notifications ─────────────────────
+  // NEW: refresh state + handler
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  const handleRefresh = async () => {
+    if (isRefreshing) return;
+    setIsRefreshing(true);
+    try {
+      await Promise.all([
+        mutate(`/api/medications?memberId=${selectedFamilyId}`),
+        mutate("/api/family"),
+        mutate(
+          (key) => Array.isArray(key) && key[0] === "prescribed-medications",
+        ),
+      ]);
+    } catch (err) {
+      console.warn("Refresh failed", err);
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
+
   const [doseToast, setDoseToast] = useState<{
     title: string;
     body: string;
@@ -1571,7 +1581,6 @@ export default function MedicationPanel() {
     return () => clearTimeout(t);
   }, [doseToast]);
 
-  // Dedup set — survives reloads via sessionStorage
   const firedRef = useRef<Set<string>>(new Set());
   useEffect(() => {
     try {
@@ -1605,6 +1614,41 @@ export default function MedicationPanel() {
       setShowHelp(true);
       localStorage.setItem("doza_medication_help_v2", "true");
     }
+  }, []);
+
+  // NEW: auto-heal push subscription (if permission granted but no sub)
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!("serviceWorker" in navigator)) return;
+    if (!("Notification" in window)) return;
+    if (Notification.permission !== "granted") return;
+
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const reg = await navigator.serviceWorker.getRegistration();
+        if (!reg) return;
+
+        const existing = await reg.pushManager.getSubscription();
+        if (existing) return;
+
+        const sub = await reg.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY,
+        });
+
+        if (!cancelled) {
+          await authPost("/api/notifications/subscribe", sub.toJSON());
+        }
+      } catch (err) {
+        console.warn("Push re-subscribe failed:", err);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const { data: familyData, mutate: mutateFamily } = useSWR(
@@ -1661,7 +1705,6 @@ export default function MedicationPanel() {
     localStorage.setItem("medicationMeta", JSON.stringify(medicationMeta));
   }, [medicationMeta]);
 
-  // ─── allExtended — server data wins over localStorage ───────
   const allExtended = useMemo<ExtendedMedication[]>(() => {
     const selfExtended = selfMedications.map((m: any) => ({
       ...m,
@@ -1709,7 +1752,6 @@ export default function MedicationPanel() {
     return [...selfExtended, ...prescribedExtended];
   }, [selfMedications, prescribedMeds, medicationMeta]);
 
-  // ─── Backfill meta from server (fresh browser resilience) ───
   useEffect(() => {
     const inferred: typeof medicationMeta = {};
     for (const m of selfMedications as any[]) {
@@ -1726,12 +1768,29 @@ export default function MedicationPanel() {
     }
   }, [selfMedications, medicationMeta]);
 
-  const activeMeds = allExtended.filter(
-    (m) => m.status === "active" && m.doses.length > 0,
+  // NEW: newest-first sort on active + past meds
+  const newestFirst = (a: ExtendedMedication, b: ExtendedMedication) =>
+    new Date(b.createdAt || b.startDate || 0).getTime() -
+    new Date(a.createdAt || a.startDate || 0).getTime();
+
+  const activeMeds = useMemo(
+    () =>
+      allExtended
+        .filter((m) => m.status === "active" && m.doses.length > 0)
+        .slice()
+        .sort(newestFirst),
+    [allExtended],
   );
-  const pastMeds = allExtended.filter(
-    (m) => m.status !== "active" && m.status !== "pending",
+
+  const pastMeds = useMemo(
+    () =>
+      allExtended
+        .filter((m) => m.status !== "active" && m.status !== "pending")
+        .slice()
+        .sort(newestFirst),
+    [allExtended],
   );
+
   const unstartedMeds = allExtended.filter(
     (m) => m.status === "pending" && m.source === "prescribed",
   );
@@ -1779,8 +1838,6 @@ export default function MedicationPanel() {
   const adherenceScore = getAdherenceScore(allExtended);
   const streak = getStreak(allExtended);
 
-  // ─── All non-taken doses, sorted by time ────────────────────
-  // Recomputed only when the underlying meds change (SWR revalidate).
   const sortedUpcomingDoses = useMemo<SortedDose[]>(() => {
     const all = allExtended.flatMap((med) =>
       med.doses
@@ -1798,8 +1855,6 @@ export default function MedicationPanel() {
     return all;
   }, [allExtended]);
 
-  // The "active" dose — 30-min grace window so "Due now" stays
-  // visible even after the dose passes. Cheap find() per render.
   const nextDose = useMemo<SortedDose | null>(() => {
     return (
       sortedUpcomingDoses.find((d) => d.doseTime > now - DUE_GRACE_MS) ?? null
@@ -1811,23 +1866,17 @@ export default function MedicationPanel() {
     [nextDose, now],
   );
 
-  // For the "Upcoming" widget — only strictly future doses
   const upcomingDoses = useMemo<SortedDose[]>(
     () => sortedUpcomingDoses.filter((d) => d.doseTime > now).slice(0, 5),
     [sortedUpcomingDoses, now],
   );
 
-  // ─── Dose notification scheduler ────────────────────────────
-  // Runs every tick (cheap). Fires at most once per threshold per dose.
-  // Checks ALL upcoming doses (not just nextDose) so back-to-back doses
-  // still get their own 10/5/1-min alerts.
   useEffect(() => {
     if (sortedUpcomingDoses.length === 0) return;
 
     for (const dose of sortedUpcomingDoses) {
       const diff = dose.doseTime - now;
 
-      // Only consider doses within the notification window
       if (diff > 10 * 60_000 || diff < -60_000) continue;
 
       const doseKey = `${dose.medicationId}|${dose.scheduledTime}`;
@@ -1852,24 +1901,20 @@ export default function MedicationPanel() {
       };
 
       if (diff <= 0 && diff > -60_000) {
-        fireOnce("due", "Dose due now", `${dose.medicationName} — take it now`);
+        fireOnce("due", "Dose due now", `${dose.medicationName}: take it now`);
       } else if (diff <= 60_000 && diff > 0) {
-        fireOnce(
-          "1m",
-          "1 minute to dose",
-          `${dose.medicationName} — get ready`,
-        );
+        fireOnce("1m", "1 minute to dose", `${dose.medicationName}: get ready`);
       } else if (diff <= 5 * 60_000 && diff > 4 * 60_000 + 60_000) {
         fireOnce(
           "5m",
           "5 minutes to dose",
-          `${dose.medicationName} — prepare your dose`,
+          `${dose.medicationName}: prepare your dose`,
         );
       } else if (diff <= 10 * 60_000 && diff > 9 * 60_000 + 60_000) {
         fireOnce(
           "10m",
           "10 minutes to dose",
-          `${dose.medicationName} — in 10 minutes`,
+          `${dose.medicationName}: in 10 minutes`,
         );
       }
     }
@@ -1936,7 +1981,11 @@ export default function MedicationPanel() {
   const durationWatch = watch("durationDays");
   const qtyPerDoseWatch = watch("quantityPerDose");
 
-  const derivationPreview = useMemo(() => {
+  const derivationPreview = useMemo<{
+    Icon: LucideIcon;
+    text: string;
+    tone: "ok" | "info";
+  }>(() => {
     const total = Number(totalQtyWatch) || 0;
     const duration = Number(durationWatch) || 0;
     const qpd = Number(qtyPerDoseWatch) || 1;
@@ -1944,33 +1993,35 @@ export default function MedicationPanel() {
 
     if (total > 0 && duration > 0) {
       return {
-        icon: "✓",
+        Icon: CheckCircle,
         text: `${total} tablet${total === 1 ? "" : "s"} over ${duration} day${duration === 1 ? "" : "s"}.`,
-        tone: "ok" as const,
+        tone: "ok",
       };
     }
     if (total > 0) {
       const days = Math.ceil(total / (qpd * intakes));
       return {
-        icon: "📦",
-        text: `${total} tablet${total === 1 ? "" : "s"} ≈ ${days} day${days === 1 ? "" : "s"} at ${intakes}× per day.`,
-        tone: "ok" as const,
+        Icon: Pill,
+        text: `${total} tablet${total === 1 ? "" : "s"} is about ${days} day${days === 1 ? "" : "s"} at ${intakes}x per day.`,
+        tone: "ok",
       };
     }
     if (duration > 0) {
       const derived = duration * qpd * intakes;
       return {
-        icon: "📅",
-        text: `${duration} day${duration === 1 ? "" : "s"} ≈ ${derived} tablets total (${intakes}× per day).`,
-        tone: "ok" as const,
+        Icon: Calendar,
+        text: `${duration} day${duration === 1 ? "" : "s"} is about ${derived} tablets total (${intakes}x per day).`,
+        tone: "ok",
       };
     }
     return {
-      icon: "♾️",
-      text: "Ongoing — we'll schedule up to 90 doses. You can stop anytime from the card.",
-      tone: "info" as const,
+      Icon: Infinity,
+      text: "Ongoing. We will schedule up to 90 doses. You can stop anytime from the card.",
+      tone: "info",
     };
   }, [totalQtyWatch, durationWatch, qtyPerDoseWatch, frequency]);
+
+  const DerivationIcon = derivationPreview.Icon;
 
   useEffect(() => {
     setValue("assignedTo", selectedFamilyId);
@@ -2011,7 +2062,6 @@ export default function MedicationPanel() {
     setSearchResults([]);
   };
 
-  // ─── Add medication — clean null-safe payload ───────────────
   const onSubmitNewMed = async (formData: MedicationForm) => {
     const qtyPerDose = Number(formData.quantityPerDose) || 1;
     const intakesPerDay = getIntakesPerDay(formData.frequency);
@@ -2089,13 +2139,10 @@ export default function MedicationPanel() {
     }
   };
 
-  // ─── Start prescribed — derives, respects custom times, guards center ─
   const startPrescribedMedication = async (prescribed: ExtendedMedication) => {
     if (!prescribed.prescriptionId) return;
     if (!prescribed.centerId) {
-      alert(
-        "This prescription is missing its center — please contact support.",
-      );
+      alert("This prescription is missing its center. Please contact support.");
       return;
     }
 
@@ -2292,7 +2339,6 @@ export default function MedicationPanel() {
           }
         }
 
-        // Sync to center — prefers server data, falls back to localStorage
         const currentMed = selfMedications.find(
           (m) => m.id === medicationId,
         ) as any;
@@ -2368,7 +2414,6 @@ export default function MedicationPanel() {
     }
   };
 
-  // ─── Stop medication — optimistic with rollback ─────────────
   const stopMedication = async (medicationId: string) => {
     const swrKey = `/api/medications?memberId=${selectedFamilyId}`;
     const today = new Date().toISOString().split("T")[0];
@@ -2435,8 +2480,6 @@ export default function MedicationPanel() {
     try {
       const permission = await Notification.requestPermission();
       if (permission === "granted") {
-        // If a SW is registered, also subscribe to push (for future
-        // server-triggered reminders when the app is closed).
         if ("serviceWorker" in navigator) {
           try {
             const reg = await navigator.serviceWorker.getRegistration();
@@ -2448,7 +2491,8 @@ export default function MedicationPanel() {
                   applicationServerKey:
                     process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY,
                 });
-                await authPost("/api/notifications/subscribe", sub);
+                // FIX: use .toJSON() so keys are preserved
+                await authPost("/api/notifications/subscribe", sub.toJSON());
               }
             }
           } catch (err) {
@@ -2458,7 +2502,7 @@ export default function MedicationPanel() {
         alert("Notifications enabled.");
       } else {
         alert(
-          "Permission denied. You'll still see in-app dose alerts while using the app.",
+          "Permission denied. You will still see in-app dose alerts while using the app.",
         );
       }
     } catch {
@@ -2471,25 +2515,25 @@ export default function MedicationPanel() {
       icon: <Users className="w-8 h-8 text-emerald-700" />,
       title: "Add Family",
       description:
-        "Tap + next to 'Managing for' to add dependents and track their medications.",
+        "Tap the plus button next to Managing for to add dependents and track their medications.",
     },
     {
       icon: <Pill className="w-8 h-8 text-emerald-700" />,
       title: "Add Medications",
       description:
-        "Enter dosage, stock & frequency. We'll auto-calculate your schedule.",
+        "Enter dosage, stock and frequency. We will auto-calculate your schedule.",
     },
     {
       icon: <CheckCircle className="w-8 h-8 text-emerald-700" />,
       title: "Log Doses",
       description:
-        "Expand a card & mark doses as taken. Report any reactions instantly.",
+        "Expand a card and mark doses as taken. Report any reactions instantly.",
     },
     {
       icon: <Bell className="w-8 h-8 text-emerald-700" />,
       title: "Smart Reminders",
       description:
-        "Enable notifications and we'll alert you 10 mins before every dose.",
+        "Enable notifications and we will alert you 10 mins before every dose.",
     },
   ];
 
@@ -2514,7 +2558,6 @@ export default function MedicationPanel() {
       )}
     >
       <main className="mx-auto max-w-7xl px-4 pt-3 sm:px-6 lg:px-8 space-y-4 lg:space-y-5">
-        {/* ─── HEADER ──────────────────────────────────────────── */}
         <header className="pt-1 lg:pt-2 flex flex-col gap-3">
           <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3">
             <div className="min-w-0 flex-1">
@@ -2528,7 +2571,7 @@ export default function MedicationPanel() {
                     <span className="font-semibold text-emerald-700">
                       {streak}-day streak
                     </span>
-                    <span className="text-emerald-300">·</span>
+                    <span className="text-emerald-300">.</span>
                     <span>Keep it up</span>
                   </span>
                 ) : (
@@ -2538,6 +2581,25 @@ export default function MedicationPanel() {
             </div>
 
             <div className="flex items-center gap-2 shrink-0">
+              <button
+                onClick={handleRefresh}
+                disabled={isRefreshing}
+                aria-label="Refresh medications"
+                title="Refresh"
+                className={cn(
+                  "inline-flex items-center justify-center gap-2 min-h-11 min-w-11 sm:min-w-0 sm:px-4 bg-white text-emerald-700 border border-emerald-200 rounded-xl font-semibold hover:bg-emerald-50 transition shadow-xs disabled:opacity-60 disabled:cursor-not-allowed",
+                  FOCUS,
+                )}
+              >
+                <RefreshCw
+                  size={16}
+                  className={isRefreshing ? "animate-spin" : ""}
+                />
+                <span className="hidden sm:inline">
+                  {isRefreshing ? "Refreshing" : "Refresh"}
+                </span>
+              </button>
+
               <button
                 onClick={requestNotificationPermission}
                 className={cn(
@@ -2562,7 +2624,6 @@ export default function MedicationPanel() {
           </div>
         </header>
 
-        {/* ─── STATS ─────────────────────────────────────────── */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 lg:gap-4">
           {isColdStart ? (
             <>
@@ -2652,7 +2713,6 @@ export default function MedicationPanel() {
                 </div>
               </BentoTile>
 
-              {/* ─── NEXT DOSE — live countdown ──────────────── */}
               <BentoTile className="p-4">
                 <SectionHeader icon={Clock} label="Next Dose" />
                 {nextDose ? (
@@ -2677,7 +2737,7 @@ export default function MedicationPanel() {
                         hour: "2-digit",
                         minute: "2-digit",
                       })}{" "}
-                      · {nextDose.assignedToName}
+                      {nextDose.assignedToName}
                     </p>
                   </>
                 ) : (
@@ -2717,15 +2777,14 @@ export default function MedicationPanel() {
                   {adherenceScore >= 90
                     ? "Outstanding consistency"
                     : adherenceScore >= 70
-                      ? "You're doing well"
-                      : "Let's get back on track"}
+                      ? "You are doing well"
+                      : "Let us get back on track"}
                 </p>
               </BentoTile>
             </>
           )}
         </div>
 
-        {/* ─── UPCOMING + CHART ────────────────────────────── */}
         {!isColdStart && allExtended.length > 0 && (
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 lg:gap-4">
             <BentoTile className="lg:col-span-1 p-4">
@@ -2858,7 +2917,6 @@ export default function MedicationPanel() {
           </div>
         )}
 
-        {/* ─── MEDICATION LIST ──────────────────────────────── */}
         {isColdStart ? (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3 lg:gap-4">
             {[...Array(4)].map((_, i) => (
@@ -3050,11 +3108,11 @@ export default function MedicationPanel() {
                               </span>
                             </div>
                             <p className="text-sm text-emerald-700/80 font-medium">
-                              {p.dosage} · {p.frequency}
+                              {p.dosage} {p.frequency}
                             </p>
                             <p className="text-xs text-emerald-700/60 mt-0.5 truncate">
                               From {p.centerName}
-                              {p.prescribedBy && ` · ${p.prescribedBy}`}
+                              {p.prescribedBy && ` by ${p.prescribedBy}`}
                             </p>
                           </div>
                         </div>
@@ -3092,7 +3150,6 @@ export default function MedicationPanel() {
         )}
       </main>
 
-      {/* ─── IN-APP DOSE TOAST ──────────────────────────────── */}
       <AnimatePresence>
         {doseToast && (
           <motion.div
@@ -3159,7 +3216,6 @@ export default function MedicationPanel() {
         )}
       </AnimatePresence>
 
-      {/* HELP MODAL */}
       <AnimatePresence>
         {showHelp && (
           <Modal
@@ -3240,7 +3296,6 @@ export default function MedicationPanel() {
         )}
       </AnimatePresence>
 
-      {/* ADD MED MODAL */}
       <AnimatePresence>
         {showAddMedModal && (
           <Modal
@@ -3285,7 +3340,7 @@ export default function MedicationPanel() {
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-emerald-600 pointer-events-none" />
                     <input
                       type="text"
-                      placeholder="Search for drug…"
+                      placeholder="Search for drug..."
                       value={searchQuery}
                       onChange={(e) => {
                         setSearchQuery(e.target.value);
@@ -3438,16 +3493,14 @@ export default function MedicationPanel() {
                       : "bg-emerald-50/60 border-emerald-100 text-emerald-700/80",
                   )}
                 >
-                  <span className="text-base shrink-0">
-                    {derivationPreview.icon}
-                  </span>
+                  <DerivationIcon className="w-4 h-4 shrink-0 mt-0.5 text-emerald-700" />
                   <span className="font-medium">{derivationPreview.text}</span>
                 </div>
 
                 <p className="text-[11px] text-emerald-700/60 leading-relaxed">
                   Fill in{" "}
                   <span className="font-semibold text-emerald-800">either</span>{" "}
-                  field and we&apos;ll calculate the other. Leave both blank for
+                  field and we will calculate the other. Leave both blank for
                   ongoing medication.
                 </p>
               </section>
@@ -3513,7 +3566,6 @@ export default function MedicationPanel() {
         )}
       </AnimatePresence>
 
-      {/* ADD FAMILY MODAL */}
       <AnimatePresence>
         {showAddFamilyModal && (
           <Modal
@@ -3577,7 +3629,6 @@ export default function MedicationPanel() {
         )}
       </AnimatePresence>
 
-      {/* REACTION MODAL */}
       <AnimatePresence>
         {showReactionModal && (
           <Modal
@@ -3632,7 +3683,7 @@ export default function MedicationPanel() {
               <Textarea
                 {...reactionForm.register("reaction")}
                 label="How did you feel? *"
-                placeholder="Describe any side effects…"
+                placeholder="Describe any side effects..."
                 className="min-h-[120px]"
                 error={reactionForm.formState.errors.reaction?.message}
               />
@@ -3641,7 +3692,6 @@ export default function MedicationPanel() {
         )}
       </AnimatePresence>
 
-      {/* STOP CONFIRM */}
       <AnimatePresence>
         {stopConfirm && (
           <Modal
@@ -3683,7 +3733,6 @@ export default function MedicationPanel() {
         )}
       </AnimatePresence>
 
-      {/* SNAP MODAL */}
       <AnimatePresence>
         {showSnapModal && (
           <SnapDrugModal

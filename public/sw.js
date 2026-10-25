@@ -1,96 +1,54 @@
 // public/sw.js
-// Service worker for Doza — handles:
-//   1. Server-triggered push notifications (from cron / API)
-//   2. Local notifications fired from MedicationPanel countdown
-//   3. Notification clicks → focus or open /dashboard?panel=medications
+self.addEventListener("install", () => self.skipWaiting());
+self.addEventListener("activate", (e) => e.waitUntil(self.clients.claim()));
 
-// ─── Lifecycle ─────────────────────────────────────────────
-self.addEventListener("install", () => {
-  // Activate immediately on first install
-  self.skipWaiting();
-});
-
-self.addEventListener("activate", (event) => {
-  event.waitUntil(self.clients.claim());
-});
-
-// ─── Push handler (server-triggered) ───────────────────────
 self.addEventListener("push", (event) => {
-  let payload = {};
+  let data = {};
   try {
-    payload = event.data?.json() ?? {};
+    data = event.data?.json() ?? {};
   } catch {
-    payload = { title: "Doza", body: event.data?.text() || "" };
+    data = { title: "Doza", body: event.data?.text() || "" };
   }
 
-  const title = payload.title || "Doza Reminder";
-  const body = payload.body || "You have a new notification.";
-  const icon = payload.icon || "/logo.png";
-  const badge = payload.badge || "/logo.png";
-  const targetUrl =
-    payload.data?.url || payload.url || "/dashboard?panel=medications";
-
-  const options = {
-    body,
-    icon,
-    badge,
-    tag: payload.tag || "doza-notification",
-    renotify: false,
-    data: { url: targetUrl },
-    // Actions appear on Android; ignored silently on iOS/desktop
-    actions: [
-      { action: "open", title: "View" },
-      { action: "close", title: "Dismiss" },
-    ],
-  };
-
-  event.waitUntil(self.registration.showNotification(title, options));
+  event.waitUntil(
+    self.registration.showNotification(data.title || "Doza", {
+      body: data.body || "",
+      icon: data.icon || "/logo.png",
+      badge: data.badge || "/logo.png",
+      tag: data.tag || "doza-dose",
+      data: { url: data.url || "/dashboard?panel=medications" },
+    }),
+  );
 });
 
-// ─── Click handler ─────────────────────────────────────────
-// Fires for BOTH:
-//   • Server push (has actions)
-//   • Local notifications from MedicationPanel (no actions,
-//     just data.url — body click must work)
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
-
-  // Explicit "Dismiss"
   if (event.action === "close") return;
 
-  // Body tap OR "View" action
-  const targetUrl =
+  const target =
     event.notification.data?.url || "/dashboard?panel=medications";
 
   event.waitUntil(
     (async () => {
-      const absoluteTarget = new URL(targetUrl, self.location.origin);
-
-      // Reuse an existing tab if one is open on our origin
-      const clientList = await self.clients.matchAll({
+      const abs = new URL(target, self.location.origin);
+      const tabs = await self.clients.matchAll({
         type: "window",
         includeUncontrolled: true,
       });
 
-      for (const client of clientList) {
+      for (const tab of tabs) {
         try {
-          const clientUrl = new URL(client.url);
-          if (clientUrl.origin === absoluteTarget.origin) {
-            await client.focus();
-            if ("navigate" in client && client.url !== absoluteTarget.href) {
-              await client.navigate(absoluteTarget.href);
+          if (new URL(tab.url).origin === abs.origin) {
+            await tab.focus();
+            if ("navigate" in tab && tab.url !== abs.href) {
+              await tab.navigate(abs.href);
             }
             return;
           }
-        } catch {
-          // Ignore malformed client URLs
-        }
+        } catch {}
       }
 
-      // Otherwise open a fresh tab
-      if (self.clients.openWindow) {
-        return self.clients.openWindow(absoluteTarget.href);
-      }
+      return self.clients.openWindow(abs.href);
     })(),
   );
 });

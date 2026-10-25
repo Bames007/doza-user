@@ -19,6 +19,7 @@
     "@react-three/drei": "^10.7.7",
     "@react-three/fiber": "^9.5.0",
     "@types/three": "^0.183.1",
+    "@upstash/qstash": "^2.12.1",
     "@vercel/analytics": "^1.6.1",
     "@vercel/speed-insights": "^2.0.0",
     "@vis.gl/react-google-maps": "^1.7.1",
