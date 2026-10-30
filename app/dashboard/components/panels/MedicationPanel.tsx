@@ -38,6 +38,7 @@ import {
   Infinity,
   RefreshCw,
   type LucideIcon,
+  ShieldAlert,
 } from "lucide-react";
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -60,6 +61,7 @@ import { usePrescribedMedications } from "@/app/dashboard/hooks/usePrescribedMed
 import { useUserContext } from "../../UserContext";
 import Tesseract from "tesseract.js";
 import DatePicker from "@/app/components/CustomDatePicker";
+import HealthProfileModal, { Allergy } from "../modals/HealthProfileModal";
 
 // ---------- Constants ----------
 const DEFAULT_MAX_DOSES = 90;
@@ -67,7 +69,6 @@ const EMERALD = "#059669";
 const EMERALD_LIGHT = "#d1fae5";
 const EMERALD_SOFT = "#6ee7b7";
 const NOTIFIED_KEY = "med:notified:v1";
-const DUE_GRACE_MS = 30 * 60 * 1000;
 
 const FOCUS =
   "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:ring-offset-2";
@@ -117,11 +118,13 @@ type Medication = {
 
 type SortedDose = {
   medicationId: string;
+  doseId: string;
   medicationName: string;
   scheduledTime: string;
   dosage: string;
   assignedToName: string;
   doseTime: number;
+  frequency: Medication["frequency"];
 };
 
 interface ExtendedMedication extends Medication {
@@ -200,7 +203,7 @@ function ssRemove(key: string) {
   } catch {}
 }
 
-// ---------- Helpers ----------
+// --------- Helpers ----------
 function getTimeOfDay(hour: number) {
   if (hour >= 5 && hour < 12) return "morning";
   if (hour >= 12 && hour < 17) return "afternoon";
@@ -217,6 +220,16 @@ function formatCountdown(diffMs: number): string {
   if (h > 0) return `${h}h ${m}m ${s}s`;
   if (m > 0) return `${m}m ${s}s`;
   return `${s}s`;
+}
+
+function formatDueTime(diffMs: number): string {
+  if (diffMs > 0) return formatCountdown(diffMs);
+  const totalSec = Math.floor(-diffMs / 1000);
+  if (totalSec < 60) return "Due now";
+  const m = Math.floor(totalSec / 60);
+  const h = Math.floor(m / 60);
+  if (h > 0) return `Due ${h}h ${m % 60}m ago`;
+  return `Due ${m}m ago`;
 }
 
 async function fireDoseNotification(
@@ -258,7 +271,10 @@ async function fireDoseNotification(
   } catch {}
 }
 
-function getIntakesPerDay(frequency: string): number {
+function getIntakesPerDay(
+  frequency: string,
+  customTimesCount?: number,
+): number {
   switch (frequency) {
     case "once":
       return 1;
@@ -266,9 +282,31 @@ function getIntakesPerDay(frequency: string): number {
       return 2;
     case "thrice":
       return 3;
+    case "custom":
+      return customTimesCount && customTimesCount > 0 ? customTimesCount : 3;
     default:
       return 3;
   }
+}
+
+/**
+ * Defensive status normalizer. Handles legacy records that may have
+ * "Active", "ACTIVE", "finished", "stopped", missing status, etc.
+ */
+function normalizeMedStatus(
+  s: any,
+): "active" | "completed" | "paused" | "pending" {
+  const v = (s ?? "").toString().toLowerCase().trim();
+  if (v === "completed" || v === "finished" || v === "stopped") {
+    return "completed";
+  }
+  if (v === "paused" || v === "on-hold" || v === "onhold") {
+    return "paused";
+  }
+  if (v === "pending" || v === "prescribed") {
+    return "pending";
+  }
+  return "active"; // default for missing/unknown → treat as active
 }
 
 function deriveDuration(
@@ -856,16 +894,21 @@ const MedicationCard = ({
   const progress =
     todaysDoses.length > 0 ? (takenToday / todaysDoses.length) * 100 : 0;
 
-  const nextDose = medication.doses.find(
-    (d) => !d.takenAt && new Date(d.scheduledTime).getTime() > now,
-  );
-  const isNextDoseDue = nextDose
-    ? now >= new Date(nextDose.scheduledTime).getTime()
-    : false;
+  const pendingSorted = medication.doses
+    .filter((d) => !d.takenAt)
+    .sort(
+      (a, b) =>
+        new Date(a.scheduledTime).getTime() -
+        new Date(b.scheduledTime).getTime(),
+    );
 
-  const nextDoseCountdown = nextDose
-    ? formatCountdown(new Date(nextDose.scheduledTime).getTime() - now)
-    : "";
+  const nextDose = pendingSorted[0] ?? null;
+  const nextDoseDiffMs = nextDose
+    ? new Date(nextDose.scheduledTime).getTime() - now
+    : 0;
+  const isNextDoseDue = !!nextDose && nextDoseDiffMs <= 0;
+  const overdueMs = isNextDoseDue ? -nextDoseDiffMs : 0;
+  const nextDoseCountdown = nextDose ? formatCountdown(nextDoseDiffMs) : "";
 
   const next7 = Array.from({ length: 7 }, (_, i) => {
     const d = new Date();
@@ -874,6 +917,15 @@ const MedicationCard = ({
       .toISOString()
       .split("T")[0];
   });
+
+  const remainingDaysCount = useMemo(() => {
+    if (isPast) return 0;
+    const set = new Set<string>();
+    for (const d of medication.doses) {
+      if (!d.takenAt) set.add(d.scheduledTime.split("T")[0]);
+    }
+    return set.size;
+  }, [medication.doses, isPast]);
 
   return (
     <motion.div
@@ -1020,68 +1072,108 @@ const MedicationCard = ({
         </div>
 
         {!isPast && nextDose && (
-          <div className="mt-4 p-3 rounded-xl bg-emerald-50/70 border border-emerald-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-            <div className="flex items-center gap-3">
-              <Clock className="w-5 h-5 text-emerald-600 shrink-0" />
-              <div className="min-w-0">
-                <p className="text-xs font-semibold text-emerald-700/70">
-                  Next dose
-                </p>
-                <p className="text-sm font-bold text-emerald-900">
-                  {new Date(nextDose.scheduledTime).toLocaleTimeString([], {
-                    hour: "2-digit",
-                    minute: "2-digit",
-                  })}
-                </p>
-              </div>
-              <span
-                className={cn(
-                  "text-xs font-bold px-2 py-1 rounded-lg shrink-0 tabular-nums",
-                  isNextDoseDue
-                    ? "bg-emerald-600 text-white animate-pulse"
-                    : nextDoseCountdown.includes("h")
-                      ? "bg-white text-emerald-700 border border-emerald-100"
-                      : "bg-emerald-100 text-emerald-800",
-                )}
-              >
-                {nextDoseCountdown}
-              </span>
-            </div>
+          <div
+            className={cn(
+              "mt-4 p-3 rounded-xl flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 transition-colors",
+              isNextDoseDue
+                ? "bg-emerald-600 border border-emerald-500 shadow-lg shadow-emerald-600/25"
+                : "bg-emerald-50/70 border border-emerald-100",
+            )}
+          >
             {isNextDoseDue ? (
-              <div className="flex gap-2">
-                <button
-                  onClick={() => onLogDose(nextDose.id, true, "")}
-                  className={cn(
-                    "inline-flex items-center gap-1 min-h-10 px-3 bg-emerald-600 text-white text-xs font-bold rounded-lg hover:bg-emerald-700 shadow-sm transition-colors",
-                    FOCUS,
-                  )}
-                >
-                  <Check className="w-3 h-3" />
-                  Take
-                </button>
-                <button
-                  onClick={() => onReportReaction(nextDose.id)}
-                  className={cn(
-                    "inline-flex items-center gap-1 min-h-10 px-3 bg-white text-emerald-700 text-xs font-bold rounded-lg hover:bg-emerald-50 border border-emerald-200 transition-colors",
-                    FOCUS,
-                  )}
-                >
-                  <AlertCircle className="w-3 h-3" />
-                  Issue
-                </button>
-              </div>
+              <>
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center shrink-0">
+                    <Bell className="w-5 h-5 text-white animate-pulse" />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-xs font-bold text-emerald-100 uppercase tracking-wider">
+                      {overdueMs > 60_000
+                        ? `Overdue by ${formatCountdown(overdueMs)}`
+                        : "Dose due now"}
+                    </p>
+                    <p className="text-sm font-bold text-white">
+                      {new Date(nextDose.scheduledTime).toLocaleTimeString([], {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex gap-2 shrink-0">
+                  <button
+                    onClick={() => onLogDose(nextDose.id, true, "")}
+                    className={cn(
+                      "inline-flex items-center justify-center gap-1 min-h-10 px-3 bg-white text-emerald-700 text-xs font-bold rounded-lg hover:bg-emerald-50 transition-colors shadow-sm",
+                      FOCUS,
+                    )}
+                  >
+                    <Check className="w-3.5 h-3.5" strokeWidth={3} />
+                    Take
+                  </button>
+                  <button
+                    onClick={() => onReportReaction(nextDose.id)}
+                    className={cn(
+                      "inline-flex items-center justify-center gap-1 min-h-10 px-3 bg-white/20 text-white text-xs font-bold rounded-lg hover:bg-white/30 border border-white/40 transition-colors",
+                      FOCUS,
+                    )}
+                  >
+                    <AlertCircle className="w-3.5 h-3.5" />
+                    Side effect
+                  </button>
+                </div>
+              </>
             ) : (
-              <span className="text-xs font-medium text-emerald-600/70">
-                Upcoming
-              </span>
+              <>
+                <div className="flex items-center gap-3">
+                  <Clock className="w-5 h-5 text-emerald-600 shrink-0" />
+                  <div className="min-w-0">
+                    <p className="text-xs font-semibold text-emerald-700/70">
+                      Next dose
+                    </p>
+                    <p className="text-sm font-bold text-emerald-900">
+                      {new Date(nextDose.scheduledTime).toLocaleTimeString([], {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}
+                    </p>
+                  </div>
+                  <span
+                    className={cn(
+                      "text-xs font-bold px-2 py-1 rounded-lg shrink-0 tabular-nums",
+                      nextDoseCountdown.includes("h")
+                        ? "bg-white text-emerald-700 border border-emerald-100"
+                        : "bg-emerald-100 text-emerald-800",
+                    )}
+                  >
+                    {nextDoseCountdown}
+                  </span>
+                </div>
+                <span className="text-xs font-medium text-emerald-600/70">
+                  Upcoming
+                </span>
+              </>
             )}
           </div>
         )}
-        {!isPast && !nextDose && (
-          <div className="mt-4 p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-center">
-            <p className="text-xs font-medium text-emerald-800">
-              All scheduled doses completed
-            </p>
+
+        {!isPast && !nextDose && medication.status === "active" && (
+          <div className="mt-4 p-3 rounded-xl bg-emerald-50 border border-emerald-200">
+            <div className="flex items-center justify-center gap-2 mb-2">
+              <CheckCircle className="w-4 h-4 text-emerald-600" />
+              <p className="text-xs font-medium text-emerald-800">
+                All scheduled doses completed
+              </p>
+            </div>
+            <button
+              onClick={onStop}
+              className={cn(
+                "w-full text-xs font-semibold text-emerald-700 hover:text-emerald-900 underline underline-offset-2",
+                FOCUS,
+              )}
+            >
+              Mark as finished →
+            </button>
           </div>
         )}
 
@@ -1098,6 +1190,11 @@ const MedicationCard = ({
                 <h4 className="text-xs font-bold text-emerald-700/70 mb-2.5 flex items-center gap-1.5 uppercase tracking-wider">
                   <Calendar className="w-3.5 h-3.5" />
                   Next 7 Days
+                  <span className="ml-auto text-[10px] font-semibold text-emerald-700/60 normal-case tracking-normal">
+                    {isOngoing
+                      ? "ongoing"
+                      : `${remainingDaysCount} day${remainingDaysCount === 1 ? "" : "s"} left`}
+                  </span>
                 </h4>
                 <div className="grid grid-cols-7 gap-1">
                   {next7.map((day) => {
@@ -1164,10 +1261,14 @@ const UpcomingDosePill = ({
   dose,
   index,
   now,
+  onTake,
+  onReportReaction,
 }: {
   dose: SortedDose;
   index: number;
   now: number;
+  onTake: () => void;
+  onReportReaction: () => void;
 }) => {
   const doseTime = new Date(dose.scheduledTime);
   const hour = doseTime.getHours();
@@ -1184,8 +1285,7 @@ const UpcomingDosePill = ({
   const diff = dose.doseTime - now;
   const isDue = diff <= 0;
   const isSoon = diff > 0 && diff <= 3600000;
-
-  const countdown = formatCountdown(diff);
+  const label = formatDueTime(diff);
 
   return (
     <motion.div
@@ -1193,41 +1293,86 @@ const UpcomingDosePill = ({
       animate={{ opacity: 1, x: 0 }}
       transition={{ delay: index * 0.05 }}
       className={cn(
-        "flex items-center gap-2.5 p-3 rounded-xl border transition-all",
+        "p-3 rounded-xl border transition-all",
         isDue
-          ? "bg-emerald-50 border-emerald-300"
+          ? "bg-emerald-600 border-emerald-500 shadow-md shadow-emerald-600/20"
           : isSoon
             ? "bg-emerald-50 border-emerald-200"
             : "bg-white border-emerald-100",
       )}
     >
-      <div className="w-9 h-9 rounded-lg bg-white border border-emerald-100 flex items-center justify-center shrink-0">
-        <TimeIcon className="w-4 h-4 text-emerald-700" />
-      </div>
-      <div className="flex-1 min-w-0">
-        <p className="text-sm font-semibold text-emerald-900 truncate">
-          {dose.medicationName}
-        </p>
-        <p className="text-xs text-emerald-700/70 truncate">
-          {doseTime.toLocaleTimeString([], {
-            hour: "2-digit",
-            minute: "2-digit",
-          })}{" "}
-          {dose.dosage} {dose.assignedToName}
-        </p>
-      </div>
-      <span
-        className={cn(
-          "text-xs font-bold px-2 py-1 rounded-lg shrink-0 tabular-nums",
-          isDue
-            ? "text-white bg-emerald-600"
-            : isSoon
-              ? "text-emerald-800 bg-emerald-100"
-              : "text-emerald-700 bg-white border border-emerald-100",
+      <div className="flex items-center gap-2.5">
+        <div
+          className={cn(
+            "w-9 h-9 rounded-lg flex items-center justify-center shrink-0",
+            isDue ? "bg-white/20" : "bg-white border border-emerald-100",
+          )}
+        >
+          <TimeIcon
+            className={cn("w-4 h-4", isDue ? "text-white" : "text-emerald-700")}
+          />
+        </div>
+        <div className="flex-1 min-w-0">
+          <p
+            className={cn(
+              "text-sm font-semibold truncate",
+              isDue ? "text-white" : "text-emerald-900",
+            )}
+          >
+            {dose.medicationName}
+          </p>
+          <p
+            className={cn(
+              "text-xs truncate",
+              isDue ? "text-emerald-100" : "text-emerald-700/70",
+            )}
+          >
+            {doseTime.toLocaleTimeString([], {
+              hour: "2-digit",
+              minute: "2-digit",
+            })}{" "}
+            · {dose.dosage} · {dose.assignedToName}
+          </p>
+        </div>
+        {!isDue && (
+          <span
+            className={cn(
+              "text-xs font-bold px-2 py-1 rounded-lg shrink-0 tabular-nums",
+              isSoon
+                ? "text-emerald-800 bg-emerald-100"
+                : "text-emerald-700 bg-white border border-emerald-100",
+            )}
+          >
+            {label}
+          </span>
         )}
-      >
-        {countdown}
-      </span>
+      </div>
+
+      {isDue && (
+        <div className="flex gap-2 mt-2.5">
+          <span className="flex-1 text-xs font-bold text-emerald-100 self-center tabular-nums">
+            {label}
+          </span>
+          <button
+            onClick={onTake}
+            className={cn(
+              "inline-flex items-center gap-1 min-h-9 px-3 bg-white text-emerald-700 text-xs font-bold rounded-lg hover:bg-emerald-50 transition-colors",
+              FOCUS,
+            )}
+          >
+            <Check className="w-3.5 h-3.5" strokeWidth={3} /> Take
+          </button>
+          <button
+            onClick={onReportReaction}
+            className={cn(
+              "inline-flex items-center gap-1 min-h-9 px-3 bg-white/20 text-white text-xs font-bold rounded-lg hover:bg-white/30 border border-white/40 transition-colors",
+              FOCUS,
+            )}
+          >
+            <AlertCircle className="w-3.5 h-3.5" /> Side effect
+          </button>
+        </div>
+      )}
     </motion.div>
   );
 };
@@ -1548,7 +1693,17 @@ export default function MedicationPanel() {
   const [searching, setSearching] = useState(false);
   const [showSnapModal, setShowSnapModal] = useState(false);
 
-  // NEW: refresh state + handler
+  const [showHealthProfile, setShowHealthProfile] = useState(false);
+
+  const { data: healthData, isLoading: healthLoading } = useSWR(
+    "/api/health-profile",
+    authFetcher,
+    SWR_PANEL_CONFIG,
+  );
+  const allergies: Allergy[] = healthData?.success
+    ? healthData.data.allergies
+    : [];
+
   const [isRefreshing, setIsRefreshing] = useState(false);
 
   const handleRefresh = async () => {
@@ -1561,6 +1716,7 @@ export default function MedicationPanel() {
         mutate(
           (key) => Array.isArray(key) && key[0] === "prescribed-medications",
         ),
+        mutate("/api/health-profile"),
       ]);
     } catch (err) {
       console.warn("Refresh failed", err);
@@ -1616,7 +1772,6 @@ export default function MedicationPanel() {
     }
   }, []);
 
-  // NEW: auto-heal push subscription (if permission granted but no sub)
   useEffect(() => {
     if (typeof window === "undefined") return;
     if (!("serviceWorker" in navigator)) return;
@@ -1709,7 +1864,7 @@ export default function MedicationPanel() {
     const selfExtended = selfMedications.map((m: any) => ({
       ...m,
       source: "self" as const,
-      status: m.status as "active" | "completed" | "paused" | "pending",
+      status: normalizeMedStatus(m.status), // ✅ normalized
       prescriptionId: m.prescriptionId ?? medicationMeta[m.id]?.prescriptionId,
       centerId: m.centerId ?? medicationMeta[m.id]?.centerId,
       sourceType: m.sourceType ?? medicationMeta[m.id]?.sourceType,
@@ -1768,7 +1923,6 @@ export default function MedicationPanel() {
     }
   }, [selfMedications, medicationMeta]);
 
-  // NEW: newest-first sort on active + past meds
   const newestFirst = (a: ExtendedMedication, b: ExtendedMedication) =>
     new Date(b.createdAt || b.startDate || 0).getTime() -
     new Date(a.createdAt || a.startDate || 0).getTime();
@@ -1839,45 +1993,53 @@ export default function MedicationPanel() {
   const streak = getStreak(allExtended);
 
   const sortedUpcomingDoses = useMemo<SortedDose[]>(() => {
-    const all = allExtended.flatMap((med) =>
-      med.doses
-        .filter((d) => !d.takenAt)
-        .map((d) => ({
-          medicationId: med.id,
-          medicationName: med.name,
-          scheduledTime: d.scheduledTime,
-          dosage: med.dosage,
-          assignedToName: med.assignedTo === "self" ? "Me" : "Family",
-          doseTime: new Date(d.scheduledTime).getTime(),
-        })),
-    );
+    const all = allExtended
+      .filter((med) => med.status === "active")
+      .flatMap((med) =>
+        med.doses
+          .filter((d) => !d.takenAt)
+          .map((d) => ({
+            medicationId: med.id,
+            doseId: d.id,
+            medicationName: med.name,
+            scheduledTime: d.scheduledTime,
+            dosage: med.dosage,
+            assignedToName: med.assignedTo === "self" ? "Me" : "Family",
+            doseTime: new Date(d.scheduledTime).getTime(),
+            frequency: med.frequency,
+          })),
+      );
     all.sort((a, b) => a.doseTime - b.doseTime);
     return all;
   }, [allExtended]);
 
-  const nextDose = useMemo<SortedDose | null>(() => {
-    return (
-      sortedUpcomingDoses.find((d) => d.doseTime > now - DUE_GRACE_MS) ?? null
-    );
-  }, [sortedUpcomingDoses, now]);
+  const nextDose = useMemo<SortedDose | null>(
+    () => sortedUpcomingDoses[0] ?? null,
+    [sortedUpcomingDoses],
+  );
 
   const nextDoseDiffMs = useMemo(
     () => (nextDose ? nextDose.doseTime - now : 0),
     [nextDose, now],
   );
 
-  const upcomingDoses = useMemo<SortedDose[]>(
-    () => sortedUpcomingDoses.filter((d) => d.doseTime > now).slice(0, 5),
-    [sortedUpcomingDoses, now],
-  );
+  // const upcomingDoses = useMemo<SortedDose[]>(
+  //   () => sortedUpcomingDoses.slice(0, 5),
+  //   [sortedUpcomingDoses],
+  // );
 
+  // ── Notifications: 10m/5m/1m before + at due + overdue re-pings ──
+  // Fix A: removed the lower-bound `continue` that was skipping overdue
+  // doses, and added the `else if (diff <= -60_000)` branch so missed
+  // doses fire at 1m, 15m, 30m, 45m (capped so we never spam).
   useEffect(() => {
     if (sortedUpcomingDoses.length === 0) return;
 
     for (const dose of sortedUpcomingDoses) {
       const diff = dose.doseTime - now;
 
-      if (diff > 10 * 60_000 || diff < -60_000) continue;
+      // Future too far away → ignore. Overdue doses are never skipped.
+      if (diff > 10 * 60_000) continue;
 
       const doseKey = `${dose.medicationId}|${dose.scheduledTime}`;
 
@@ -1916,6 +2078,15 @@ export default function MedicationPanel() {
           "10 minutes to dose",
           `${dose.medicationName}: in 10 minutes`,
         );
+      } else if (diff <= -60_000) {
+        // Overdue re-pings: 1m, 15m, 30m, 45m — capped so we never spam.
+        const overdueMin = Math.floor(-diff / 60_000);
+        const bucket = Math.min(Math.floor(overdueMin / 15), 3);
+        fireOnce(
+          `overdue-${bucket}`,
+          overdueMin < 2 ? "Missed dose" : `Missed dose (${overdueMin}m ago)`,
+          `${dose.medicationName}: take it now`,
+        );
       }
     }
   }, [sortedUpcomingDoses, now]);
@@ -1946,6 +2117,7 @@ export default function MedicationPanel() {
   const todayDosesRemaining = useMemo(() => {
     const today = new Date().toISOString().split("T")[0];
     return allExtended
+      .filter((m) => m.status === "active") // ✅ stopped meds excluded
       .flatMap((m) => m.doses)
       .filter((d) => d.scheduledTime.startsWith(today) && !d.takenAt).length;
   }, [allExtended]);
@@ -1953,6 +2125,7 @@ export default function MedicationPanel() {
   const todayDosesTotal = useMemo(() => {
     const today = new Date().toISOString().split("T")[0];
     return allExtended
+      .filter((m) => m.status === "active") // ✅ stopped meds excluded
       .flatMap((m) => m.doses)
       .filter((d) => d.scheduledTime.startsWith(today)).length;
   }, [allExtended]);
@@ -1984,17 +2157,35 @@ export default function MedicationPanel() {
   const derivationPreview = useMemo<{
     Icon: LucideIcon;
     text: string;
-    tone: "ok" | "info";
+    tone: "ok" | "info" | "warn";
   }>(() => {
     const total = Number(totalQtyWatch) || 0;
     const duration = Number(durationWatch) || 0;
     const qpd = Number(qtyPerDoseWatch) || 1;
-    const intakes = getIntakesPerDay(frequency);
+
+    const timesRaw = watch("times") || "";
+    const timesCount =
+      frequency === "custom"
+        ? timesRaw.split(",").filter((t) => t.trim()).length
+        : undefined;
+    const intakes = getIntakesPerDay(frequency, timesCount);
 
     if (total > 0 && duration > 0) {
+      const expectedDuration = total / (qpd * intakes);
+      const expectedTotal = duration * qpd * intakes;
+      const durationMismatch = Math.abs(expectedDuration - duration) > 0.5;
+      const totalMismatch = Math.abs(expectedTotal - total) > 0.5;
+
+      if (durationMismatch || totalMismatch) {
+        return {
+          Icon: AlertCircle,
+          text: `${total} tablet${total === 1 ? "" : "s"} at ${intakes}×/day is ~${Math.ceil(expectedDuration)} day${Math.ceil(expectedDuration) === 1 ? "" : "s"}, not ${duration}. Adjust the frequency, quantity, or duration.`,
+          tone: "warn",
+        };
+      }
       return {
         Icon: CheckCircle,
-        text: `${total} tablet${total === 1 ? "" : "s"} over ${duration} day${duration === 1 ? "" : "s"}.`,
+        text: `${total} tablet${total === 1 ? "" : "s"} over ${duration} day${duration === 1 ? "" : "s"} (${intakes}× daily).`,
         tone: "ok",
       };
     }
@@ -2002,7 +2193,7 @@ export default function MedicationPanel() {
       const days = Math.ceil(total / (qpd * intakes));
       return {
         Icon: Pill,
-        text: `${total} tablet${total === 1 ? "" : "s"} is about ${days} day${days === 1 ? "" : "s"} at ${intakes}x per day.`,
+        text: `${total} tablet${total === 1 ? "" : "s"} is about ${days} day${days === 1 ? "" : "s"} at ${intakes}× per day.`,
         tone: "ok",
       };
     }
@@ -2010,7 +2201,7 @@ export default function MedicationPanel() {
       const derived = duration * qpd * intakes;
       return {
         Icon: Calendar,
-        text: `${duration} day${duration === 1 ? "" : "s"} is about ${derived} tablets total (${intakes}x per day).`,
+        text: `${duration} day${duration === 1 ? "" : "s"} is about ${derived} tablets total (${intakes}× per day).`,
         tone: "ok",
       };
     }
@@ -2019,7 +2210,13 @@ export default function MedicationPanel() {
       text: "Ongoing. We will schedule up to 90 doses. You can stop anytime from the card.",
       tone: "info",
     };
-  }, [totalQtyWatch, durationWatch, qtyPerDoseWatch, frequency]);
+  }, [
+    totalQtyWatch,
+    durationWatch,
+    qtyPerDoseWatch,
+    frequency,
+    watch("times"),
+  ]);
 
   const DerivationIcon = derivationPreview.Icon;
 
@@ -2064,7 +2261,16 @@ export default function MedicationPanel() {
 
   const onSubmitNewMed = async (formData: MedicationForm) => {
     const qtyPerDose = Number(formData.quantityPerDose) || 1;
-    const intakesPerDay = getIntakesPerDay(formData.frequency);
+
+    // Custom frequency → use the number of times entered, not the default 3
+    const customTimesCount =
+      formData.frequency === "custom" && formData.times
+        ? formData.times.split(",").filter((t) => t.trim()).length
+        : undefined;
+    const intakesPerDay = getIntakesPerDay(
+      formData.frequency,
+      customTimesCount,
+    );
 
     let totalQty =
       typeof formData.totalQuantity === "number" && formData.totalQuantity > 0
@@ -2075,7 +2281,26 @@ export default function MedicationPanel() {
         ? formData.durationDays
         : undefined;
 
-    if (durationDays && totalQty === 0) {
+    // ✅ FIX: if BOTH are entered, derive the actual dose count from the
+    // user's intended DURATION, and warn if it conflicts with their total.
+    // Prevents the "12 doses over 3 days → scheduled for 6–7 days" bug.
+    if (durationDays && totalQty > 0) {
+      const expectedDoses = Math.round(durationDays * intakesPerDay);
+      if (Math.abs(totalQty - expectedDoses) > 0.5) {
+        const confirmed = window.confirm(
+          `${totalQty} doses at ${intakesPerDay}×/day = ${Math.ceil(
+            totalQty / intakesPerDay,
+          )} days, but you specified ${durationDays} day${
+            durationDays === 1 ? "" : "s"
+          }.\n\n` +
+            `Tap OK to use ${durationDays} day${
+              durationDays === 1 ? "" : "s"
+            } (${expectedDoses} doses), or Cancel to adjust the form.`,
+        );
+        if (!confirmed) return; // let the user fix their inputs
+        totalQty = expectedDoses; // reconcile to intended duration
+      }
+    } else if (durationDays && totalQty === 0) {
       totalQty = deriveTotalQuantity(durationDays, qtyPerDose, intakesPerDay);
     } else if (totalQty > 0 && !durationDays) {
       durationDays = deriveDuration(totalQty, qtyPerDose, intakesPerDay);
@@ -2097,7 +2322,19 @@ export default function MedicationPanel() {
       endDateStr = null;
     } else {
       const normFreq = formData.frequency as "once" | "twice" | "thrice";
-      const startDateTime = new Date().toISOString();
+
+      // ✅ FIX: respect formData.startDate for non-custom schedules.
+      // - If startDate is today (or past) → start from NOW
+      // - If startDate is in the future → start at 08:00 on that date
+      const todayStr = new Date().toISOString().split("T")[0];
+      let startDateTime: string;
+      if (formData.startDate && formData.startDate > todayStr) {
+        const [y, m, d] = formData.startDate.split("-").map(Number);
+        startDateTime = new Date(y, m - 1, d, 8, 0, 0).toISOString();
+      } else {
+        startDateTime = new Date().toISOString();
+      }
+
       doses = generateDosesFromStart(
         startDateTime,
         normFreq,
@@ -2125,6 +2362,19 @@ export default function MedicationPanel() {
       sourceType: null,
     };
 
+    // inside onSubmitNewMed, before authPost
+    const allergyMatch = allergies.find(
+      (a) =>
+        formData.name.toLowerCase().includes(a.name.toLowerCase()) ||
+        a.name.toLowerCase().includes(formData.name.toLowerCase()),
+    );
+    if (allergyMatch) {
+      const ok = window.confirm(
+        `⚠️ You've recorded an allergy to "${allergyMatch.name}" (${allergyMatch.severity}). Continue saving this medication?`,
+      );
+      if (!ok) return;
+    }
+
     try {
       const result = await authPost("/api/medications", payload);
       if (result.success) {
@@ -2147,7 +2397,10 @@ export default function MedicationPanel() {
     }
 
     const normalizedFreq = normalizeFrequency(prescribed.frequency);
-    const intakesPerDay = getIntakesPerDay(normalizedFreq);
+    const intakesPerDay = getIntakesPerDay(
+      normalizedFreq,
+      Array.isArray(prescribed.times) ? prescribed.times.length : undefined,
+    );
     const qtyPerDose = prescribed.quantityPerDose || 1;
     const startDateOnly = new Date().toISOString().split("T")[0];
     const startDateTime = new Date().toISOString();
@@ -2282,6 +2535,7 @@ export default function MedicationPanel() {
     const swrKey = `/api/medications?memberId=${selectedFamilyId}`;
     const actualTakenTime = new Date().toISOString();
 
+    // Optimistic update — flip the dose immediately in the UI.
     mutate(
       swrKey,
       (currentData: any) => {
@@ -2318,49 +2572,90 @@ export default function MedicationPanel() {
     try {
       const result = await authPut(
         `/api/medications/${medicationId}/doses/${doseId}`,
-        {
-          taken,
-          reaction,
-        },
+        { taken, reaction },
       );
+
+      // ── Fix B: replacement success block ────────────────────────────
       if (result.success) {
-        const currentData = await mutate(swrKey);
-        if (currentData?.success) {
-          const med = currentData.data.find(
+        // 1. Re-sync fresh state after the dose PUT.
+        const afterDose = await mutate(swrKey);
+
+        // 2. Reschedule remaining doses if the patient took it late.
+        //    Skip for custom-schedule meds (fixed clock times).
+        if (afterDose?.success) {
+          const med = afterDose.data.find(
             (m: Medication) => m.id === medicationId,
           );
           if (med && taken && med.frequency !== "custom") {
             const doseIndex = med.doses.findIndex((d: any) => d.id === doseId);
-            const newDoses = rescheduleDoses(med, doseIndex, actualTakenTime);
-            await authPut(`/api/medications/${medicationId}`, {
-              doses: newDoses,
-            });
-            mutate(swrKey);
+            if (doseIndex !== -1) {
+              const newDoses = rescheduleDoses(med, doseIndex, actualTakenTime);
+
+              // Only PUT if scheduled times actually moved — avoids an
+              // empty write when the dose was taken on time.
+              const changed = newDoses.some(
+                (d, i) => d.scheduledTime !== med.doses[i]?.scheduledTime,
+              );
+              if (changed) {
+                await authPut(`/api/medications/${medicationId}`, {
+                  doses: newDoses,
+                });
+              }
+            }
           }
         }
 
-        const currentMed = selfMedications.find(
-          (m) => m.id === medicationId,
-        ) as any;
-        const meta = {
-          prescriptionId:
-            currentMed?.prescriptionId ??
-            medicationMeta[medicationId]?.prescriptionId,
-          centerId:
-            currentMed?.centerId ?? medicationMeta[medicationId]?.centerId,
-          sourceType:
-            currentMed?.sourceType ?? medicationMeta[medicationId]?.sourceType,
-        };
-        if (meta.centerId && meta.prescriptionId) {
-          await syncToCenter(meta.centerId, {
-            medication: currentMed?.name || "Unknown",
-            dose: currentMed?.dosage || "1",
-            administeredAt: actualTakenTime,
-            administeredBy: user?.fullName || "Patient",
-            administeredById: user?.id,
-            reaction: reaction || "",
-            note: `Logged from patient app. Dose ID: ${doseId}`,
+        // 3. Auto-complete safety net. The server route already does this,
+        //    but we mirror it here so the UI reacts immediately even if a
+        //    stale cache is holding the med in "active".
+        const freshData = await mutate(swrKey);
+        const freshMed = freshData?.success
+          ? freshData.data.find((m: Medication) => m.id === medicationId)
+          : null;
+        if (
+          freshMed &&
+          freshMed.doses.length > 0 &&
+          freshMed.doses.every((d: any) => d.takenAt || d.skipped) &&
+          freshMed.status !== "completed"
+        ) {
+          await authPut(`/api/medications/${medicationId}`, {
+            status: "completed",
+            endDate: new Date().toISOString().split("T")[0],
           });
+          await mutate(swrKey);
+        }
+
+        // 4. Sync to center — only if a dose was actually taken OR a
+        //    reaction was actually reported.
+        const wasTaken = taken === true;
+        const hasReaction =
+          typeof reaction === "string" && reaction.trim().length > 0;
+
+        if (wasTaken || hasReaction) {
+          const currentMed = selfMedications.find(
+            (m) => m.id === medicationId,
+          ) as any;
+          const meta = {
+            prescriptionId:
+              currentMed?.prescriptionId ??
+              medicationMeta[medicationId]?.prescriptionId,
+            centerId:
+              currentMed?.centerId ?? medicationMeta[medicationId]?.centerId,
+            sourceType:
+              currentMed?.sourceType ??
+              medicationMeta[medicationId]?.sourceType,
+          };
+          if (meta.centerId && meta.prescriptionId) {
+            await syncToCenter(meta.centerId, {
+              medication: currentMed?.name || "Unknown",
+              dose: currentMed?.dosage || "1",
+              administeredAt: actualTakenTime,
+              administeredBy: user?.fullName || "Patient",
+              administeredById: user?.id,
+              reaction: reaction || "",
+              note: `Logged from patient app. Dose ID: ${doseId}`,
+            });
+          }
         }
       } else {
         alert("Error: " + (result.error || "Failed to log dose"));
@@ -2388,9 +2683,7 @@ export default function MedicationPanel() {
     try {
       const getRes = await fetch(
         `/api/centers/${centerId}/patients/${user.id}`,
-        {
-          credentials: "include",
-        },
+        { credentials: "include" },
       );
       if (!getRes.ok) return;
       const patientData = await getRes.json();
@@ -2440,7 +2733,9 @@ export default function MedicationPanel() {
         endDate: today,
       });
       if (result.success) {
-        await mutate(swrKey);
+        // Force revalidation so the SWR cache can't linger with stale
+        // status="active" data and re-show the med in Upcoming.
+        await mutate(swrKey, undefined, { revalidate: true });
         setStopConfirm(null);
       } else {
         alert("Error: " + (result.error || "Failed to stop medication"));
@@ -2491,7 +2786,6 @@ export default function MedicationPanel() {
                   applicationServerKey:
                     process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY,
                 });
-                // FIX: use .toJSON() so keys are preserved
                 await authPost("/api/notifications/subscribe", sub.toJSON());
               }
             }
@@ -2624,6 +2918,52 @@ export default function MedicationPanel() {
           </div>
         </header>
 
+        <motion.button
+          type="button"
+          onClick={() => setShowHealthProfile(true)}
+          whileTap={{ scale: 0.99 }}
+          className={cn(
+            "relative w-full rounded-2xl overflow-hidden border border-emerald-700 shadow-md shadow-emerald-600/25 text-left group",
+            "bg-emerald-600 hover:bg-emerald-700 transition-colors",
+            FOCUS,
+          )}
+        >
+          <div className="relative p-4 flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3 min-w-0 flex-1">
+              <div className="w-11 h-11 rounded-xl bg-white/15 border border-white/20 flex items-center justify-center shrink-0">
+                <ShieldAlert className="w-5 h-5 text-white" />
+              </div>
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <p className="text-sm font-bold text-white">
+                    Medical Profile
+                  </p>
+                  {allergies.length > 0 && (
+                    <span className="text-[10px] font-bold bg-white text-emerald-700 px-1.5 py-0.5 rounded-md shadow-xs">
+                      {allergies.length}{" "}
+                      {allergies.length === 1 ? "allergy" : "allergies"}
+                    </span>
+                  )}
+                </div>
+                <p className="text-xs text-emerald-50/90 truncate mt-0.5">
+                  {healthLoading
+                    ? "Loading…"
+                    : allergies.length === 0
+                      ? "Add your allergies for safer care"
+                      : allergies
+                          .slice(0, 3)
+                          .map((a) => a.name)
+                          .join(", ") +
+                        (allergies.length > 3
+                          ? ` +${allergies.length - 3} more`
+                          : "")}
+                </p>
+              </div>
+            </div>
+            <ChevronRight className="w-4 h-4 text-white/90 shrink-0 group-hover:translate-x-0.5 transition-transform" />
+          </div>
+        </motion.button>
+
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 lg:gap-4">
           {isColdStart ? (
             <>
@@ -2722,7 +3062,7 @@ export default function MedicationPanel() {
                     </p>
                     <p
                       className={cn(
-                        "text-2xl sm:text-3xl font-bold leading-none mb-1 tabular-nums tracking-tight transition-colors",
+                        "text-2xl sm:text-3xl font-bold leading-none mb-1 tabular-nums tracking-tight",
                         nextDoseDiffMs <= 0
                           ? "text-emerald-700 animate-pulse"
                           : nextDoseDiffMs <= 60_000
@@ -2730,14 +3070,14 @@ export default function MedicationPanel() {
                             : "text-emerald-900",
                       )}
                     >
-                      {formatCountdown(nextDoseDiffMs)}
+                      {formatDueTime(nextDoseDiffMs)}
                     </p>
                     <p className="text-xs text-emerald-700/70 mt-1">
                       {new Date(nextDose.scheduledTime).toLocaleTimeString([], {
                         hour: "2-digit",
                         minute: "2-digit",
                       })}{" "}
-                      {nextDose.assignedToName}
+                      · {nextDose.assignedToName}
                     </p>
                   </>
                 ) : (
@@ -2788,32 +3128,30 @@ export default function MedicationPanel() {
         {!isColdStart && allExtended.length > 0 && (
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 lg:gap-4">
             <BentoTile className="lg:col-span-1 p-4">
-              <SectionHeader
-                icon={Clock}
-                label="Upcoming"
-                right={
-                  <span className="text-xs font-semibold text-emerald-700 bg-emerald-50 px-2 py-1 rounded-lg border border-emerald-100 shrink-0">
-                    {upcomingDoses.length} doses
-                  </span>
-                }
-              />
+              <SectionHeader icon={Clock} label="Next Dose" />
               <div className="space-y-2">
-                {upcomingDoses.length === 0 ? (
+                {nextDose ? (
+                  <UpcomingDosePill
+                    dose={nextDose}
+                    index={0}
+                    now={now}
+                    onTake={() =>
+                      logDose(nextDose.medicationId, nextDose.doseId, true, "")
+                    }
+                    onReportReaction={() =>
+                      setShowReactionModal({
+                        medicationId: nextDose.medicationId,
+                        doseId: nextDose.doseId,
+                      })
+                    }
+                  />
+                ) : (
                   <div className="text-center py-6">
                     <CheckCircle className="w-8 h-8 text-emerald-500 mx-auto mb-1" />
                     <p className="text-xs font-medium text-emerald-700/70">
                       No upcoming doses
                     </p>
                   </div>
-                ) : (
-                  upcomingDoses.map((dose, i) => (
-                    <UpcomingDosePill
-                      key={`${dose.medicationId}-${dose.scheduledTime}`}
-                      dose={dose}
-                      index={i}
-                      now={now}
-                    />
-                  ))
                 )}
               </div>
             </BentoTile>
@@ -3490,7 +3828,9 @@ export default function MedicationPanel() {
                     "rounded-xl border p-3 flex items-start gap-2.5 text-xs leading-relaxed",
                     derivationPreview.tone === "ok"
                       ? "bg-emerald-50 border-emerald-200 text-emerald-800"
-                      : "bg-emerald-50/60 border-emerald-100 text-emerald-700/80",
+                      : derivationPreview.tone === "warn"
+                        ? "bg-amber-50 border-amber-300 text-amber-900" // ✅ new warn style
+                        : "bg-emerald-50/60 border-emerald-100 text-emerald-700/80",
                   )}
                 >
                   <DerivationIcon className="w-4 h-4 shrink-0 mt-0.5 text-emerald-700" />
@@ -3742,6 +4082,12 @@ export default function MedicationPanel() {
               setShowSnapModal(false);
             }}
           />
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {showHealthProfile && (
+          <HealthProfileModal onClose={() => setShowHealthProfile(false)} />
         )}
       </AnimatePresence>
     </motion.div>
