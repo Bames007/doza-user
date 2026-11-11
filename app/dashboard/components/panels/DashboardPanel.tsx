@@ -40,6 +40,7 @@ import {
   MessageCircle,
   Plus,
   Smile,
+  Stethoscope,
 } from "lucide-react";
 import { useDashboard } from "../../DashboardContext";
 import { authFetcher } from "@/app/utils/client-auth";
@@ -48,6 +49,7 @@ import { poppins, bebasNeue } from "@/app/constants";
 import { useActiveSession } from "@/app/dashboard/hooks/useSession";
 import { usePendingLinkRequests } from "../../hooks/usePendingLinkRequest";
 import { useNotifications } from "../../hooks/useNotification";
+import AppointmentCountdown from "../ui/AppointmentCountdown";
 
 // ─── SessionRating (unchanged) ────────────────────────────────
 const SessionRating = ({
@@ -650,6 +652,8 @@ export default function DashboardPanel() {
           </p>
         </header>
 
+        <AppointmentCountdown />
+
         {/* Badges row */}
         <div className="flex items-center gap-2 overflow-x-auto -mx-4 px-4 pb-1 sm:-mx-6 sm:px-6 lg:mx-0 lg:px-0 lg:flex-wrap scrollbar-none [&::-webkit-scrollbar]:hidden">
           <Chip
@@ -697,13 +701,21 @@ export default function DashboardPanel() {
               icon={HeartPulse}
               onClick={() => setActivePanel("health-tracker")}
             />
+            {/* NEW */}
+            <ActionImageCard
+              image="https://images.unsplash.com/photo-1622253692010-333f2da6031d?auto=format&fit=crop&w=1200&q=80"
+              title="Contact a Medic"
+              category="Verified Professionals"
+              icon={Stethoscope}
+              onClick={() => setActivePanel("doza-medics")}
+            />
           </div>
         </section>
 
         {/* ─── Bento grid ─────────────────────────────────────── */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 lg:gap-6">
           {/* Moodboard */}
-          <div className="lg:col-span-7 order-1">
+          {/* <div className="lg:col-span-7 order-1">
             <MoodBoard
               moodValue={moodValue}
               moodComment={moodComment}
@@ -715,6 +727,16 @@ export default function DashboardPanel() {
               onViewHistory={() => setActivePanel("moodboard-history")}
               onChatWithMedic={handleChatWithMedic}
               onCancelEdit={handleCancelEdit}
+            />
+          </div> */}
+          {/* Mood & Journal — image card */}
+          <div className="lg:col-span-7 order-1">
+            <ActionImageCard
+              image="https://images.unsplash.com/photo-1544027993-37dbfe43562a?auto=format&fit=crop&w=1200&q=80"
+              title="Journal Your Mood"
+              category="Mental Wellness"
+              icon={Smile}
+              onClick={() => setActivePanel("moodboard-history")}
             />
           </div>
 

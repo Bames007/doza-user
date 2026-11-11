@@ -12,15 +12,11 @@ import {
 import { UserProvider, User } from "./UserContext";
 import { DashboardProvider, useDashboard, PanelId } from "./DashboardContext";
 import UserDashboardSidebar from "./components/UserDashboardSidebar";
+import MiniChatPill from "./components/ui/MiniChatPill";
 import { cn } from "@/app/utils/utils";
 import BubbleTransition from "@/app/components/BubbleTransitions";
 
 // ─── Deep link support ─────────────────────────────────────────
-// Reads ?panel=xxx on mount and applies it before the dashboard
-// paints. Notification clicks land directly on the target panel.
-//
-// Uses window.location (NOT useSearchParams) to avoid Next 14's
-// Suspense bailout — this component runs once on mount anyway.
 const VALID_PANELS: PanelId[] = [
   "dashboard",
   "health-tracker",
@@ -52,14 +48,8 @@ function DeepLinkHandler() {
     if (!panel) return;
     if (!VALID_PANELS.includes(panel as PanelId)) return;
 
-    // Apply the panel — the DeepLinkHandler runs at the same commit
-    // as BubbleTransition, so the target panel is what the bubble
-    // reveals, not the default dashboard.
     setActivePanel(panel as PanelId);
 
-    // Clean the URL so ?panel= doesn't persist across refreshes.
-    // Use replace (not push) so the browser back button still works
-    // as users expect (no ghost entry for the deep-linked state).
     try {
       const url = new URL(window.location.href);
       url.searchParams.delete("panel");
@@ -68,6 +58,19 @@ function DeepLinkHandler() {
   }, [setActivePanel]);
 
   return null;
+}
+
+// ✅ NEW — Global chat pill. Lives inside DashboardProvider so it can
+// call setActivePanel, but rendered as a sibling of the layout so the
+// fixed positioning never fights with overflow/transform on layout divs.
+function GlobalChatPill({ isMobile }: { isMobile: boolean }) {
+  const { setActivePanel } = useDashboard();
+  return (
+    <MiniChatPill
+      isMobile={isMobile}
+      onOpenChat={() => setActivePanel("appointment")}
+    />
+  );
 }
 
 export default function DashboardClientWrapper({
@@ -127,7 +130,6 @@ export default function DashboardClientWrapper({
     }
   }, [bubblePhase]);
 
-  // Hold in the "closed" state until dashboard is ready
   useEffect(() => {
     if (!closingDone || bubblePhase !== "closing") return;
 
@@ -153,7 +155,6 @@ export default function DashboardClientWrapper({
   return (
     <UserProvider user={user}>
       <DashboardProvider>
-        {/* Deep link: ?panel=medications → opens that panel on mount */}
         <DeepLinkHandler />
 
         {showBubble && (
@@ -181,6 +182,9 @@ export default function DashboardClientWrapper({
             {children}
           </main>
         </div>
+
+        {/* ✅ NEW — Global chat pill, always available above every panel */}
+        <GlobalChatPill isMobile={isMobile} />
       </DashboardProvider>
     </UserProvider>
   );

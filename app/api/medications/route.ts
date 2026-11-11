@@ -5,9 +5,9 @@ import { verifySessionCookie } from "@/app/utils/auth";
 import { adminDb } from "@/app/utils/firebaseAdmin";
 import { z } from "zod";
 import logger from "@/app/utils/logger";
+import { scheduleDoseReminders } from "@/app/utils/scheduleReminders";
 
 // ─── Deep-strip undefined (Firebase RTDB rejects any undefined) ───
-// Keeps `null`, drops only `undefined`. Recurses through objects + arrays.
 function stripUndefined<T>(value: T): T {
   if (value === null || value === undefined) return value;
   if (Array.isArray(value)) {
@@ -63,8 +63,6 @@ function generateDoses(
   return doses;
 }
 
-// `.nullish()` accepts string | null | undefined.
-// This matches what our client sends (null for unknown fields).
 const createMedicationSchema = z
   .object({
     name: z.string().min(1),
@@ -110,15 +108,12 @@ export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const memberId = searchParams.get("memberId") || "self";
 
-  // ── Stage 1: Firebase read ────────────────────────────────────
   let raw: any;
   try {
     const medsRef = adminDb.ref(`doza/users/${uid}/medications`);
     const snapshot = await medsRef.once("value");
     raw = snapshot.val();
   } catch (err: any) {
-    // Log EVERYTHING explicitly — do not rely on the logger to
-    // serialize an Error instance (that's how you got `{}`).
     logger.error({
       uid,
       memberId,
@@ -135,9 +130,7 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  // ── Stage 2: Data processing ──────────────────────────────────
   try {
-    // Diagnostic: log the raw shape so we can spot corruption.
     logger.info({
       uid,
       memberId,
@@ -158,8 +151,6 @@ export async function GET(request: NextRequest) {
     if (!raw) {
       medications = [];
     } else if (Array.isArray(raw)) {
-      // Filter out any null/undefined/primitive entries that could
-      // have been written by a malformed legacy write.
       medications = raw.filter(
         (m) => m != null && typeof m === "object" && !Array.isArray(m),
       );
@@ -168,7 +159,6 @@ export async function GET(request: NextRequest) {
         (m) => m != null && typeof m === "object" && !Array.isArray(m),
       );
     } else {
-      // Primitive at this node — treat as empty rather than throwing.
       logger.warn({
         uid,
         rawType: typeof raw,
@@ -219,7 +209,6 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json();
-
     logger.info({ uid, body }, "Received medication creation request");
 
     const parseResult = createMedicationSchema.safeParse(body);
@@ -241,7 +230,7 @@ export async function POST(request: NextRequest) {
 
     const data = parseResult.data;
 
-    // Normalize times array
+    // ── Normalize times ──
     let finalTimes: string[] = data.times || [];
     if (!Array.isArray(finalTimes)) finalTimes = [];
     if (data.frequency === "once") finalTimes = ["08:00"];
@@ -249,7 +238,7 @@ export async function POST(request: NextRequest) {
     else if (data.frequency === "thrice")
       finalTimes = ["08:00", "14:00", "20:00"];
 
-    // Normalize doses
+    // ── Normalize doses ──
     let doses = data.doses || [];
     if (!Array.isArray(doses)) doses = [];
     if (doses.length === 0) {
@@ -262,10 +251,16 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // ─── KEY FIX ─────────────────────────────────────────────────
-    // Every optional field defaults to `null`, and we wrap the whole
-    // object in `stripUndefined` before writing to Firebase. This
-    // makes the endpoint bulletproof against missing fields.
+    // ✅ FIX: backfill ids BEFORE newMedication is built.
+    //    Otherwise stripUndefined removes the undefined `id` field
+    //    and scheduleDoseReminders skips every dose as missingId.
+    doses = doses.map((d, i) => ({
+      ...d,
+      id:
+        d.id ||
+        `dose-${i}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    }));
+
     const newMedication = stripUndefined({
       id: Date.now().toString() + Math.random().toString(36).substr(2, 5),
       name: data.name,
@@ -277,7 +272,7 @@ export async function POST(request: NextRequest) {
       endDate: data.endDate ?? null,
       assignedTo: data.assignedTo,
       status: data.status ?? "active",
-      doses,
+      doses, // ← now guaranteed to have ids
       createdAt: new Date().toISOString(),
       quantityPerDose: data.quantityPerDose ?? 1,
       totalQuantity: data.totalQuantity ?? 0,
@@ -297,14 +292,21 @@ export async function POST(request: NextRequest) {
     }
     medications.push(newMedication);
 
-    // ─── Safety net ──────────────────────────────────────────────
-    // If a legacy record somewhere in the array has undefined, this
-    // prevents the WHOLE write from failing.
     await medsRef.set(stripUndefined(medications));
+
+    scheduleDoseReminders(uid, newMedication).catch((err) => {
+      logger.warn({
+        uid,
+        medicationId: newMedication.id,
+        message: "scheduleDoseReminders failed (non-fatal)",
+        err: err?.message,
+      });
+    });
 
     logger.info({
       uid,
       medicationId: newMedication.id,
+      doseCount: doses.length,
       message: "Medication created",
     });
     return NextResponse.json({ success: true, data: newMedication });

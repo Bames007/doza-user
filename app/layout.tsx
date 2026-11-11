@@ -42,7 +42,7 @@ const APP_URL = "https://users.dozamedic.com";
 export const metadata: Metadata = {
   metadataBase: new URL(APP_URL),
   title: {
-    default: "Doza | The Connected Healthcare Ecosystem",
+    default: "Doza - Your Personal Medical Assistant",
     template: "%s | Doza",
   },
   description:

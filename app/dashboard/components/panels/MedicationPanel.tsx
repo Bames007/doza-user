@@ -2043,6 +2043,25 @@ export default function MedicationPanel() {
 
       const doseKey = `${dose.medicationId}|${dose.scheduledTime}`;
 
+      // const fireOnce = (id: string, title: string, body: string) => {
+      //   const fireKey = `${doseKey}|${id}`;
+      //   if (firedRef.current.has(fireKey)) return;
+      //   firedRef.current.add(fireKey);
+      //   try {
+      //     sessionStorage.setItem(
+      //       NOTIFIED_KEY,
+      //       JSON.stringify([...firedRef.current]),
+      //     );
+      //   } catch {}
+
+      //   fireDoseNotification(title, body, doseKey);
+      //   setDoseToast({
+      //     title,
+      //     body,
+      //     tone: diff <= 0 ? "warn" : "info",
+      //   });
+      // };
+
       const fireOnce = (id: string, title: string, body: string) => {
         const fireKey = `${doseKey}|${id}`;
         if (firedRef.current.has(fireKey)) return;
@@ -2054,12 +2073,9 @@ export default function MedicationPanel() {
           );
         } catch {}
 
-        fireDoseNotification(title, body, doseKey);
-        setDoseToast({
-          title,
-          body,
-          tone: diff <= 0 ? "warn" : "info",
-        });
+        // Server-side QStash now handles browser notifications.
+        // Keep in-app toast for immediate feedback while the user is here.
+        setDoseToast({ title, body, tone: diff <= 0 ? "warn" : "info" });
       };
 
       if (diff <= 0 && diff > -60_000) {

@@ -3,7 +3,7 @@
 
 import { useState, useMemo, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import useSWR from "swr";
+import useSWR, { mutate } from "swr";
 import DatePicker from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
 import {
@@ -24,10 +24,19 @@ import {
   SmilePlus,
   Calendar as CalendarIcon,
   ShieldCheck,
+  AlertCircle,
+  Star,
+  Zap,
+  ArrowLeft,
+  CheckCircle2,
 } from "lucide-react";
 import { cn } from "@/app/utils/utils";
 import { authFetcher, authPost } from "@/app/utils/client-auth";
 import { poppins } from "@/app/constants";
+import { useDashboard } from "../../DashboardContext";
+
+// ─── Types ────────────────────────────────────────────
+type BookingMode = "scheduled" | "instant" | "emergency";
 
 // ─── sessionStorage helpers ────────────────────────────
 function ssGet(key: string): string | null {
@@ -54,8 +63,25 @@ function ssRemove(key: string) {
 const FOCUS =
   "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:ring-offset-2";
 
-// --- Helpers ---
-const DURATIONS = ["15 min", "30 min", "45 min", "60 min", "90+ min"];
+// ─── Duration + pricing ────────────────────────────────
+const DURATIONS = ["15 min", "30 min", "45 min", "60 min", "90+ min"] as const;
+type DurationLabel = (typeof DURATIONS)[number];
+
+const DURATION_HOURS: Record<DurationLabel, number> = {
+  "15 min": 0.25,
+  "30 min": 0.5,
+  "45 min": 0.75,
+  "60 min": 1,
+  "90+ min": 1.5,
+};
+
+const MIN_LEAD_MINUTES = 30;
+
+// ─── Time slot types ───────────────────────────────────
+interface TimeSlot {
+  time: string;
+  disabled: boolean;
+}
 
 const generateTimeSlots = (start: string, end: string) => {
   const slots: string[] = [];
@@ -79,7 +105,77 @@ const CATEGORIES = [
 
 const VALID_CATEGORY_IDS = new Set(CATEGORIES.map((c) => c.id));
 
-// --- Skeleton Loader ---
+// ─── Formatting ────────────────────────────────────────
+function formatNaira(amount: number): string {
+  if (!Number.isFinite(amount) || amount <= 0) return "₦0";
+  return `₦${Math.round(amount).toLocaleString()}`;
+}
+
+function formatRatingValue(avg: number, count: number): string {
+  if (!count) return "New";
+  return `${Number(avg).toFixed(1)} / 5 (${count})`;
+}
+
+function pad2(n: number): string {
+  return String(n).padStart(2, "0");
+}
+
+function toDateStr(d: Date): string {
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+}
+
+function toTimeStr(d: Date): string {
+  return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+}
+
+function getInitials(name?: string | null): string {
+  const n = (name || "").trim();
+  if (!n) return "?";
+  const parts = n.split(/\s+/).filter(Boolean);
+  if (parts.length === 1) return parts[0].charAt(0).toUpperCase();
+  return (parts[0].charAt(0) + parts[parts.length - 1].charAt(0)).toUpperCase();
+}
+
+// ─── Avatar ───────────────────────────────────────────
+function MedicAvatar({
+  src,
+  name,
+  className,
+  textClassName,
+}: {
+  src?: string | null;
+  name?: string | null;
+  className?: string;
+  textClassName?: string;
+}) {
+  if (src) {
+    return (
+      <img
+        src={src}
+        alt={name || "Medic"}
+        loading="lazy"
+        className={cn("object-cover", className)}
+      />
+    );
+  }
+  return (
+    <div
+      role="img"
+      aria-label={name || "Medic"}
+      className={cn(
+        "flex items-center justify-center select-none",
+        "bg-gradient-to-br from-emerald-500 via-emerald-600 to-teal-700 text-white font-bold",
+        className,
+      )}
+    >
+      <span className={cn("tracking-tight", textClassName)}>
+        {getInitials(name)}
+      </span>
+    </div>
+  );
+}
+
+// ─── Skeleton ──────────────────────────────────────────
 function SkeletonCard() {
   return (
     <div className="bg-white rounded-2xl border border-emerald-100 p-4 lg:p-5 shadow-xs animate-pulse flex flex-col justify-between">
@@ -106,7 +202,10 @@ function SkeletonCard() {
   );
 }
 
+// ═════════════════════════════════════════════════════
 export default function DozaMedicsPanel({ user }: any) {
+  const { setActivePanel } = useDashboard();
+
   // ─── Persisted state ─────────────────────────────────
   const [selectedCategory, setSelectedCategory] = useState<string>(() => {
     const v = ssGet("medics:selectedCategory");
@@ -154,12 +253,18 @@ export default function DozaMedicsPanel({ user }: any) {
   // ─── Ephemeral state ─────────────────────────────────
   const [showCompareModal, setShowCompareModal] = useState(false);
   const [viewingMedic, setViewingMedic] = useState<any | null>(null);
+  const [bookingMode, setBookingMode] = useState<BookingMode>("scheduled");
   const [bookingStep, setBookingStep] = useState<
     "details" | "schedule" | "payment"
   >("details");
-  const [selectedDuration, setSelectedDuration] = useState("");
+  const [selectedDuration, setSelectedDuration] = useState<DurationLabel | "">(
+    "",
+  );
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [selectedTime, setSelectedTime] = useState("");
+  const [selectedServiceId, setSelectedServiceId] = useState<string | null>(
+    null,
+  );
   const [isProcessing, setIsProcessing] = useState(false);
   const [notification, setNotification] = useState<{
     msg: string;
@@ -192,8 +297,10 @@ export default function DozaMedicsPanel({ user }: any) {
     {
       revalidateOnFocus: false,
       revalidateOnReconnect: true,
-      dedupingInterval: 60_000,
-      revalidateIfStale: false,
+      dedupingInterval: 5_000,
+      revalidateIfStale: true,
+      revalidateOnMount: true,
+      keepPreviousData: true,
     },
   );
 
@@ -212,46 +319,376 @@ export default function DozaMedicsPanel({ user }: any) {
     setTimeout(() => setNotification(null), 5000);
   };
 
+  // ─── Derived medic config ────────────────────────────
+  const baseRate = Number(viewingMedic?.price) || 0;
+  const instantWindowMinutes =
+    Number(viewingMedic?.instantTalkWindowMinutes) || 15;
+  const instantHours = instantWindowMinutes / 60;
+  const instantPremium = Number(viewingMedic?.instantTalkPremium) || 0;
+  const emergencyPremium = Number(viewingMedic?.emergencyPremium) || 0;
+  const urgentFee = Number(viewingMedic?.urgentFee) || 0;
+
+  const selectedService = useMemo(() => {
+    if (!viewingMedic || !selectedServiceId) return null;
+    const services: any[] = Array.isArray(viewingMedic.services)
+      ? viewingMedic.services
+      : [];
+    return services.find((s) => s.id === selectedServiceId) || null;
+  }, [viewingMedic, selectedServiceId]);
+
+  const servicesForType = useMemo(() => {
+    if (!viewingMedic) return [];
+    const services: any[] = Array.isArray(viewingMedic.services)
+      ? viewingMedic.services
+      : [];
+    return services.filter((s: any) => {
+      if (s.type === "any") return true;
+      if (consultType === "online" && s.type === "video") return true;
+      if (
+        consultType === "inPerson" &&
+        (s.type === "in-person" || s.type === "home")
+      )
+        return true;
+      return false;
+    });
+  }, [viewingMedic, consultType]);
+
+  useEffect(() => {
+    if (!selectedServiceId) return;
+    if (!servicesForType.some((s: any) => s.id === selectedServiceId)) {
+      setSelectedServiceId(null);
+    }
+  }, [servicesForType, selectedServiceId]);
+
+  // ─── Mode-aware price ────────────────────────────────
+  const computedPrice = useMemo(() => {
+    if (!viewingMedic) return 0;
+
+    const baseAmount = selectedService
+      ? Number(selectedService.price) || 0
+      : bookingMode === "instant"
+        ? Math.round(baseRate * instantHours)
+        : Math.round(
+            baseRate *
+              (consultType === "inPerson"
+                ? 1
+                : selectedDuration
+                  ? DURATION_HOURS[selectedDuration]
+                  : 1),
+          );
+
+    let total = baseAmount;
+    if (bookingMode === "instant") total += instantPremium;
+    if (bookingMode === "emergency") total += emergencyPremium + urgentFee;
+
+    return total;
+  }, [
+    viewingMedic,
+    selectedService,
+    bookingMode,
+    consultType,
+    selectedDuration,
+    baseRate,
+    instantHours,
+    instantPremium,
+    emergencyPremium,
+    urgentFee,
+  ]);
+
+  const durationSummary = useMemo(() => {
+    if (!viewingMedic) return "";
+    if (bookingMode === "instant")
+      return `${instantWindowMinutes} min instant call`;
+    if (selectedService)
+      return `${selectedService.durationMinutes} min · ${selectedService.name}`;
+    if (consultType === "inPerson") return "1 hour home visit";
+    if (!selectedDuration) return "Select a duration";
+    return `${selectedDuration} online session`;
+  }, [
+    viewingMedic,
+    bookingMode,
+    instantWindowMinutes,
+    selectedService,
+    consultType,
+    selectedDuration,
+  ]);
+
+  // ─── Auto-set booking date/time for instant/emergency ──
+  const autoBookingDateTime = useMemo(() => {
+    if (bookingMode === "instant") {
+      const d = new Date();
+      d.setMinutes(Math.ceil(d.getMinutes() / 5) * 5, 0, 0);
+      return { date: d, time: toTimeStr(d) };
+    }
+    if (bookingMode === "emergency") {
+      const d = new Date(Date.now() + MIN_LEAD_MINUTES * 60 * 1000);
+      d.setMinutes(Math.ceil(d.getMinutes() / 15) * 15, 0, 0);
+      return { date: d, time: toTimeStr(d) };
+    }
+    return null;
+  }, [bookingMode, viewingMedic]);
+
+  // ─── Time slots (only for scheduled) ─────────────────
+  const timeSlots = useMemo<TimeSlot[]>(() => {
+    if (!viewingMedic || bookingMode !== "scheduled") return [];
+
+    const all = generateTimeSlots(
+      viewingMedic.availability?.hours?.start,
+      viewingMedic.availability?.hours?.end,
+    );
+
+    if (!selectedDate) {
+      return all.map((t) => ({ time: t, disabled: false }));
+    }
+
+    const now = new Date();
+    const isToday = selectedDate.toDateString() === now.toDateString();
+    if (!isToday) {
+      return all.map((t) => ({ time: t, disabled: false }));
+    }
+
+    const minStart = new Date(now.getTime() + MIN_LEAD_MINUTES * 60 * 1000);
+    return all.map((t) => {
+      const [h, m] = t.split(":").map(Number);
+      const slotTime = new Date(selectedDate);
+      slotTime.setHours(h, m, 0, 0);
+      return { time: t, disabled: slotTime < minStart };
+    });
+  }, [viewingMedic, selectedDate, bookingMode]);
+
+  useEffect(() => {
+    if (!selectedTime || bookingMode !== "scheduled") return;
+    const slot = timeSlots.find((s) => s.time === selectedTime);
+    if (!slot || slot.disabled) setSelectedTime("");
+  }, [timeSlots, selectedTime, bookingMode]);
+
+  const handleDateChange = (date: Date | null) => {
+    setSelectedDate(date);
+    setSelectedTime("");
+  };
+
+  const minDate = useMemo(() => {
+    const t = new Date();
+    t.setHours(0, 0, 0, 0);
+    if (!viewingMedic) return t;
+    const todaySlots = generateTimeSlots(
+      viewingMedic.availability?.hours?.start,
+      viewingMedic.availability?.hours?.end,
+    );
+    const now = new Date();
+    const minStart = new Date(now.getTime() + MIN_LEAD_MINUTES * 60 * 1000);
+    const hasToday = todaySlots.some((slot) => {
+      const [h, m] = slot.split(":").map(Number);
+      const st = new Date();
+      st.setHours(h, m, 0, 0);
+      return st >= minStart;
+    });
+    if (!hasToday) t.setDate(t.getDate() + 1);
+    return t;
+  }, [viewingMedic]);
+
+  const maxDate = useMemo(() => {
+    const d = new Date();
+    d.setDate(d.getDate() + 30);
+    return d;
+  }, []);
+
+  const allSlotsTodayDisabled =
+    !!selectedDate &&
+    selectedDate.toDateString() === new Date().toDateString() &&
+    timeSlots.length > 0 &&
+    timeSlots.every((s) => s.disabled);
+
+  // ─── Open modal with mode ────────────────────────────
+  const openMedicModal = (medic: any, mode: BookingMode = "scheduled") => {
+    let effectiveMode: BookingMode = mode;
+    if (
+      effectiveMode === "instant" &&
+      !(medic.status === "online" && medic.instantTalk)
+    ) {
+      effectiveMode = "scheduled";
+    }
+    if (effectiveMode === "emergency" && medic.emergencyAvailable !== true) {
+      effectiveMode = "scheduled";
+    }
+    setBookingMode(effectiveMode);
+    setViewingMedic(medic);
+  };
+
+  // ─── Continue / canContinue per mode ─────────────────
+  const canContinueSchedule = useMemo(() => {
+    if (bookingMode === "instant") return true;
+    if (bookingMode === "emergency") {
+      if (consultType === "inPerson") return !!patientAddress.trim();
+      return !!selectedServiceId || !!selectedDuration;
+    }
+    return (
+      !!selectedDate &&
+      !!selectedTime &&
+      (consultType === "inPerson"
+        ? !!patientAddress
+        : selectedServiceId
+          ? true
+          : !!selectedDuration)
+    );
+  }, [
+    bookingMode,
+    consultType,
+    patientAddress,
+    selectedDate,
+    selectedTime,
+    selectedServiceId,
+    selectedDuration,
+  ]);
+
+  // ─── Reset on open ───────────────────────────────────
+  useEffect(() => {
+    if (viewingMedic) {
+      setBookingStep("details");
+      setSelectedDate(null);
+      setSelectedTime("");
+      setSelectedDuration("");
+      setSelectedServiceId(null);
+      setPatientAddress(ssGet("medics:patientAddress") || "");
+
+      if (bookingMode === "instant") {
+        setConsultType("online");
+      }
+    }
+  }, [viewingMedic]);
+
+  // ─── Payment handler ─────────────────────────────────
   const handlePayment = async () => {
-    if (typeof window === "undefined") return;
+    if (typeof window === "undefined" || !viewingMedic) return;
+
+    let dateStr: string;
+    let timeStr: string;
+
+    if (bookingMode === "instant" || bookingMode === "emergency") {
+      if (!autoBookingDateTime) return;
+      dateStr = toDateStr(autoBookingDateTime.date);
+      timeStr = autoBookingDateTime.time;
+    } else {
+      if (!selectedDate || !selectedTime) {
+        triggerNotify("Please pick a date and time first", "error");
+        return;
+      }
+      dateStr = toDateStr(selectedDate);
+      timeStr = selectedTime;
+    }
+
     setIsProcessing(true);
+
+    const finalDuration =
+      bookingMode === "instant"
+        ? `${instantWindowMinutes} min`
+        : selectedService
+          ? `${selectedService.durationMinutes} min`
+          : consultType === "online"
+            ? selectedDuration || "60 min"
+            : "60 min";
+
+    const finalReason =
+      bookingMode === "emergency"
+        ? selectedService
+          ? `Emergency · ${selectedService.name}`
+          : "Emergency consultation"
+        : bookingMode === "instant"
+          ? `Instant call · ${instantWindowMinutes}m`
+          : selectedService
+            ? `${selectedService.name}${
+                consultType === "inPerson" ? " (in-person)" : " (online)"
+              }`
+            : consultType === "online"
+              ? "Online consultation"
+              : "In-person consultation";
+
+    const priceBreakdown = {
+      baseRate,
+      servicePrice: selectedService ? Number(selectedService.price) || 0 : 0,
+      urgentFee: bookingMode === "emergency" ? urgentFee : 0,
+      emergencyPremium: bookingMode === "emergency" ? emergencyPremium : 0,
+      instantTalkPremium: bookingMode === "instant" ? instantPremium : 0,
+      homeVisitFee: 0,
+      followUpDiscountPct: 0,
+      durationHours:
+        bookingMode === "instant"
+          ? instantHours
+          : selectedService
+            ? selectedService.durationMinutes / 60
+            : consultType === "inPerson"
+              ? 1
+              : selectedDuration
+                ? DURATION_HOURS[selectedDuration]
+                : 1,
+      total: computedPrice,
+    };
+
     try {
       const PaystackPop = (await import("@paystack/inline-js")).default;
       const paystack = new PaystackPop();
-      paystack.newTransaction({
+      const paystackOptions: any = {
         key: process.env.NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY || "",
         email: user?.email || "patient@doza.health",
-        amount: (viewingMedic.price || 0) * 100,
+        amount: computedPrice * 100,
         currency: "NGN",
-        onSuccess: async () => {
-          setIsProcessing(true);
+        onSuccess: async (response: any) => {
+          const paymentReference = response?.reference || null;
+
           try {
             const result = await authPost("/api/appointments", {
               medicId: viewingMedic.id,
               medicName: viewingMedic.name,
-              date: selectedDate?.toISOString().split("T")[0],
-              time: selectedTime,
-              reason: `Consultation (${consultType})`,
-              notes:
-                consultType === "inPerson"
-                  ? `Address: ${patientAddress}`
-                  : `Duration: ${selectedDuration}`,
+              medicProfileImage: viewingMedic.profileImage || null,
+              medicSpecialty: viewingMedic.specialty || null,
+
+              date: dateStr,
+              time: timeStr,
+
+              consultType: bookingMode === "instant" ? "online" : consultType,
+              duration: finalDuration,
+              address:
+                consultType === "inPerson" && bookingMode !== "instant"
+                  ? patientAddress.trim() || null
+                  : null,
+              amount: computedPrice,
+              paymentReference,
+
+              reason: finalReason,
+              notes: null,
+
+              serviceId: selectedServiceId,
+              serviceName: selectedService?.name || null,
+
+              instantTalk: bookingMode === "instant",
+              emergency: bookingMode === "emergency",
+
+              priceBreakdown,
             });
+
             if (result.success) {
-              triggerNotify(
-                `Booking with ${viewingMedic.name} confirmed!`,
-                "success",
-              );
+              const label =
+                bookingMode === "emergency"
+                  ? "Emergency booking confirmed."
+                  : bookingMode === "instant"
+                    ? "Instant call confirmed."
+                    : `Booking with ${viewingMedic.name} confirmed.`;
+              triggerNotify(label, "success");
               setViewingMedic(null);
+              await mutate("/api/appointments").catch(() => {});
+              setTimeout(() => {
+                setActivePanel("appointment");
+              }, 800);
             } else {
               triggerNotify(
-                result.error || "Failed to save. Please contact support.",
+                result.error ||
+                  "Payment captured but booking failed. Contact support.",
                 "error",
               );
             }
           } catch {
             triggerNotify(
-              "Failed to save booking. Please contact support.",
+              "Payment captured but save failed. Contact support with your Paystack receipt.",
               "error",
             );
           } finally {
@@ -262,7 +699,9 @@ export default function DozaMedicsPanel({ user }: any) {
           setIsProcessing(false);
           triggerNotify("Payment cancelled", "error");
         },
-      });
+      };
+
+      paystack.newTransaction(paystackOptions);
     } catch {
       triggerNotify(
         "Payment service unavailable. Please try again later.",
@@ -272,27 +711,20 @@ export default function DozaMedicsPanel({ user }: any) {
     }
   };
 
-  useEffect(() => {
-    if (viewingMedic) {
-      setBookingStep("details");
-      setSelectedDate(null);
-      setSelectedTime("");
-      setSelectedDuration("");
-      setPatientAddress(ssGet("medics:patientAddress") || "");
-    }
-  }, [viewingMedic]);
+  // ─── Mode chip label ─────────────────────────────────
+  const modeLabel =
+    bookingMode === "emergency"
+      ? "Emergency"
+      : bookingMode === "instant"
+        ? "Instant talk"
+        : "Scheduled";
 
-  const minDate = new Date();
-  const maxDate = new Date();
-  maxDate.setDate(maxDate.getDate() + 30);
-
-  const timeSlots = useMemo(() => {
-    if (!viewingMedic) return [];
-    return generateTimeSlots(
-      viewingMedic.availability?.hours?.start,
-      viewingMedic.availability?.hours?.end,
-    );
-  }, [viewingMedic]);
+  const modeColor =
+    bookingMode === "emergency"
+      ? "bg-rose-500 text-white"
+      : bookingMode === "instant"
+        ? "bg-emerald-600 text-white"
+        : "bg-slate-900 text-white";
 
   return (
     <motion.div
@@ -362,7 +794,7 @@ export default function DozaMedicsPanel({ user }: any) {
         }
       `}</style>
 
-      {/* Notification Toast */}
+      {/* Toast — Lucide icons, no text characters */}
       <AnimatePresence>
         {notification && (
           <motion.div
@@ -377,8 +809,12 @@ export default function DozaMedicsPanel({ user }: any) {
             )}
             role="alert"
           >
-            <span className="flex h-5 w-5 items-center justify-center rounded-full bg-white/20 text-xs shrink-0">
-              {notification.type === "success" ? "✓" : "!"}
+            <span className="flex h-5 w-5 items-center justify-center rounded-full bg-white/20 shrink-0">
+              {notification.type === "success" ? (
+                <CheckCircle2 size={12} className="text-white" />
+              ) : (
+                <AlertCircle size={12} className="text-white" />
+              )}
             </span>
             <span className="truncate">{notification.msg}</span>
           </motion.div>
@@ -386,7 +822,6 @@ export default function DozaMedicsPanel({ user }: any) {
       </AnimatePresence>
 
       <main className="mx-auto max-w-7xl px-4 pt-3 sm:px-6 lg:px-8 space-y-4 lg:space-y-5">
-        {/* ─── HEADER ──────────────────────────────────────── */}
         <header className="pt-1 lg:pt-2 flex flex-col gap-3">
           <div className="min-w-0 flex-1">
             <h1 className="text-2xl sm:text-3xl lg:text-4xl font-bold text-slate-900 tracking-tight leading-tight">
@@ -398,7 +833,6 @@ export default function DozaMedicsPanel({ user }: any) {
           </div>
         </header>
 
-        {/* ─── CATEGORY TABS ───────────────────────────────── */}
         <nav className="flex overflow-x-auto gap-1 p-1 bg-emerald-50 rounded-2xl border border-emerald-100 w-full md:w-fit scrollbar-none [&::-webkit-scrollbar]:hidden">
           {CATEGORIES.map((cat) => (
             <button
@@ -418,7 +852,6 @@ export default function DozaMedicsPanel({ user }: any) {
           ))}
         </nav>
 
-        {/* ─── SPECIALISTS GRID ────────────────────────────── */}
         <section>
           <div className="flex justify-between items-center mb-3">
             <h2 className="text-xs font-bold uppercase tracking-wider text-emerald-700/70">
@@ -441,7 +874,7 @@ export default function DozaMedicsPanel({ user }: any) {
                 No professionals found
               </p>
               <p className="text-sm text-emerald-700/70 max-w-xs mx-auto leading-relaxed">
-                We couldn't find any active specialists in this category right
+                We could not find any active specialists in this category right
                 now. Try switching to a different category.
               </p>
             </div>
@@ -451,7 +884,7 @@ export default function DozaMedicsPanel({ user }: any) {
                 <MedicCard
                   key={m.id}
                   medic={m}
-                  onOpen={() => setViewingMedic(m)}
+                  onOpen={(mode: BookingMode) => openMedicModal(m, mode)}
                   isComparing={compareList.some((c) => c.id === m.id)}
                   onCompare={() => {
                     if (compareList.find((c) => c.id === m.id)) {
@@ -472,7 +905,7 @@ export default function DozaMedicsPanel({ user }: any) {
         </section>
       </main>
 
-      {/* ─── COMPARE TRAY ────────────────────────────────── */}
+      {/* Compare tray */}
       <AnimatePresence>
         {compareList.length > 0 && (
           <motion.div
@@ -488,11 +921,12 @@ export default function DozaMedicsPanel({ user }: any) {
                 </span>
                 <div className="flex -space-x-2">
                   {compareList.map((m) => (
-                    <img
+                    <MedicAvatar
                       key={m.id}
                       src={m.profileImage}
-                      alt={m.name}
-                      className="w-8 h-8 sm:w-9 sm:h-9 rounded-full border-2 border-emerald-700 object-cover shadow"
+                      name={m.name}
+                      className="w-8 h-8 sm:w-9 sm:h-9 rounded-full border-2 border-emerald-700 shadow"
+                      textClassName="text-[10px] sm:text-[11px]"
                     />
                   ))}
                 </div>
@@ -524,7 +958,7 @@ export default function DozaMedicsPanel({ user }: any) {
         )}
       </AnimatePresence>
 
-      {/* ─── COMPARE MODAL ───────────────────────────────── */}
+      {/* Compare modal */}
       <AnimatePresence>
         {showCompareModal && (
           <div className="fixed inset-0 z-[250] flex items-center justify-center p-3 sm:p-4">
@@ -573,10 +1007,11 @@ export default function DozaMedicsPanel({ user }: any) {
                       </th>
                       {compareList.map((m) => (
                         <th key={m.id} className="pb-3 px-3 text-center">
-                          <img
+                          <MedicAvatar
                             src={m.profileImage}
-                            alt={m.name}
-                            className="w-14 h-14 rounded-2xl mx-auto object-cover mb-2 shadow-sm border border-emerald-100"
+                            name={m.name}
+                            className="w-14 h-14 rounded-2xl mx-auto mb-2 shadow-sm border border-emerald-100"
+                            textClassName="text-lg"
                           />
                           <p className="text-sm font-bold text-emerald-900 truncate">
                             {m.name}
@@ -604,15 +1039,17 @@ export default function DozaMedicsPanel({ user }: any) {
                       )}
                     />
                     <CompareRow
-                      label="Fee"
+                      label="Rate"
                       values={compareList.map(
-                        (m) => `₦${m.price.toLocaleString()}`,
+                        (m) => `${formatNaira(Number(m.price) || 0)}/hr`,
                       )}
                       isPrice
                     />
                     <CompareRow
                       label="Rating"
-                      values={compareList.map(() => "4.9 / 5.0")}
+                      values={compareList.map((m) =>
+                        formatRatingValue(m.ratingAverage, m.ratingCount),
+                      )}
                     />
                     <CompareRow
                       label="Action"
@@ -620,7 +1057,7 @@ export default function DozaMedicsPanel({ user }: any) {
                         <button
                           key={m.id}
                           onClick={() => {
-                            setViewingMedic(m);
+                            openMedicModal(m, "scheduled");
                             setShowCompareModal(false);
                           }}
                           className={cn(
@@ -641,7 +1078,7 @@ export default function DozaMedicsPanel({ user }: any) {
         )}
       </AnimatePresence>
 
-      {/* ─── BOOKING MODAL ───────────────────────────────── */}
+      {/* Booking modal */}
       <AnimatePresence>
         {viewingMedic && (
           <div className="fixed inset-0 z-[200] flex items-end sm:items-center justify-center p-0 sm:p-4">
@@ -661,53 +1098,115 @@ export default function DozaMedicsPanel({ user }: any) {
               role="dialog"
               aria-modal="true"
             >
-              {/* Drag handle (mobile only) */}
               <div className="sm:hidden flex justify-center pt-3" aria-hidden>
                 <div className="w-10 h-1 rounded-full bg-emerald-200" />
               </div>
 
-              {/* Modal header */}
-              <div className="px-4 sm:px-5 py-3 border-b border-emerald-100 flex justify-between items-center bg-white sticky top-0 z-20 gap-3 shrink-0">
-                <div className="flex items-center gap-3 min-w-0">
-                  <img
-                    src={viewingMedic.profileImage}
-                    alt={viewingMedic.name}
-                    className="w-11 h-11 sm:w-12 sm:h-12 rounded-xl object-cover border border-emerald-100 shrink-0"
-                  />
-                  <div className="min-w-0">
-                    <h2 className="text-base sm:text-lg font-bold text-emerald-900 leading-tight truncate">
-                      {viewingMedic.name}
-                    </h2>
-                    <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-                      <span className="text-[10px] font-bold text-emerald-700 uppercase tracking-wider bg-emerald-50 px-1.5 py-0.5 rounded-md">
-                        {viewingMedic.specialty}
-                      </span>
-                      <span className="text-[11px] text-emerald-700/70 flex items-center gap-1">
-                        <Languages size={11} />{" "}
-                        {viewingMedic.languages?.join(", ") || "English"}
-                      </span>
+              <div className="px-4 sm:px-5 py-3 border-b border-emerald-100 bg-white sticky top-0 z-20 shrink-0">
+                <div className="flex justify-between items-center gap-3">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <MedicAvatar
+                      src={viewingMedic.profileImage}
+                      name={viewingMedic.name}
+                      className="w-11 h-11 sm:w-12 sm:h-12 rounded-xl border border-emerald-100 shrink-0"
+                      textClassName="text-sm sm:text-base"
+                    />
+                    <div className="min-w-0">
+                      <h2 className="text-base sm:text-lg font-bold text-emerald-900 leading-tight truncate">
+                        {viewingMedic.name}
+                      </h2>
+                      <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                        <span
+                          className={cn(
+                            "text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded-md",
+                            modeColor,
+                          )}
+                        >
+                          {modeLabel}
+                        </span>
+                        <span className="text-[10px] font-bold text-emerald-700 uppercase tracking-wider bg-emerald-50 px-1.5 py-0.5 rounded-md">
+                          {viewingMedic.specialty}
+                        </span>
+                      </div>
                     </div>
                   </div>
+                  <button
+                    onClick={() => setViewingMedic(null)}
+                    aria-label="Close"
+                    className={cn(
+                      "min-h-10 min-w-10 inline-flex items-center justify-center bg-emerald-50 text-emerald-600 rounded-xl hover:bg-emerald-100 transition-colors shrink-0",
+                      FOCUS,
+                    )}
+                  >
+                    <X size={18} />
+                  </button>
                 </div>
-                <button
-                  onClick={() => setViewingMedic(null)}
-                  aria-label="Close"
-                  className={cn(
-                    "min-h-10 min-w-10 inline-flex items-center justify-center bg-emerald-50 text-emerald-600 rounded-xl hover:bg-emerald-100 transition-colors shrink-0",
-                    FOCUS,
+
+                {bookingStep === "details" &&
+                  (viewingMedic.emergencyAvailable ||
+                    (viewingMedic.status === "online" &&
+                      viewingMedic.instantTalk)) && (
+                    <div className="flex gap-1.5 mt-2.5 flex-wrap">
+                      {viewingMedic.status === "online" &&
+                        viewingMedic.instantTalk && (
+                          <button
+                            onClick={() => {
+                              setBookingMode("instant");
+                              setConsultType("online");
+                              setSelectedServiceId(null);
+                              setBookingStep("schedule");
+                            }}
+                            className={cn(
+                              "flex-1 min-h-9 px-3 rounded-xl text-[11px] font-bold uppercase tracking-wider transition-colors",
+                              bookingMode === "instant"
+                                ? "bg-emerald-600 text-white"
+                                : "bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200",
+                              FOCUS,
+                            )}
+                          >
+                            <span className="inline-flex items-center gap-1.5">
+                              <Zap size={11} />
+                              Talk now
+                            </span>
+                          </button>
+                        )}
+                      {viewingMedic.emergencyAvailable && (
+                        <button
+                          onClick={() => {
+                            setBookingMode("emergency");
+                            setBookingStep("schedule");
+                          }}
+                          className={cn(
+                            "flex-1 min-h-9 px-3 rounded-xl text-[11px] font-bold uppercase tracking-wider transition-colors",
+                            bookingMode === "emergency"
+                              ? "bg-rose-500 text-white"
+                              : "bg-rose-50 text-rose-700 hover:bg-rose-100 border border-rose-200",
+                            FOCUS,
+                          )}
+                        >
+                          <span className="inline-flex items-center gap-1.5">
+                            <AlertCircle size={11} />
+                            Emergency
+                          </span>
+                        </button>
+                      )}
+                    </div>
                   )}
-                >
-                  <X size={18} />
-                </button>
               </div>
 
-              {/* Modal body */}
               <div className="p-4 sm:p-5 overflow-y-auto space-y-4 flex-1 custom-emerald-scrollbar">
-                {/* Step indicator */}
                 <div className="flex gap-1 p-1 bg-emerald-50 rounded-xl border border-emerald-100">
                   {[
                     { id: "details", label: "1. Profile" },
-                    { id: "schedule", label: "2. Schedule" },
+                    {
+                      id: "schedule",
+                      label:
+                        bookingMode === "instant"
+                          ? "2. Confirm"
+                          : bookingMode === "emergency"
+                            ? "2. Urgent"
+                            : "2. Schedule",
+                    },
                     { id: "payment", label: "3. Payment" },
                   ].map((s) => (
                     <button
@@ -742,7 +1241,13 @@ export default function DozaMedicsPanel({ user }: any) {
                         value={viewingMedic.languages?.[0] || "English"}
                       />
                       <DetailBox label="Location" value={viewingMedic.city} />
-                      <DetailBox label="Rating" value="4.9 / 5" />
+                      <DetailBox
+                        label="Rating"
+                        value={formatRatingValue(
+                          viewingMedic.ratingAverage,
+                          viewingMedic.ratingCount,
+                        )}
+                      />
                     </div>
                     <div className="space-y-1.5 bg-emerald-50 p-3.5 rounded-xl border border-emerald-100">
                       <h4 className="text-[10px] font-bold text-emerald-700 uppercase tracking-wider flex items-center gap-1.5">
@@ -754,6 +1259,56 @@ export default function DozaMedicsPanel({ user }: any) {
                           "No biography provided for this professional."}
                       </p>
                     </div>
+
+                    <ReviewsSection medicId={viewingMedic.id} />
+
+                    <div className="flex items-center justify-between gap-2 p-3 bg-slate-50 border border-slate-200 rounded-xl">
+                      <span className="text-[10px] font-bold text-slate-600 uppercase tracking-wider">
+                        Hourly rate
+                      </span>
+                      <span className="text-base font-bold text-emerald-900 tabular-nums">
+                        {formatNaira(baseRate)} / hr
+                      </span>
+                    </div>
+
+                    {bookingMode === "scheduled" &&
+                      (viewingMedic.status === "online" ||
+                        viewingMedic.emergencyAvailable) && (
+                        <div className="grid grid-cols-2 gap-2">
+                          {viewingMedic.status === "online" &&
+                            viewingMedic.instantTalk && (
+                              <button
+                                onClick={() => {
+                                  setBookingMode("instant");
+                                  setConsultType("online");
+                                  setSelectedServiceId(null);
+                                  setBookingStep("schedule");
+                                }}
+                                className={cn(
+                                  "min-h-11 rounded-xl bg-emerald-600 text-white font-bold text-sm hover:bg-emerald-700 transition-colors shadow-sm flex items-center justify-center gap-1.5",
+                                  FOCUS,
+                                )}
+                              >
+                                <Zap size={14} /> Talk now
+                              </button>
+                            )}
+                          {viewingMedic.emergencyAvailable && (
+                            <button
+                              onClick={() => {
+                                setBookingMode("emergency");
+                                setBookingStep("schedule");
+                              }}
+                              className={cn(
+                                "min-h-11 rounded-xl bg-rose-500 text-white font-bold text-sm hover:bg-rose-600 transition-colors shadow-sm flex items-center justify-center gap-1.5",
+                                FOCUS,
+                              )}
+                            >
+                              <AlertCircle size={14} /> Emergency
+                            </button>
+                          )}
+                        </div>
+                      )}
+
                     <button
                       onClick={() => setBookingStep("schedule")}
                       className={cn(
@@ -761,180 +1316,510 @@ export default function DozaMedicsPanel({ user }: any) {
                         FOCUS,
                       )}
                     >
-                      Continue to Scheduling
+                      {bookingMode === "instant"
+                        ? "Confirm Instant Call"
+                        : bookingMode === "emergency"
+                          ? "Confirm Emergency"
+                          : "Continue to Scheduling"}
                     </button>
                   </div>
                 )}
 
                 {bookingStep === "schedule" && (
                   <div className="space-y-4">
-                    <div className="grid grid-cols-2 gap-2">
-                      <button
-                        onClick={() => setConsultType("inPerson")}
-                        className={cn(
-                          "flex items-center gap-2 p-2.5 rounded-xl border-2 transition-all text-left min-h-[68px]",
-                          consultType === "inPerson"
-                            ? "border-emerald-500 bg-emerald-50"
-                            : "border-emerald-100 bg-white hover:border-emerald-200",
-                          FOCUS,
-                        )}
-                      >
-                        <div
-                          className={cn(
-                            "p-1.5 rounded-lg shrink-0",
-                            consultType === "inPerson"
-                              ? "bg-emerald-600 text-white"
-                              : "bg-emerald-50 text-emerald-600",
-                          )}
-                        >
-                          <Home size={16} />
+                    {bookingMode === "instant" && (
+                      <>
+                        <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 space-y-2">
+                          <div className="flex items-center gap-2">
+                            <div className="w-9 h-9 rounded-lg bg-emerald-600 flex items-center justify-center shrink-0">
+                              <Zap size={16} className="text-white" />
+                            </div>
+                            <div>
+                              <p className="text-sm font-bold text-emerald-900">
+                                Starting in ~5 minutes
+                              </p>
+                              <p className="text-[11px] text-emerald-700/70">
+                                {viewingMedic.name} will call you shortly
+                              </p>
+                            </div>
+                          </div>
+                          <div className="grid grid-cols-2 gap-2 pt-1">
+                            <InfoTile
+                              label="Session"
+                              value={`${instantWindowMinutes} min`}
+                            />
+                            <InfoTile label="Type" value="Online call" />
+                          </div>
                         </div>
-                        <div className="min-w-0">
-                          <span className="block text-xs font-bold text-emerald-900">
-                            In-Person
-                          </span>
-                          <span className="block text-[10px] text-emerald-700/70">
-                            At your address
-                          </span>
-                        </div>
-                      </button>
-                      <button
-                        onClick={() => setConsultType("online")}
-                        className={cn(
-                          "flex items-center gap-2 p-2.5 rounded-xl border-2 transition-all text-left min-h-[68px]",
-                          consultType === "online"
-                            ? "border-emerald-500 bg-emerald-50"
-                            : "border-emerald-100 bg-white hover:border-emerald-200",
-                          FOCUS,
-                        )}
-                      >
-                        <div
-                          className={cn(
-                            "p-1.5 rounded-lg shrink-0",
-                            consultType === "online"
-                              ? "bg-emerald-600 text-white"
-                              : "bg-emerald-50 text-emerald-600",
-                          )}
-                        >
-                          <Video size={16} />
-                        </div>
-                        <div className="min-w-0">
-                          <span className="block text-xs font-bold text-emerald-900">
-                            Online Call
-                          </span>
-                          <span className="block text-[10px] text-emerald-700/70">
-                            Virtual session
-                          </span>
-                        </div>
-                      </button>
-                    </div>
 
-                    {consultType === "inPerson" && (
-                      <div className="space-y-1.5">
-                        <label
-                          htmlFor="patient-address"
-                          className="block text-[10px] font-bold text-emerald-700 uppercase tracking-wider"
-                        >
-                          Patient residential address
-                        </label>
-                        <input
-                          id="patient-address"
-                          type="text"
-                          value={patientAddress}
-                          onChange={(e) => setPatientAddress(e.target.value)}
-                          placeholder="e.g., 14 Admiralty Way, Lekki"
-                          autoComplete="street-address"
+                        <PriceBreakdownCard
+                          rows={[
+                            {
+                              label: `Base rate × ${instantHours}h`,
+                              value: formatNaira(
+                                Math.round(baseRate * instantHours),
+                              ),
+                            },
+                            ...(instantPremium > 0
+                              ? [
+                                  {
+                                    label: "Instant premium",
+                                    value: formatNaira(instantPremium),
+                                  },
+                                ]
+                              : []),
+                          ]}
+                          total={computedPrice}
+                        />
+
+                        <button
+                          disabled={!canContinueSchedule}
+                          onClick={() => setBookingStep("payment")}
                           className={cn(
-                            "w-full min-h-11 px-3.5 bg-emerald-50/50 border border-emerald-100 text-emerald-900 rounded-xl text-base sm:text-sm focus:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/15 outline-none transition",
+                            "w-full min-h-11 bg-emerald-600 text-white rounded-xl font-bold text-sm disabled:opacity-40 disabled:cursor-not-allowed hover:bg-emerald-700 transition-colors shadow-sm",
                             FOCUS,
                           )}
-                        />
-                      </div>
+                        >
+                          Confirm and pay {formatNaira(computedPrice)}
+                        </button>
+
+                        <button
+                          onClick={() => {
+                            setBookingMode("scheduled");
+                            setBookingStep("details");
+                          }}
+                          className="w-full text-[11px] font-bold text-slate-500 hover:text-slate-700 py-1"
+                        >
+                          <span className="inline-flex items-center gap-1">
+                            <ArrowLeft size={11} /> Back to scheduling
+                          </span>
+                        </button>
+                      </>
                     )}
 
-                    {consultType === "online" && (
-                      <div className="space-y-1.5">
-                        <label className="block text-[10px] font-bold text-emerald-700 uppercase tracking-wider">
-                          Consultation duration
-                        </label>
-                        <div className="grid grid-cols-3 sm:grid-cols-5 gap-1.5">
-                          {DURATIONS.map((d) => (
-                            <button
-                              key={d}
-                              onClick={() => setSelectedDuration(d)}
-                              className={cn(
-                                "min-h-10 px-2 rounded-xl text-xs font-bold transition-colors border",
-                                selectedDuration === d
-                                  ? "bg-emerald-600 text-white border-emerald-600"
-                                  : "bg-white text-emerald-700 border-emerald-100 hover:bg-emerald-50",
-                                FOCUS,
-                              )}
-                            >
-                              {d}
-                            </button>
-                          ))}
+                    {bookingMode === "emergency" && (
+                      <>
+                        <div className="bg-rose-50 border border-rose-200 rounded-xl p-4 space-y-2">
+                          <div className="flex items-center gap-2">
+                            <div className="w-9 h-9 rounded-lg bg-rose-500 flex items-center justify-center shrink-0">
+                              <AlertCircle size={16} className="text-white" />
+                            </div>
+                            <div>
+                              <p className="text-sm font-bold text-rose-900">
+                                Emergency request (ASAP)
+                              </p>
+                              <p className="text-[11px] text-rose-700/80">
+                                We will notify {viewingMedic.name} right now.
+                                Expected start within 30 min.
+                              </p>
+                            </div>
+                          </div>
                         </div>
-                      </div>
-                    )}
 
-                    <div className="space-y-1.5">
-                      <label className="block text-[10px] font-bold text-emerald-700 uppercase tracking-wider">
-                        Appointment date
-                      </label>
-                      <div className="relative">
-                        <div className="absolute left-3.5 top-1/2 -translate-y-1/2 text-emerald-600 z-10 pointer-events-none">
-                          <CalendarIcon size={16} />
-                        </div>
-                        <DatePicker
-                          selected={selectedDate}
-                          onChange={(date: any) => setSelectedDate(date)}
-                          minDate={minDate}
-                          maxDate={maxDate}
-                          dateFormat="MMMM d, yyyy"
-                          placeholderText="Select date"
-                          className="w-full min-h-11 pl-10 pr-4 bg-emerald-50/50 text-emerald-900 font-semibold border border-emerald-100 rounded-xl text-base sm:text-sm focus:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/15 outline-none cursor-pointer"
-                        />
-                      </div>
-                    </div>
-
-                    <div className="space-y-1.5">
-                      <label className="block text-[10px] font-bold text-emerald-700 uppercase tracking-wider">
-                        Available time slot
-                      </label>
-                      <div className="grid grid-cols-3 sm:grid-cols-4 gap-1.5">
-                        {timeSlots.map((t) => (
+                        <div className="grid grid-cols-2 gap-2">
                           <button
-                            key={t}
-                            onClick={() => setSelectedTime(t)}
+                            onClick={() => setConsultType("online")}
                             className={cn(
-                              "min-h-10 rounded-xl text-xs font-semibold border transition-colors",
-                              selectedTime === t
-                                ? "border-emerald-600 bg-emerald-50 text-emerald-700"
-                                : "border-emerald-100 bg-white text-emerald-700 hover:bg-emerald-50",
+                              "flex items-center gap-2 p-2.5 rounded-xl border-2 transition-all text-left min-h-[64px]",
+                              consultType === "online"
+                                ? "border-rose-500 bg-rose-50"
+                                : "border-slate-200 bg-white hover:border-rose-200",
                               FOCUS,
                             )}
                           >
-                            {t}
+                            <Video
+                              size={16}
+                              className="text-rose-600 shrink-0"
+                            />
+                            <div className="min-w-0">
+                              <span className="block text-xs font-bold text-slate-900">
+                                Online
+                              </span>
+                              <span className="block text-[10px] text-slate-500">
+                                Video call now
+                              </span>
+                            </div>
                           </button>
-                        ))}
-                      </div>
-                    </div>
+                          <button
+                            onClick={() => setConsultType("inPerson")}
+                            className={cn(
+                              "flex items-center gap-2 p-2.5 rounded-xl border-2 transition-all text-left min-h-[64px]",
+                              consultType === "inPerson"
+                                ? "border-rose-500 bg-rose-50"
+                                : "border-slate-200 bg-white hover:border-rose-200",
+                              FOCUS,
+                            )}
+                          >
+                            <Home
+                              size={16}
+                              className="text-rose-600 shrink-0"
+                            />
+                            <div className="min-w-0">
+                              <span className="block text-xs font-bold text-slate-900">
+                                In-Person
+                              </span>
+                              <span className="block text-[10px] text-slate-500">
+                                Home visit
+                              </span>
+                            </div>
+                          </button>
+                        </div>
 
-                    <button
-                      disabled={
-                        !selectedDate ||
-                        !selectedTime ||
-                        (consultType === "inPerson" && !patientAddress) ||
-                        (consultType === "online" && !selectedDuration)
-                      }
-                      onClick={() => setBookingStep("payment")}
-                      className={cn(
-                        "w-full min-h-11 bg-emerald-600 text-white rounded-xl font-bold text-sm disabled:opacity-40 disabled:cursor-not-allowed hover:bg-emerald-700 transition-colors shadow-sm",
-                        FOCUS,
-                      )}
-                    >
-                      Continue to Payment
-                    </button>
+                        {consultType === "inPerson" && (
+                          <div className="space-y-1.5">
+                            <label
+                              htmlFor="emergency-address"
+                              className="block text-[10px] font-bold text-rose-700 uppercase tracking-wider"
+                            >
+                              Your address (required)
+                            </label>
+                            <input
+                              id="emergency-address"
+                              type="text"
+                              value={patientAddress}
+                              onChange={(e) =>
+                                setPatientAddress(e.target.value)
+                              }
+                              placeholder="e.g., 14 Admiralty Way, Lekki"
+                              className={cn(
+                                "w-full min-h-11 px-3.5 bg-rose-50/50 border border-rose-100 text-slate-900 rounded-xl text-base sm:text-sm focus:bg-white focus:border-rose-500 focus:ring-2 focus:ring-rose-500/15 outline-none transition",
+                                FOCUS,
+                              )}
+                            />
+                          </div>
+                        )}
+
+                        {consultType === "online" && (
+                          <div className="space-y-1.5">
+                            <label className="block text-[10px] font-bold text-rose-700 uppercase tracking-wider">
+                              Duration
+                            </label>
+                            <div className="grid grid-cols-3 sm:grid-cols-5 gap-1.5">
+                              {DURATIONS.map((d) => (
+                                <button
+                                  key={d}
+                                  onClick={() => setSelectedDuration(d)}
+                                  className={cn(
+                                    "min-h-10 px-2 rounded-xl text-xs font-bold transition-colors border",
+                                    selectedDuration === d
+                                      ? "bg-rose-500 text-white border-rose-500"
+                                      : "bg-white text-slate-700 border-slate-200 hover:bg-rose-50",
+                                    FOCUS,
+                                  )}
+                                >
+                                  {d}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        <PriceBreakdownCard
+                          rows={[
+                            {
+                              label: "Base rate",
+                              value: formatNaira(
+                                Math.round(
+                                  baseRate *
+                                    (consultType === "online" &&
+                                    selectedDuration
+                                      ? DURATION_HOURS[selectedDuration]
+                                      : 1),
+                                ),
+                              ),
+                            },
+                            ...(emergencyPremium > 0
+                              ? [
+                                  {
+                                    label: "Emergency premium",
+                                    value: formatNaira(emergencyPremium),
+                                  },
+                                ]
+                              : []),
+                            ...(urgentFee > 0
+                              ? [
+                                  {
+                                    label: "Urgent fee",
+                                    value: formatNaira(urgentFee),
+                                  },
+                                ]
+                              : []),
+                          ]}
+                          total={computedPrice}
+                        />
+
+                        <button
+                          disabled={!canContinueSchedule}
+                          onClick={() => setBookingStep("payment")}
+                          className={cn(
+                            "w-full min-h-11 bg-rose-500 text-white rounded-xl font-bold text-sm disabled:opacity-40 disabled:cursor-not-allowed hover:bg-rose-600 transition-colors shadow-sm",
+                            FOCUS,
+                          )}
+                        >
+                          Continue Emergency Booking
+                        </button>
+
+                        <button
+                          onClick={() => {
+                            setBookingMode("scheduled");
+                            setBookingStep("details");
+                          }}
+                          className="w-full text-[11px] font-bold text-slate-500 hover:text-slate-700 py-1"
+                        >
+                          <span className="inline-flex items-center gap-1">
+                            <ArrowLeft size={11} /> Back to scheduling
+                          </span>
+                        </button>
+                      </>
+                    )}
+
+                    {bookingMode === "scheduled" && (
+                      <>
+                        <div className="grid grid-cols-2 gap-2">
+                          <button
+                            onClick={() => setConsultType("inPerson")}
+                            className={cn(
+                              "flex items-center gap-2 p-2.5 rounded-xl border-2 transition-all text-left min-h-[68px]",
+                              consultType === "inPerson"
+                                ? "border-emerald-500 bg-emerald-50"
+                                : "border-emerald-100 bg-white hover:border-emerald-200",
+                              FOCUS,
+                            )}
+                          >
+                            <div
+                              className={cn(
+                                "p-1.5 rounded-lg shrink-0",
+                                consultType === "inPerson"
+                                  ? "bg-emerald-600 text-white"
+                                  : "bg-emerald-50 text-emerald-600",
+                              )}
+                            >
+                              <Home size={16} />
+                            </div>
+                            <div className="min-w-0">
+                              <span className="block text-xs font-bold text-emerald-900">
+                                In-Person
+                              </span>
+                              <span className="block text-[10px] text-emerald-700/70">
+                                1 hr home visit
+                              </span>
+                            </div>
+                          </button>
+                          <button
+                            onClick={() => setConsultType("online")}
+                            className={cn(
+                              "flex items-center gap-2 p-2.5 rounded-xl border-2 transition-all text-left min-h-[68px]",
+                              consultType === "online"
+                                ? "border-emerald-500 bg-emerald-50"
+                                : "border-emerald-100 bg-white hover:border-emerald-200",
+                              FOCUS,
+                            )}
+                          >
+                            <div
+                              className={cn(
+                                "p-1.5 rounded-lg shrink-0",
+                                consultType === "online"
+                                  ? "bg-emerald-600 text-white"
+                                  : "bg-emerald-50 text-emerald-600",
+                              )}
+                            >
+                              <Video size={16} />
+                            </div>
+                            <div className="min-w-0">
+                              <span className="block text-xs font-bold text-emerald-900">
+                                Online Call
+                              </span>
+                              <span className="block text-[10px] text-emerald-700/70">
+                                Pick a duration
+                              </span>
+                            </div>
+                          </button>
+                        </div>
+
+                        {servicesForType.length > 0 && (
+                          <div className="space-y-1.5">
+                            <label className="block text-[10px] font-bold text-emerald-700 uppercase tracking-wider flex items-center gap-1.5">
+                              <CheckCircle2 size={12} />
+                              Service package (optional)
+                            </label>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                              {servicesForType.map((s: any) => {
+                                const active = selectedServiceId === s.id;
+                                return (
+                                  <button
+                                    key={s.id}
+                                    type="button"
+                                    onClick={() => {
+                                      if (active) {
+                                        setSelectedServiceId(null);
+                                      } else {
+                                        setSelectedServiceId(s.id);
+                                        setSelectedDuration("");
+                                      }
+                                    }}
+                                    className={cn(
+                                      "p-2.5 rounded-xl border-2 text-left transition-all",
+                                      active
+                                        ? "border-emerald-500 bg-emerald-50"
+                                        : "border-emerald-100 bg-white hover:border-emerald-200",
+                                      FOCUS,
+                                    )}
+                                  >
+                                    <div className="flex items-start justify-between gap-2">
+                                      <div className="min-w-0 flex-1">
+                                        <p className="text-xs font-bold text-emerald-900 truncate">
+                                          {s.name}
+                                        </p>
+                                        <p className="text-[10px] text-emerald-700/70 mt-0.5">
+                                          {s.durationMinutes}m ·{" "}
+                                          {formatNaira(Number(s.price) || 0)}
+                                        </p>
+                                      </div>
+                                      {active && (
+                                        <div className="shrink-0 w-4 h-4 rounded-full bg-emerald-600 flex items-center justify-center">
+                                          <div className="w-1.5 h-1.5 rounded-full bg-white" />
+                                        </div>
+                                      )}
+                                    </div>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
+
+                        {consultType === "inPerson" && (
+                          <div className="space-y-1.5">
+                            <label
+                              htmlFor="patient-address"
+                              className="block text-[10px] font-bold text-emerald-700 uppercase tracking-wider"
+                            >
+                              Patient residential address
+                            </label>
+                            <input
+                              id="patient-address"
+                              type="text"
+                              value={patientAddress}
+                              onChange={(e) =>
+                                setPatientAddress(e.target.value)
+                              }
+                              placeholder="e.g., 14 Admiralty Way, Lekki"
+                              autoComplete="street-address"
+                              className={cn(
+                                "w-full min-h-11 px-3.5 bg-emerald-50/50 border border-emerald-100 text-emerald-900 rounded-xl text-base sm:text-sm focus:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/15 outline-none transition",
+                                FOCUS,
+                              )}
+                            />
+                          </div>
+                        )}
+
+                        {consultType === "online" && !selectedService && (
+                          <div className="space-y-1.5">
+                            <label className="block text-[10px] font-bold text-emerald-700 uppercase tracking-wider">
+                              Consultation duration
+                            </label>
+                            <div className="grid grid-cols-3 sm:grid-cols-5 gap-1.5">
+                              {DURATIONS.map((d) => (
+                                <button
+                                  key={d}
+                                  onClick={() => setSelectedDuration(d)}
+                                  className={cn(
+                                    "min-h-10 px-2 rounded-xl text-xs font-bold transition-colors border",
+                                    selectedDuration === d
+                                      ? "bg-emerald-600 text-white border-emerald-600"
+                                      : "bg-white text-emerald-700 border-emerald-100 hover:bg-emerald-50",
+                                    FOCUS,
+                                  )}
+                                >
+                                  {d}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        <div className="space-y-1.5">
+                          <label className="block text-[10px] font-bold text-emerald-700 uppercase tracking-wider">
+                            Appointment date
+                          </label>
+                          <div className="relative">
+                            <div className="absolute left-3.5 top-1/2 -translate-y-1/2 text-emerald-600 z-10 pointer-events-none">
+                              <CalendarIcon size={16} />
+                            </div>
+                            <DatePicker
+                              selected={selectedDate}
+                              onChange={handleDateChange}
+                              minDate={minDate}
+                              maxDate={maxDate}
+                              dateFormat="MMMM d, yyyy"
+                              placeholderText="Select date"
+                              className="w-full min-h-11 pl-10 pr-4 bg-emerald-50/50 text-emerald-900 font-semibold border border-emerald-100 rounded-xl text-base sm:text-sm focus:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/15 outline-none cursor-pointer"
+                            />
+                          </div>
+                        </div>
+
+                        <div className="space-y-1.5">
+                          <label className="block text-[10px] font-bold text-emerald-700 uppercase tracking-wider">
+                            Available time slot
+                          </label>
+                          {!selectedDate ? (
+                            <p className="text-xs text-slate-500 italic px-1">
+                              Select a date to see available times.
+                            </p>
+                          ) : allSlotsTodayDisabled ? (
+                            <div className="flex items-start gap-2 p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-900">
+                              <AlertCircle
+                                size={14}
+                                className="shrink-0 mt-0.5 text-amber-600"
+                              />
+                              <span>
+                                No more slots available today. Please pick
+                                another date.
+                              </span>
+                            </div>
+                          ) : (
+                            <div className="grid grid-cols-3 sm:grid-cols-4 gap-1.5">
+                              {timeSlots.map(({ time: t, disabled }) => {
+                                const isSelected = selectedTime === t;
+                                return (
+                                  <button
+                                    key={t}
+                                    type="button"
+                                    onClick={() =>
+                                      !disabled && setSelectedTime(t)
+                                    }
+                                    disabled={disabled}
+                                    aria-disabled={disabled}
+                                    className={cn(
+                                      "min-h-10 rounded-xl text-xs font-semibold border transition-colors relative",
+                                      disabled
+                                        ? "border-slate-100 bg-slate-50 text-slate-300 cursor-not-allowed line-through"
+                                        : isSelected
+                                          ? "border-emerald-600 bg-emerald-50 text-emerald-700"
+                                          : "border-emerald-100 bg-white text-emerald-700 hover:bg-emerald-50",
+                                      FOCUS,
+                                    )}
+                                  >
+                                    {t}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+
+                        <button
+                          disabled={!canContinueSchedule}
+                          onClick={() => setBookingStep("payment")}
+                          className={cn(
+                            "w-full min-h-11 bg-emerald-600 text-white rounded-xl font-bold text-sm disabled:opacity-40 disabled:cursor-not-allowed hover:bg-emerald-700 transition-colors shadow-sm",
+                            FOCUS,
+                          )}
+                        >
+                          Continue to Payment
+                        </button>
+                      </>
+                    )}
                   </div>
                 )}
 
@@ -945,51 +1830,51 @@ export default function DozaMedicsPanel({ user }: any) {
                         <span className="text-[10px] font-bold text-emerald-800 uppercase tracking-wider">
                           Total Payable Fee
                         </span>
-                        <span className="text-xl sm:text-2xl font-bold text-emerald-900">
-                          ₦{viewingMedic.price?.toLocaleString()}
+                        <span className="text-xl sm:text-2xl font-bold text-emerald-900 tabular-nums">
+                          {formatNaira(computedPrice)}
                         </span>
                       </div>
                       <div className="h-px bg-emerald-200" />
                       <div className="grid grid-cols-2 gap-3 text-xs">
                         <div>
                           <p className="text-[10px] font-bold text-emerald-700/70 uppercase tracking-wider">
-                            Type
+                            Mode
                           </p>
                           <p className="font-semibold text-emerald-900 mt-0.5">
-                            {consultType === "online"
-                              ? "Online Consultation"
-                              : "In-Person Visit"}
+                            {modeLabel}
                           </p>
                         </div>
                         <div>
                           <p className="text-[10px] font-bold text-emerald-700/70 uppercase tracking-wider">
-                            Date & Time
+                            Duration
                           </p>
                           <p className="font-semibold text-emerald-900 mt-0.5">
-                            {selectedDate?.toLocaleDateString()} @{" "}
-                            {selectedTime}
+                            {durationSummary}
                           </p>
                         </div>
-                        {consultType === "online" && (
-                          <div>
-                            <p className="text-[10px] font-bold text-emerald-700/70 uppercase tracking-wider">
-                              Duration
-                            </p>
-                            <p className="font-semibold text-emerald-900 mt-0.5">
-                              {selectedDuration}
-                            </p>
-                          </div>
-                        )}
-                        {consultType === "inPerson" && (
-                          <div className="col-span-2">
-                            <p className="text-[10px] font-bold text-emerald-700/70 uppercase tracking-wider">
-                              Address
-                            </p>
-                            <p className="font-semibold text-emerald-900 mt-0.5 truncate">
-                              {patientAddress}
-                            </p>
-                          </div>
-                        )}
+                        <div className="col-span-2">
+                          <p className="text-[10px] font-bold text-emerald-700/70 uppercase tracking-wider">
+                            When
+                          </p>
+                          <p className="font-semibold text-emerald-900 mt-0.5">
+                            {bookingMode === "instant"
+                              ? `Starting in ~5 min (${autoBookingDateTime?.time})`
+                              : bookingMode === "emergency"
+                                ? `ASAP (~${autoBookingDateTime?.time} today)`
+                                : `${selectedDate?.toLocaleDateString()} @ ${selectedTime}`}
+                          </p>
+                        </div>
+                        {consultType === "inPerson" &&
+                          bookingMode !== "instant" && (
+                            <div className="col-span-2">
+                              <p className="text-[10px] font-bold text-emerald-700/70 uppercase tracking-wider">
+                                Address
+                              </p>
+                              <p className="font-semibold text-emerald-900 mt-0.5 truncate">
+                                {patientAddress}
+                              </p>
+                            </div>
+                          )}
                       </div>
                     </div>
                     <button
@@ -1003,12 +1888,17 @@ export default function DozaMedicsPanel({ user }: any) {
                       {isProcessing ? (
                         <>
                           <Loader2 className="animate-spin" size={16} />
-                          <span>Initializing payment…</span>
+                          <span>Opening checkout...</span>
                         </>
                       ) : (
-                        <span>Pay with Paystack</span>
+                        <span>
+                          Pay {formatNaira(computedPrice)} with Paystack
+                        </span>
                       )}
                     </button>
+                    <p className="text-[10px] text-center text-slate-500">
+                      Secure checkout · Powered by Paystack
+                    </p>
                   </div>
                 )}
               </div>
@@ -1020,17 +1910,24 @@ export default function DozaMedicsPanel({ user }: any) {
   );
 }
 
-// --- Subcomponents ---
+// ─── Subcomponents ────────────────────────────────────
 function MedicCard({ medic, onOpen, isComparing, onCompare }: any) {
+  const hourly = Number(medic.price) || 0;
+  const hasRating = Number(medic.ratingCount) > 0;
+  const isOnline = medic.status === "online";
+  const isOnLeave = medic.status === "on-leave";
+  const hasInstantTalk = isOnline && medic.instantTalk === true;
+  const hasEmergency = medic.emergencyAvailable === true;
+
   return (
     <div
-      onClick={onOpen}
+      onClick={() => onOpen("scheduled")}
       role="button"
       tabIndex={0}
       onKeyDown={(e) => {
         if (e.key === "Enter" || e.key === " ") {
           e.preventDefault();
-          onOpen();
+          onOpen("scheduled");
         }
       }}
       className={cn(
@@ -1040,18 +1937,60 @@ function MedicCard({ medic, onOpen, isComparing, onCompare }: any) {
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:ring-offset-2",
       )}
     >
-      {/* ─── HERO IMAGE ─────────────────────────────────── */}
       <div className="relative aspect-[4/5] w-full overflow-hidden bg-emerald-100">
-        <img
-          src={medic.profileImage}
-          alt={medic.name}
-          className="w-full h-full object-cover transition-transform duration-500 ease-out group-hover:scale-105"
-        />
-
-        {/* Cinematic gradient for text legibility */}
+        {medic.profileImage ? (
+          <img
+            src={medic.profileImage}
+            alt={medic.name}
+            className="w-full h-full object-cover transition-transform duration-500 ease-out group-hover:scale-105"
+          />
+        ) : (
+          <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-emerald-500 via-emerald-600 to-teal-700 transition-transform duration-500 ease-out group-hover:scale-105">
+            <span className="text-6xl sm:text-7xl font-bold text-white tracking-tight select-none">
+              {getInitials(medic.name)}
+            </span>
+          </div>
+        )}
         <div className="absolute inset-0 bg-gradient-to-t from-emerald-950 via-emerald-950/40 to-transparent" />
 
-        {/* Floating compare button — top-right */}
+        <div className="absolute top-3 left-3 flex flex-col items-start gap-1.5">
+          {isOnline && (
+            <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-emerald-500 text-white shadow-sm shadow-emerald-900/20 text-[10px] font-bold uppercase tracking-wider">
+              <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
+              Available now
+            </span>
+          )}
+          {isOnLeave && (
+            <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-slate-600 text-white shadow-sm text-[10px] font-bold uppercase tracking-wider">
+              On leave
+            </span>
+          )}
+          {hasEmergency && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onOpen("emergency");
+              }}
+              className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-rose-500 text-white shadow-sm text-[10px] font-bold uppercase tracking-wider hover:bg-rose-600 transition-colors"
+              title="Request emergency visit"
+            >
+              <AlertCircle size={10} />
+              Emergency
+            </button>
+          )}
+          {hasRating && (
+            <div className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-white/90 backdrop-blur-md shadow-sm border border-white/60">
+              <Star size={11} className="fill-amber-400 text-amber-400" />
+              <span className="text-[11px] font-bold text-emerald-900 tabular-nums leading-none">
+                {Number(medic.ratingAverage).toFixed(1)}
+              </span>
+              <span className="text-[10px] text-emerald-700/60 leading-none">
+                ({medic.ratingCount})
+              </span>
+            </div>
+          )}
+        </div>
+
         <button
           onClick={(e) => {
             e.stopPropagation();
@@ -1073,7 +2012,6 @@ function MedicCard({ medic, onOpen, isComparing, onCompare }: any) {
           <Scale size={16} />
         </button>
 
-        {/* Bottom overlay — identity */}
         <div className="absolute bottom-0 left-0 right-0 p-4 space-y-1">
           <p className="text-[10px] font-bold uppercase tracking-widest text-emerald-200">
             {medic.specialty}
@@ -1086,7 +2024,7 @@ function MedicCard({ medic, onOpen, isComparing, onCompare }: any) {
               <MapPin size={11} className="text-emerald-300 shrink-0" />
               {medic.city}
             </div>
-            <span className="text-white/40 text-[10px]">•</span>
+            <span className="text-white/40 text-[10px]">·</span>
             <div className="flex items-center gap-1 text-[11px] text-white/90 font-medium">
               <Clock size={11} className="text-emerald-300 shrink-0" />
               {medic.experience} yrs
@@ -1095,36 +2033,51 @@ function MedicCard({ medic, onOpen, isComparing, onCompare }: any) {
         </div>
       </div>
 
-      {/* ─── BOTTOM ACTION STRIP ────────────────────────── */}
-      <div className="flex items-center justify-between gap-2 px-3 py-2.5 bg-white">
-        <div className="min-w-0">
+      <div className="flex items-center gap-2 px-3 py-2.5 bg-white">
+        <div className="min-w-0 shrink-0">
           <p className="text-[9px] font-bold uppercase tracking-wider text-emerald-700/60 leading-none">
-            Rate
+            Rate / hour
           </p>
           <p className="text-base font-bold text-emerald-900 leading-tight mt-0.5 tabular-nums">
-            ₦{medic.price?.toLocaleString()}
+            {formatNaira(hourly)}
           </p>
         </div>
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            onOpen();
-          }}
-          aria-label={`Book ${medic.name}`}
-          className={cn(
-            "inline-flex items-center gap-1 h-10 pl-3 pr-2.5 rounded-xl",
-            "bg-emerald-600 group-hover:bg-emerald-700 text-white",
-            "text-[11px] font-bold uppercase tracking-wider",
-            "shadow-sm shadow-emerald-600/20 transition-all active:scale-95",
-            FOCUS,
+
+        <div className="ml-auto flex items-center gap-1.5 shrink-0">
+          {hasInstantTalk && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onOpen("instant");
+              }}
+              className="inline-flex items-center gap-1 text-[9px] font-bold uppercase tracking-wider text-emerald-700 px-1.5 py-0.5 rounded-full bg-emerald-50 border border-emerald-200 hover:bg-emerald-100 transition-colors"
+              title={`Instant ${medic.instantTalkWindowMinutes || 15}-min call`}
+            >
+              <Zap size={9} />
+              Talk
+            </button>
           )}
-        >
-          Book
-          <ChevronRight
-            size={14}
-            className="transition-transform group-hover:translate-x-0.5"
-          />
-        </button>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onOpen("scheduled");
+            }}
+            aria-label={`Book ${medic.name}`}
+            className={cn(
+              "inline-flex items-center gap-1 h-10 pl-3 pr-2.5 rounded-xl",
+              "bg-emerald-600 group-hover:bg-emerald-700 text-white",
+              "text-[11px] font-bold uppercase tracking-wider",
+              "shadow-sm shadow-emerald-600/20 transition-all active:scale-95",
+              FOCUS,
+            )}
+          >
+            Book
+            <ChevronRight
+              size={14}
+              className="transition-transform group-hover:translate-x-0.5"
+            />
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -1137,8 +2090,51 @@ function DetailBox({ label, value }: any) {
         {label}
       </p>
       <p className="text-xs sm:text-sm font-bold text-emerald-900 truncate">
-        {value || "—"}
+        {value || "N/A"}
       </p>
+    </div>
+  );
+}
+
+function InfoTile({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-lg bg-white border border-slate-200 p-2">
+      <p className="text-[9px] font-bold text-slate-500 uppercase tracking-wider">
+        {label}
+      </p>
+      <p className="text-xs font-bold text-slate-900 mt-0.5 truncate">
+        {value}
+      </p>
+    </div>
+  );
+}
+
+function PriceBreakdownCard({
+  rows,
+  total,
+}: {
+  rows: { label: string; value: string }[];
+  total: number;
+}) {
+  return (
+    <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-2">
+      {rows.map((r, i) => (
+        <div key={i} className="flex items-center justify-between text-xs">
+          <span className="text-slate-600">{r.label}</span>
+          <span className="font-bold text-slate-900 tabular-nums">
+            {r.value}
+          </span>
+        </div>
+      ))}
+      <div className="h-px bg-slate-200" />
+      <div className="flex items-center justify-between">
+        <span className="text-[10px] font-bold text-slate-700 uppercase tracking-wider">
+          Total
+        </span>
+        <span className="text-base font-bold text-emerald-700 tabular-nums">
+          {formatNaira(total)}
+        </span>
+      </div>
     </div>
   );
 }
@@ -1162,5 +2158,134 @@ function CompareRow({ label, values, isPrice, isButton }: any) {
         </td>
       ))}
     </tr>
+  );
+}
+
+// ─── Reviews section ─────────────────────────────────
+function Stars({
+  value,
+  size = 12,
+  emptyClass = "text-emerald-200",
+  filledClass = "fill-amber-400 text-amber-400",
+}: {
+  value: number;
+  size?: number;
+  emptyClass?: string;
+  filledClass?: string;
+}) {
+  const rounded = Math.round(value || 0);
+  return (
+    <div className="inline-flex items-center gap-0.5">
+      {[1, 2, 3, 4, 5].map((i) => (
+        <Star
+          key={i}
+          size={size}
+          className={i <= rounded ? filledClass : emptyClass}
+        />
+      ))}
+    </div>
+  );
+}
+
+function ReviewsSection({ medicId }: { medicId: string }) {
+  const { data, isLoading } = useSWR(
+    medicId ? `/api/medics/${medicId}/reviews` : null,
+    authFetcher,
+    {
+      revalidateOnFocus: false,
+      revalidateOnReconnect: true,
+      dedupingInterval: 5_000,
+      revalidateOnMount: true,
+      keepPreviousData: true,
+    },
+  );
+
+  const summary = data?.data?.summary || { average: 0, count: 0 };
+  const reviews: any[] = data?.data?.reviews || [];
+
+  if (isLoading) {
+    return (
+      <div className="space-y-2">
+        <div className="h-4 w-32 bg-emerald-100 rounded animate-pulse" />
+        <div className="h-16 bg-emerald-50 rounded-xl animate-pulse" />
+      </div>
+    );
+  }
+
+  if (reviews.length === 0) {
+    return (
+      <div className="bg-emerald-50/60 border border-emerald-100 rounded-xl p-4 text-center">
+        <p className="text-xs font-semibold text-emerald-800">No reviews yet</p>
+        <p className="text-[10px] text-emerald-700/60 mt-1">
+          Book a session and be the first to review.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between gap-2">
+        <h4 className="text-[10px] font-bold text-emerald-700 uppercase tracking-wider flex items-center gap-1.5">
+          <Star size={12} className="fill-amber-500 text-amber-500" />
+          Patient Reviews
+        </h4>
+        <div className="flex items-center gap-1.5">
+          <Stars value={summary.average} size={11} />
+          <span className="text-xs font-bold text-emerald-900 tabular-nums">
+            {Number(summary.average).toFixed(1)}
+          </span>
+          <span className="text-[10px] text-emerald-700/60">
+            ({summary.count})
+          </span>
+        </div>
+      </div>
+
+      <div className="space-y-2 max-h-64 overflow-y-auto pr-1 custom-emerald-scrollbar">
+        {reviews.map((r) => (
+          <div
+            key={r.id}
+            className="bg-white border border-emerald-100 rounded-xl p-3 flex gap-2.5"
+          >
+            {r.patientImage ? (
+              <img
+                src={r.patientImage}
+                alt={r.patientName || "Patient"}
+                className="w-8 h-8 rounded-full object-cover border border-emerald-100 shrink-0"
+                loading="lazy"
+              />
+            ) : (
+              <div className="w-8 h-8 rounded-full bg-emerald-100 text-emerald-700 text-xs font-bold flex items-center justify-center shrink-0">
+                {(r.patientName || "A").charAt(0).toUpperCase()}
+              </div>
+            )}
+
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-xs font-bold text-emerald-900 truncate">
+                  {r.patientName || "Anonymous"}
+                </p>
+                <span className="text-[10px] text-emerald-700/60 shrink-0 tabular-nums">
+                  {r.createdAt
+                    ? new Date(r.createdAt).toLocaleDateString()
+                    : ""}
+                </span>
+              </div>
+              <Stars
+                value={r.stars}
+                size={10}
+                emptyClass="text-emerald-100"
+                filledClass="fill-amber-400 text-amber-400"
+              />
+              {r.comment && (
+                <p className="text-[11px] text-emerald-800/80 mt-1 leading-relaxed break-words">
+                  {r.comment}
+                </p>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }

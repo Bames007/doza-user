@@ -1929,40 +1929,45 @@ function ResultCard({
 
           {firstMatch && (
             <div className="mt-3 pt-3 border-t border-emerald-100 flex flex-col gap-3">
+              {/* Requested resource + price */}
               <div
                 className={cn(
-                  "flex justify-between items-center p-3 rounded-xl border",
+                  "flex items-start justify-between gap-3 p-3 rounded-xl border",
                   isActive
                     ? "bg-white border-emerald-200"
                     : "bg-emerald-50/60 border-emerald-100",
                 )}
               >
-                <div className="min-w-0 flex-1 pr-3">
-                  <p className="text-[10px] uppercase font-bold tracking-wider mb-0.5 text-emerald-700/70">
+                {/* Name — shrinks, wraps to 2 lines on mobile instead of truncating away */}
+                <div className="min-w-0 flex-1">
+                  <p className="text-[10px] sm:text-[11px] uppercase font-bold tracking-wider leading-none mb-1 text-emerald-700/70">
                     Requested resource
                   </p>
-                  <p className="text-sm font-semibold truncate text-emerald-900">
+                  <p className="text-sm font-semibold text-emerald-900 leading-snug line-clamp-2 sm:truncate break-words">
                     {firstMatch.name}
                   </p>
                 </div>
-                <div className="text-right shrink-0">
-                  <p className="text-[10px] uppercase font-bold tracking-wider mb-0.5 text-emerald-700/70">
+
+                {/* Price — never shrinks, never wraps, digits align */}
+                <div className="shrink-0 text-right">
+                  <p className="text-[10px] sm:text-[11px] uppercase font-bold tracking-wider leading-none mb-1 text-emerald-700/70">
                     Est. retail
                   </p>
-                  <p className="text-sm font-bold tracking-tight text-emerald-700">
+                  <p className="text-sm font-bold tracking-tight text-emerald-700 tabular-nums whitespace-nowrap">
                     ₦{estRetailPrice?.toLocaleString()}
                   </p>
                 </div>
               </div>
 
-              <div className="flex items-center gap-2">
+              {/* Actions */}
+              <div className="flex items-stretch gap-2">
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
                     onAction(firstMatch);
                   }}
                   className={cn(
-                    "flex-1 min-h-11 px-4 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-sm font-semibold transition-colors flex items-center justify-center gap-2",
+                    "flex-1 min-w-0 min-h-11 px-3 sm:px-4 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-[13px] sm:text-sm font-semibold transition-colors touch-manipulation flex items-center justify-center gap-2",
                     FOCUS,
                   )}
                 >
@@ -1973,15 +1978,16 @@ function ResultCard({
                   ) : (
                     <Beaker className="w-4 h-4 shrink-0" />
                   )}
-                  <span>{actionLabel}</span>
+                  <span className="truncate">{actionLabel}</span>
                 </button>
+
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
                     onFocusMap();
                   }}
                   className={cn(
-                    "min-h-11 min-w-11 px-3 rounded-xl text-sm font-semibold transition-colors flex items-center justify-center gap-1.5",
+                    "shrink-0 w-11 min-h-11 rounded-xl transition-colors touch-manipulation flex items-center justify-center",
                     isActive
                       ? "bg-white hover:bg-emerald-50 text-emerald-700 border border-emerald-200"
                       : "bg-emerald-50 hover:bg-emerald-100 text-emerald-700",

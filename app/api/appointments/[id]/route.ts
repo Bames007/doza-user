@@ -1,3 +1,4 @@
+// app/api/appointments/[id]/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { verifySessionCookie } from "@/app/utils/auth";
 import { adminDb } from "@/app/utils/firebaseAdmin";
@@ -28,9 +29,19 @@ export async function DELETE(
   try {
     const appointmentsRef = adminDb.ref(`doza/users/${uid}/appointments`);
     const snapshot = await appointmentsRef.once("value");
-    const appointments = snapshot.val() || [];
+    const raw = snapshot.val();
 
-    const index = appointments.findIndex((a: any) => a.id === appointmentId);
+    // ✅ Firebase may return an array OR an object — normalize
+    let appointments: any[] = [];
+    if (!raw) {
+      appointments = [];
+    } else if (Array.isArray(raw)) {
+      appointments = raw;
+    } else {
+      appointments = Object.values(raw);
+    }
+
+    const index = appointments.findIndex((a: any) => a?.id === appointmentId);
     if (index === -1) {
       return NextResponse.json(
         { success: false, error: "Appointment not found" },
@@ -39,16 +50,18 @@ export async function DELETE(
     }
 
     appointments[index].status = "cancelled";
+    appointments[index].cancelledAt = new Date().toISOString();
+
     await appointmentsRef.set(appointments);
 
     logger.info({ uid, appointmentId, message: "Appointment cancelled" });
     return NextResponse.json({ success: true, data: appointments[index] });
-  } catch (error) {
+  } catch (error: any) {
     logger.error({
       uid,
       appointmentId,
       message: "Cancel appointment failed",
-      error,
+      errorMessage: error?.message,
     });
     return NextResponse.json(
       { success: false, error: "Unable to cancel appointment" },

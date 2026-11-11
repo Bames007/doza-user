@@ -1,3 +1,4 @@
+// api/appointments/book/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { verifySessionCookie } from "@/app/utils/auth";
 import { adminDb } from "@/app/utils/firebaseAdmin";
