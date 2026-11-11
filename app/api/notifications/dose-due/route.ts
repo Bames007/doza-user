@@ -1,3 +1,4 @@
+// app/api/notifications/dose-due/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { Receiver } from "@upstash/qstash";
 import { adminDb } from "@/app/utils/firebaseAdmin";
@@ -7,10 +8,23 @@ import logger from "@/app/utils/logger";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const receiver = new Receiver({
-  currentSigningKey: process.env.QSTASH_CURRENT_SIGNING_KEY!,
-  nextSigningKey: process.env.QSTASH_NEXT_SIGNING_KEY!,
-});
+let receiverInstance: Receiver | null = null;
+
+function getReceiver(): Receiver {
+  if (receiverInstance) return receiverInstance;
+
+  const currentSigningKey = process.env.QSTASH_CURRENT_SIGNING_KEY;
+  const nextSigningKey = process.env.QSTASH_NEXT_SIGNING_KEY;
+
+  if (!currentSigningKey || !nextSigningKey) {
+    throw new Error(
+      "QStash signing keys missing. Set QSTASH_CURRENT_SIGNING_KEY and QSTASH_NEXT_SIGNING_KEY in env.",
+    );
+  }
+
+  receiverInstance = new Receiver({ currentSigningKey, nextSigningKey });
+  return receiverInstance;
+}
 
 function asArray(v: any): any[] {
   if (!v) return [];
@@ -20,13 +34,20 @@ function asArray(v: any): any[] {
 export async function POST(request: NextRequest) {
   const signature = request.headers.get("upstash-signature");
   const body = await request.text();
-  if (!signature)
+
+  if (!signature) {
     return NextResponse.json({ error: "Missing signature" }, { status: 401 });
+  }
 
   try {
-    const valid = await receiver.verify({ signature, body, url: request.url });
-    if (!valid)
+    const valid = await getReceiver().verify({
+      signature,
+      body,
+      url: request.url,
+    });
+    if (!valid) {
       return NextResponse.json({ error: "Bad signature" }, { status: 401 });
+    }
   } catch (err: any) {
     logger.warn({ message: "QStash verify threw", err: err?.message });
     return NextResponse.json({ error: "Bad signature" }, { status: 401 });
@@ -38,6 +59,7 @@ export async function POST(request: NextRequest) {
   } catch {
     return NextResponse.json({ error: "Bad JSON" }, { status: 400 });
   }
+
   const { uid, doseIds } = payload;
   if (!uid || !Array.isArray(doseIds) || doseIds.length === 0) {
     return NextResponse.json({ skipped: "empty-payload" });
@@ -49,6 +71,7 @@ export async function POST(request: NextRequest) {
       .once("value");
     const meds = asArray(medsSnap.val());
     const doseIdSet = new Set(doseIds);
+
     const pending: {
       medName: string;
       dosage: string;
@@ -72,11 +95,14 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ skipped: "no-pending-doses" });
     }
 
-    let title: string, bodyText: string, tag: string;
+    let title: string;
+    let bodyText: string;
+    let tag: string;
+
     if (pending.length === 1) {
       const p = pending[0];
       title = "Medication due";
-      bodyText = `${p.medName}${p.dosage ? ` ${p.dosage}` : ""} — take it now`;
+      bodyText = `${p.medName}${p.dosage ? ` ${p.dosage}` : ""}. Take it now.`;
       tag = `dose-${p.doseId}`;
     } else {
       const names = Array.from(new Set(pending.map((p) => p.medName)));
@@ -100,6 +126,7 @@ export async function POST(request: NextRequest) {
       ...result,
       message: "Dose push delivered",
     });
+
     return NextResponse.json({ success: true, ...result });
   } catch (err: any) {
     logger.error({
