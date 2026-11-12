@@ -59,6 +59,18 @@ function computeScheduledAt(dateStr: string, timeStr: string): string {
   return new Date(y, m - 1, d, h, min, 0, 0).toISOString();
 }
 
+/** Local-time helpers so an emergency starts "now" in the user's timezone. */
+function toLocalDateStr(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(
+    d.getDate(),
+  ).padStart(2, "0")}`;
+}
+function toLocalTimeStr(d: Date): string {
+  return `${String(d.getHours()).padStart(2, "0")}:${String(
+    d.getMinutes(),
+  ).padStart(2, "0")}`;
+}
+
 function parseDurationToMs(label: string | null | undefined): number {
   if (!label) return 60 * 60 * 1000;
   const lower = label.toLowerCase();
@@ -279,7 +291,20 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const scheduledAt = computeScheduledAt(data.date, data.time);
+    // ── Emergency = STAT. Start the session now, ignoring the requested slot. ──
+    const isEmergency = data.emergency === true;
+
+    const requestedScheduledAt = computeScheduledAt(data.date, data.time);
+    const requestedScheduledMs = new Date(requestedScheduledAt).getTime();
+    const startMs = isEmergency ? Date.now() : requestedScheduledMs;
+    const startDate = new Date(startMs);
+
+    const scheduledAt = startDate.toISOString();
+    // For emergency, rewrite date/time to the actual (immediate) start so
+    // every consumer (panel cards, ChatPanel, emails) agrees on the window.
+    const effectiveDate = isEmergency ? toLocalDateStr(startDate) : data.date;
+    const effectiveTime = isEmergency ? toLocalTimeStr(startDate) : data.time;
+
     const appointmentId = `apt-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
     // For instant talk, duration is fixed by the medic's window
@@ -352,6 +377,74 @@ export async function POST(request: NextRequest) {
 
     const finalAmount = expectedAmount > 0 ? expectedAmount : clientAmount;
 
+    // ── Verify Paystack payment server-side ────────────
+    if (data.paymentReference) {
+      try {
+        const paystackRes = await fetch(
+          `https://api.paystack.co/transaction/verify/${encodeURIComponent(
+            data.paymentReference,
+          )}`,
+          {
+            headers: {
+              Authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}`,
+            },
+          },
+        );
+        const verification = await paystackRes.json();
+        if (!paystackRes.ok || verification?.data?.status !== "success") {
+          logger.warn({
+            uid,
+            reference: data.paymentReference,
+            message: "Payment verification failed",
+            // ── diagnostics ──
+            httpStatus: paystackRes.status,
+            paystackOk: paystackRes.ok,
+            paystackTopStatus: verification?.status, // boolean, Paystack's own gate
+            paystackDataStatus: verification?.data?.status, // "success" | "failed" | etc.
+            paystackMessage: verification?.message, // "Transaction not found", etc.
+            hasSecretKey: !!process.env.PAYSTACK_SECRET_KEY,
+            keyPrefix: (process.env.PAYSTACK_SECRET_KEY || "").slice(0, 8), // "sk_test_" or "sk_live_"
+            keyLength: (process.env.PAYSTACK_SECRET_KEY || "").length,
+          });
+          return NextResponse.json(
+            { success: false, error: "Payment could not be verified" },
+            { status: 400 },
+          );
+        }
+
+        // Paystack returns amount in kobo (NGN × 100).
+        const paidKobo = Number(verification.data.amount) || 0;
+        const expectedKobo = Math.round(finalAmount * 100);
+        if (paidKobo < expectedKobo) {
+          logger.warn({
+            uid,
+            reference: data.paymentReference,
+            message: "Payment amount mismatch",
+            paidKobo,
+            expectedKobo,
+          });
+          return NextResponse.json(
+            {
+              success: false,
+              error: "Payment amount does not match appointment price",
+            },
+            { status: 400 },
+          );
+        }
+      } catch (err: any) {
+        logger.error({
+          uid,
+          reference: data.paymentReference,
+          message: "Paystack verify request failed",
+          errorMessage: err?.message,
+        });
+        return NextResponse.json(
+          { success: false, error: "Payment verification unavailable" },
+          { status: 502 },
+        );
+      }
+    }
+
     const appointment = {
       id: appointmentId,
       medicId: data.medicId,
@@ -359,8 +452,8 @@ export async function POST(request: NextRequest) {
       medicEmail: medic.email,
       medicProfileImage: data.medicProfileImage ?? null,
       medicSpecialty: data.medicSpecialty ?? null,
-      date: data.date,
-      time: data.time,
+      date: effectiveDate,
+      time: effectiveTime,
       scheduledAt,
       duration: durationLabel,
       durationMinutes,
@@ -380,7 +473,7 @@ export async function POST(request: NextRequest) {
       patientEmail: patient.email,
       patientName: patient.name,
       patientProfileImage: patient.image,
-      status: "upcoming" as const,
+      status: isEmergency ? ("inSession" as const) : ("upcoming" as const),
       createdAt: new Date().toISOString(),
     };
 
@@ -388,6 +481,28 @@ export async function POST(request: NextRequest) {
     const snap = await ref.get();
     const val = snap.val();
     const existing = val ? (Array.isArray(val) ? val : Object.values(val)) : [];
+
+    // ── Replay check: one payment reference = one appointment ──
+    if (data.paymentReference) {
+      const alreadyUsed = (existing as any[]).some(
+        (a) => a?.paymentReference === data.paymentReference,
+      );
+      if (alreadyUsed) {
+        logger.warn({
+          uid,
+          reference: data.paymentReference,
+          message: "Payment reference already used",
+        });
+        return NextResponse.json(
+          {
+            success: false,
+            error: "This payment has already been used for another appointment",
+          },
+          { status: 409 },
+        );
+      }
+    }
+
     (existing as any[]).push(appointment);
     await ref.set(existing);
 
@@ -400,8 +515,8 @@ export async function POST(request: NextRequest) {
       patientAge: patient.age,
       patientGender: patient.gender,
 
-      date: data.date,
-      time: data.time,
+      date: effectiveDate,
+      time: effectiveTime,
       scheduledAt,
       duration: durationLabel,
       durationMinutes,
@@ -426,7 +541,7 @@ export async function POST(request: NextRequest) {
       emergency: data.emergency === true,
       priceBreakdown: data.priceBreakdown ?? null,
 
-      status: "upcoming",
+      status: isEmergency ? "inSession" : "upcoming",
       createdAt: appointment.createdAt,
       source: "patient_booking",
     };
@@ -449,9 +564,9 @@ export async function POST(request: NextRequest) {
 
       const modeBadge =
         data.emergency === true
-          ? "🚨 EMERGENCY"
+          ? "EMERGENCY"
           : data.instantTalk === true
-            ? "⚡ INSTANT"
+            ? "INSTANT"
             : "";
       const serviceTag = service?.name
         ? ` (${service.name})`
@@ -467,18 +582,22 @@ export async function POST(request: NextRequest) {
             : data.instantTalk === true
               ? "Instant talk request"
               : "New appointment booked",
-        body: `${modeBadge ? modeBadge + " · " : ""}${patient.name} booked a ${durationLabel} ${
-          data.consultType === "inPerson" ? "in-person" : "online"
-        } session${serviceTag} for ${new Date(scheduledAt).toLocaleString(
-          "en-US",
-          {
-            weekday: "short",
-            month: "short",
-            day: "numeric",
-            hour: "numeric",
-            minute: "2-digit",
-          },
-        )}`,
+        body: isEmergency
+          ? `EMERGENCY — STAT: ${patient.name} needs a ${durationLabel} ${
+              data.consultType === "inPerson" ? "in-person" : "online"
+            } session NOW${serviceTag}`
+          : `${modeBadge ? modeBadge + " · " : ""}${patient.name} booked a ${durationLabel} ${
+              data.consultType === "inPerson" ? "in-person" : "online"
+            } session${serviceTag} for ${new Date(scheduledAt).toLocaleString(
+              "en-US",
+              {
+                weekday: "short",
+                month: "short",
+                day: "numeric",
+                hour: "numeric",
+                minute: "2-digit",
+              },
+            )}`,
         appointmentId,
         patientId: uid,
         patientName: patient.name,
@@ -515,12 +634,15 @@ export async function POST(request: NextRequest) {
       }).catch(() => {});
     }
 
-    scheduleAppointmentReminder({
-      uid,
-      appointmentId,
-      medicId: data.medicId,
-      scheduledAtISO: scheduledAt,
-    }).catch(() => {});
+    // Emergency sessions start now — a future reminder would be wrong.
+    if (!isEmergency) {
+      scheduleAppointmentReminder({
+        uid,
+        appointmentId,
+        medicId: data.medicId,
+        scheduledAtISO: scheduledAt,
+      }).catch(() => {});
+    }
 
     return NextResponse.json(
       { success: true, data: appointment },

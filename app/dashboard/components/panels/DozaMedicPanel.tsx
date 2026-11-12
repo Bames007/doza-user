@@ -175,28 +175,28 @@ function MedicAvatar({
   );
 }
 
-// ─── Skeleton ──────────────────────────────────────────
+// ─── Skeleton (matches new compact card shape) ────────
 function SkeletonCard() {
   return (
-    <div className="bg-white rounded-2xl border border-emerald-100 p-4 lg:p-5 shadow-xs animate-pulse flex flex-col justify-between">
+    <div className="bg-white rounded-2xl sm:rounded-3xl border border-emerald-100 p-2.5 sm:p-4 lg:p-5 shadow-xs animate-pulse flex flex-col justify-between">
       <div>
-        <div className="flex justify-between items-start mb-4">
-          <div className="w-14 h-14 rounded-2xl bg-emerald-100" />
-          <div className="w-10 h-10 rounded-xl bg-emerald-50" />
+        <div className="flex justify-between items-start mb-2.5 sm:mb-4">
+          <div className="w-9 h-9 sm:w-14 sm:h-14 rounded-xl sm:rounded-2xl bg-emerald-100" />
+          <div className="w-7 h-7 sm:w-10 sm:h-10 rounded-lg sm:rounded-xl bg-emerald-50" />
         </div>
-        <div className="h-4 w-3/4 bg-emerald-200 rounded-md mb-2" />
-        <div className="h-3 w-1/3 bg-emerald-100 rounded-md mb-4" />
-        <div className="space-y-2 mb-5">
-          <div className="h-3 w-1/2 bg-emerald-100 rounded-md" />
-          <div className="h-3 w-2/3 bg-emerald-100 rounded-md" />
+        <div className="h-3 sm:h-4 w-3/4 bg-emerald-200 rounded-md mb-1.5 sm:mb-2" />
+        <div className="h-2 sm:h-3 w-1/3 bg-emerald-100 rounded-md mb-2.5 sm:mb-4" />
+        <div className="space-y-1.5 sm:space-y-2 mb-2.5 sm:mb-5">
+          <div className="h-2 sm:h-3 w-1/2 bg-emerald-100 rounded-md" />
+          <div className="h-2 sm:h-3 w-2/3 bg-emerald-100 rounded-md" />
         </div>
       </div>
-      <div className="flex justify-between items-center pt-3 border-t border-emerald-100">
+      <div className="flex justify-between items-center pt-2 sm:pt-3 border-t border-emerald-100">
         <div>
-          <div className="h-2.5 w-10 bg-emerald-100 rounded mb-1.5" />
-          <div className="h-5 w-20 bg-emerald-200 rounded-lg" />
+          <div className="h-2 sm:h-2.5 w-8 sm:w-10 bg-emerald-100 rounded mb-1 sm:mb-1.5" />
+          <div className="h-4 sm:h-5 w-14 sm:w-20 bg-emerald-200 rounded-md sm:rounded-lg" />
         </div>
-        <div className="w-10 h-10 rounded-xl bg-emerald-100" />
+        <div className="w-7 h-7 sm:w-10 sm:h-10 rounded-lg sm:rounded-xl bg-emerald-100" />
       </div>
     </div>
   );
@@ -414,6 +414,8 @@ export default function DozaMedicsPanel({ user }: any) {
   ]);
 
   // ─── Auto-set booking date/time for instant/emergency ──
+  // NOTE: Emergency starts NOW — the backend ignores the requested slot
+  // and stamps scheduledAt = server time.
   const autoBookingDateTime = useMemo(() => {
     if (bookingMode === "instant") {
       const d = new Date();
@@ -421,8 +423,8 @@ export default function DozaMedicsPanel({ user }: any) {
       return { date: d, time: toTimeStr(d) };
     }
     if (bookingMode === "emergency") {
-      const d = new Date(Date.now() + MIN_LEAD_MINUTES * 60 * 1000);
-      d.setMinutes(Math.ceil(d.getMinutes() / 15) * 15, 0, 0);
+      const d = new Date();
+      d.setMinutes(Math.ceil(d.getMinutes() / 5) * 5, 0, 0);
       return { date: d, time: toTimeStr(d) };
     }
     return null;
@@ -511,6 +513,11 @@ export default function DozaMedicsPanel({ user }: any) {
     if (effectiveMode === "emergency" && medic.emergencyAvailable !== true) {
       effectiveMode = "scheduled";
     }
+    if (effectiveMode === "instant" || effectiveMode === "emergency") {
+      setSelectedServiceId(null);
+      setSelectedDuration("");
+      setConsultType("online");
+    }
     setBookingMode(effectiveMode);
     setViewingMedic(medic);
   };
@@ -551,7 +558,7 @@ export default function DozaMedicsPanel({ user }: any) {
       setSelectedServiceId(null);
       setPatientAddress(ssGet("medics:patientAddress") || "");
 
-      if (bookingMode === "instant") {
+      if (bookingMode === "instant" || bookingMode === "emergency") {
         setConsultType("online");
       }
     }
@@ -669,11 +676,29 @@ export default function DozaMedicsPanel({ user }: any) {
             if (result.success) {
               const label =
                 bookingMode === "emergency"
-                  ? "Emergency booking confirmed."
+                  ? "Emergency confirmed — session starting now."
                   : bookingMode === "instant"
                     ? "Instant call confirmed."
                     : `Booking with ${viewingMedic.name} confirmed.`;
               triggerNotify(label, "success");
+
+              // ── Auto-open chat for emergencies ──
+              if (bookingMode === "emergency") {
+                const appointmentId = result.data?.id;
+                if (appointmentId) {
+                  try {
+                    sessionStorage.setItem("doza_open_chat_id", appointmentId);
+                  } catch {}
+                  try {
+                    window.dispatchEvent(
+                      new CustomEvent("doza:open-chat", {
+                        detail: { appointmentId },
+                      }),
+                    );
+                  } catch {}
+                }
+              }
+
               setViewingMedic(null);
               await mutate("/api/appointments").catch(() => {});
               setTimeout(() => {
@@ -860,7 +885,8 @@ export default function DozaMedicsPanel({ user }: any) {
           </div>
 
           {isColdStart ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 lg:gap-4">
+            // ── Bento 2-per-row skeleton grid on mobile ──
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-2.5 md:gap-3 lg:gap-4">
               {[...Array(6)].map((_, i) => (
                 <SkeletonCard key={i} />
               ))}
@@ -879,7 +905,8 @@ export default function DozaMedicsPanel({ user }: any) {
               </p>
             </div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 lg:gap-4">
+            // ── Bento 2-per-row grid on mobile, 3 on md+ ──
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-2.5 md:gap-3 lg:gap-4">
               {medics.map((m: any) => (
                 <MedicCard
                   key={m.id}
@@ -1154,6 +1181,7 @@ export default function DozaMedicsPanel({ user }: any) {
                               setBookingMode("instant");
                               setConsultType("online");
                               setSelectedServiceId(null);
+                              setSelectedDuration("");
                               setBookingStep("schedule");
                             }}
                             className={cn(
@@ -1174,6 +1202,9 @@ export default function DozaMedicsPanel({ user }: any) {
                         <button
                           onClick={() => {
                             setBookingMode("emergency");
+                            setConsultType("online");
+                            setSelectedServiceId(null);
+                            setSelectedDuration("");
                             setBookingStep("schedule");
                           }}
                           className={cn(
@@ -1282,6 +1313,7 @@ export default function DozaMedicsPanel({ user }: any) {
                                   setBookingMode("instant");
                                   setConsultType("online");
                                   setSelectedServiceId(null);
+                                  setSelectedDuration("");
                                   setBookingStep("schedule");
                                 }}
                                 className={cn(
@@ -1296,6 +1328,9 @@ export default function DozaMedicsPanel({ user }: any) {
                             <button
                               onClick={() => {
                                 setBookingMode("emergency");
+                                setConsultType("online");
+                                setSelectedServiceId(null);
+                                setSelectedDuration("");
                                 setBookingStep("schedule");
                               }}
                               className={cn(
@@ -1406,11 +1441,11 @@ export default function DozaMedicsPanel({ user }: any) {
                             </div>
                             <div>
                               <p className="text-sm font-bold text-rose-900">
-                                Emergency request (ASAP)
+                                Emergency request (STAT)
                               </p>
                               <p className="text-[11px] text-rose-700/80">
                                 We will notify {viewingMedic.name} right now.
-                                Expected start within 30 min.
+                                Your session starts immediately.
                               </p>
                             </div>
                           </div>
@@ -1860,7 +1895,7 @@ export default function DozaMedicsPanel({ user }: any) {
                             {bookingMode === "instant"
                               ? `Starting in ~5 min (${autoBookingDateTime?.time})`
                               : bookingMode === "emergency"
-                                ? `ASAP (~${autoBookingDateTime?.time} today)`
+                                ? `Starting now (${autoBookingDateTime?.time})`
                                 : `${selectedDate?.toLocaleDateString()} @ ${selectedTime}`}
                           </p>
                         </div>
@@ -1911,6 +1946,9 @@ export default function DozaMedicsPanel({ user }: any) {
 }
 
 // ─── Subcomponents ────────────────────────────────────
+// Bento-style compact card. On mobile this sits in a 2-col grid so it
+// needs to work at ~170px wide: square image, tight overlays, one-row
+// footer with a chevron-only Book pill.
 function MedicCard({ medic, onOpen, isComparing, onCompare }: any) {
   const hourly = Number(medic.price) || 0;
   const hasRating = Number(medic.ratingCount) > 0;
@@ -1931,13 +1969,13 @@ function MedicCard({ medic, onOpen, isComparing, onCompare }: any) {
         }
       }}
       className={cn(
-        "group relative w-full overflow-hidden rounded-3xl bg-white",
+        "group relative w-full overflow-hidden rounded-2xl sm:rounded-3xl bg-white",
         "border border-emerald-100 shadow-xs transition-all duration-300 cursor-pointer",
         "hover:-translate-y-0.5 hover:shadow-lg hover:border-emerald-200",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:ring-offset-2",
       )}
     >
-      <div className="relative aspect-[4/5] w-full overflow-hidden bg-emerald-100">
+      <div className="relative aspect-square sm:aspect-[4/5] w-full overflow-hidden bg-emerald-100">
         {medic.profileImage ? (
           <img
             src={medic.profileImage}
@@ -1946,22 +1984,24 @@ function MedicCard({ medic, onOpen, isComparing, onCompare }: any) {
           />
         ) : (
           <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-emerald-500 via-emerald-600 to-teal-700 transition-transform duration-500 ease-out group-hover:scale-105">
-            <span className="text-6xl sm:text-7xl font-bold text-white tracking-tight select-none">
+            <span className="text-5xl sm:text-7xl font-bold text-white tracking-tight select-none">
               {getInitials(medic.name)}
             </span>
           </div>
         )}
         <div className="absolute inset-0 bg-gradient-to-t from-emerald-950 via-emerald-950/40 to-transparent" />
 
-        <div className="absolute top-3 left-3 flex flex-col items-start gap-1.5">
+        {/* Status badges — compact on mobile */}
+        <div className="absolute top-2 left-2 sm:top-3 sm:left-3 flex flex-col items-start gap-1 sm:gap-1.5 max-w-[calc(100%-3rem)]">
           {isOnline && (
-            <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-emerald-500 text-white shadow-sm shadow-emerald-900/20 text-[10px] font-bold uppercase tracking-wider">
-              <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
-              Available now
+            <span className="inline-flex items-center gap-1 px-1.5 sm:px-2 py-0.5 sm:py-1 rounded-full bg-emerald-500 text-white shadow-sm shadow-emerald-900/20 text-[9px] sm:text-[10px] font-bold uppercase tracking-wider">
+              <span className="w-1 h-1 sm:w-1.5 sm:h-1.5 rounded-full bg-white animate-pulse" />
+              <span className="hidden sm:inline">Available now</span>
+              <span className="sm:hidden">Online</span>
             </span>
           )}
           {isOnLeave && (
-            <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-slate-600 text-white shadow-sm text-[10px] font-bold uppercase tracking-wider">
+            <span className="inline-flex items-center gap-1 px-1.5 sm:px-2 py-0.5 sm:py-1 rounded-full bg-slate-600 text-white shadow-sm text-[9px] sm:text-[10px] font-bold uppercase tracking-wider">
               On leave
             </span>
           )}
@@ -1971,26 +2011,31 @@ function MedicCard({ medic, onOpen, isComparing, onCompare }: any) {
                 e.stopPropagation();
                 onOpen("emergency");
               }}
-              className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-rose-500 text-white shadow-sm text-[10px] font-bold uppercase tracking-wider hover:bg-rose-600 transition-colors"
+              className="inline-flex items-center gap-1 px-1.5 sm:px-2 py-0.5 sm:py-1 rounded-full bg-rose-500 text-white shadow-sm text-[9px] sm:text-[10px] font-bold uppercase tracking-wider hover:bg-rose-600 transition-colors"
               title="Request emergency visit"
             >
-              <AlertCircle size={10} />
-              Emergency
+              <AlertCircle size={9} className="sm:w-[10px] sm:h-[10px]" />
+              <span className="hidden sm:inline">Emergency</span>
+              <span className="sm:hidden">STAT</span>
             </button>
           )}
           {hasRating && (
-            <div className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-white/90 backdrop-blur-md shadow-sm border border-white/60">
-              <Star size={11} className="fill-amber-400 text-amber-400" />
-              <span className="text-[11px] font-bold text-emerald-900 tabular-nums leading-none">
+            <div className="inline-flex items-center gap-1 px-1.5 sm:px-2 py-0.5 sm:py-1 rounded-full bg-white/90 backdrop-blur-md shadow-sm border border-white/60">
+              <Star
+                size={9}
+                className="fill-amber-400 text-amber-400 sm:w-[11px] sm:h-[11px]"
+              />
+              <span className="text-[10px] sm:text-[11px] font-bold text-emerald-900 tabular-nums leading-none">
                 {Number(medic.ratingAverage).toFixed(1)}
               </span>
-              <span className="text-[10px] text-emerald-700/60 leading-none">
+              <span className="hidden sm:inline text-[10px] text-emerald-700/60 leading-none">
                 ({medic.ratingCount})
               </span>
             </div>
           )}
         </div>
 
+        {/* Compare button — smaller on mobile */}
         <button
           onClick={(e) => {
             e.stopPropagation();
@@ -2001,7 +2046,7 @@ function MedicCard({ medic, onOpen, isComparing, onCompare }: any) {
           }
           title="Compare professional"
           className={cn(
-            "absolute top-3 right-3 w-10 h-10 inline-flex items-center justify-center rounded-full",
+            "absolute top-2 right-2 sm:top-3 sm:right-3 w-8 h-8 sm:w-10 sm:h-10 inline-flex items-center justify-center rounded-full",
             "backdrop-blur-md transition-all duration-200 active:scale-95",
             isComparing
               ? "bg-emerald-600 text-white shadow-lg shadow-emerald-600/40"
@@ -2009,52 +2054,60 @@ function MedicCard({ medic, onOpen, isComparing, onCompare }: any) {
             FOCUS,
           )}
         >
-          <Scale size={16} />
+          <Scale size={13} className="sm:w-4 sm:h-4" />
         </button>
 
-        <div className="absolute bottom-0 left-0 right-0 p-4 space-y-1">
-          <p className="text-[10px] font-bold uppercase tracking-widest text-emerald-200">
+        {/* Name & meta — tight on mobile */}
+        <div className="absolute bottom-0 left-0 right-0 p-2.5 sm:p-4 space-y-0.5 sm:space-y-1">
+          <p className="text-[8px] sm:text-[10px] font-bold uppercase tracking-widest text-emerald-200 truncate">
             {medic.specialty}
           </p>
-          <h3 className="text-lg sm:text-xl font-bold text-white leading-tight tracking-tight truncate">
+          <h3 className="text-sm sm:text-lg font-bold text-white leading-tight tracking-tight truncate">
             {medic.name}
           </h3>
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 pt-1">
-            <div className="flex items-center gap-1 text-[11px] text-white/90 font-medium">
-              <MapPin size={11} className="text-emerald-300 shrink-0" />
-              {medic.city}
+          <div className="flex flex-wrap items-center gap-x-2 sm:gap-x-3 gap-y-0.5 sm:gap-y-1 pt-0.5 sm:pt-1">
+            <div className="flex items-center gap-0.5 sm:gap-1 text-[9px] sm:text-[11px] text-white/90 font-medium min-w-0">
+              <MapPin
+                size={9}
+                className="text-emerald-300 shrink-0 sm:w-[11px] sm:h-[11px]"
+              />
+              <span className="truncate">{medic.city}</span>
             </div>
-            <span className="text-white/40 text-[10px]">·</span>
-            <div className="flex items-center gap-1 text-[11px] text-white/90 font-medium">
-              <Clock size={11} className="text-emerald-300 shrink-0" />
-              {medic.experience} yrs
+            <span className="text-white/40 text-[9px] sm:text-[10px]">·</span>
+            <div className="flex items-center gap-0.5 sm:gap-1 text-[9px] sm:text-[11px] text-white/90 font-medium">
+              <Clock
+                size={9}
+                className="text-emerald-300 shrink-0 sm:w-[11px] sm:h-[11px]"
+              />
+              {medic.experience}y
             </div>
           </div>
         </div>
       </div>
 
-      <div className="flex items-center gap-2 px-3 py-2.5 bg-white">
-        <div className="min-w-0 shrink-0">
-          <p className="text-[9px] font-bold uppercase tracking-wider text-emerald-700/60 leading-none">
+      {/* Footer — rate + actions, one row */}
+      <div className="flex items-center justify-between gap-1.5 sm:gap-2 px-2 sm:px-3 py-2 sm:py-2.5 bg-white">
+        <div className="min-w-0">
+          <p className="hidden sm:block text-[9px] font-bold uppercase tracking-wider text-emerald-700/60 leading-none">
             Rate / hour
           </p>
-          <p className="text-base font-bold text-emerald-900 leading-tight mt-0.5 tabular-nums">
+          <p className="text-sm sm:text-base font-bold text-emerald-900 leading-tight sm:mt-0.5 tabular-nums">
             {formatNaira(hourly)}
           </p>
         </div>
 
-        <div className="ml-auto flex items-center gap-1.5 shrink-0">
+        <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
           {hasInstantTalk && (
             <button
               onClick={(e) => {
                 e.stopPropagation();
                 onOpen("instant");
               }}
-              className="inline-flex items-center gap-1 text-[9px] font-bold uppercase tracking-wider text-emerald-700 px-1.5 py-0.5 rounded-full bg-emerald-50 border border-emerald-200 hover:bg-emerald-100 transition-colors"
+              className="inline-flex items-center justify-center gap-0.5 sm:gap-1 min-h-6 min-w-6 sm:min-h-0 sm:min-w-0 text-[8px] sm:text-[9px] font-bold uppercase tracking-wider text-emerald-700 px-1.5 py-0.5 rounded-full bg-emerald-50 border border-emerald-200 hover:bg-emerald-100 transition-colors"
               title={`Instant ${medic.instantTalkWindowMinutes || 15}-min call`}
             >
-              <Zap size={9} />
-              Talk
+              <Zap size={8} className="sm:w-[9px] sm:h-[9px]" />
+              <span className="hidden sm:inline">Talk</span>
             </button>
           )}
           <button
@@ -2064,17 +2117,19 @@ function MedicCard({ medic, onOpen, isComparing, onCompare }: any) {
             }}
             aria-label={`Book ${medic.name}`}
             className={cn(
-              "inline-flex items-center gap-1 h-10 pl-3 pr-2.5 rounded-xl",
+              "inline-flex items-center justify-center gap-0.5 sm:gap-1",
+              "h-7 w-7 sm:h-10 sm:w-auto sm:pl-3 sm:pr-2.5",
+              "rounded-lg sm:rounded-xl",
               "bg-emerald-600 group-hover:bg-emerald-700 text-white",
-              "text-[11px] font-bold uppercase tracking-wider",
+              "sm:text-[11px] font-bold uppercase tracking-wider",
               "shadow-sm shadow-emerald-600/20 transition-all active:scale-95",
               FOCUS,
             )}
           >
-            Book
+            <span className="hidden sm:inline">Book</span>
             <ChevronRight
-              size={14}
-              className="transition-transform group-hover:translate-x-0.5"
+              size={13}
+              className="sm:w-3.5 sm:h-3.5 transition-transform group-hover:translate-x-0.5"
             />
           </button>
         </div>
