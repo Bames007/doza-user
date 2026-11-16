@@ -83,13 +83,63 @@ interface TimeSlot {
   disabled: boolean;
 }
 
-const generateTimeSlots = (start: string, end: string) => {
+// ═══════════════════════════════════════════════════════
+// Time helpers
+// ═══════════════════════════════════════════════════════
+
+/**
+ * Parses "HH", "HH:MM", "H:MM AM/PM", "h am" → minutes since midnight.
+ * The old implementation did `parseInt(start.split(":")[0])`, which:
+ *   - dropped minutes (e.g. "13:30" → 13:00)
+ *   - mis-read "1:00 PM" as 1am instead of 13:00
+ */
+function parseHourToMinutes(v?: string | null, fallback = 0): number {
+  if (!v) return fallback;
+  const m = /^(\d{1,2})(?::(\d{2}))?\s*(am|pm)?$/i.exec(v.trim());
+  if (!m) return fallback;
+  let h = parseInt(m[1], 10);
+  const min = parseInt(m[2] || "0", 10);
+  const mer = (m[3] || "").toLowerCase();
+  if (mer === "pm" && h < 12) h += 12;
+  if (mer === "am" && h === 12) h = 0;
+  return h * 60 + min;
+}
+
+/**
+ * Set this to `true` ONLY if the medic's `availability.hours.start/end`
+ * are stored in UTC (server-generated). If they're already in local
+ * Nigeria time (the common case for medic-entered hours), leave `false`.
+ */
+const AVAILABILITY_IS_UTC = false;
+
+function availabilityToLocal(hhmm?: string | null): string | undefined {
+  if (!hhmm) return undefined;
+  if (!AVAILABILITY_IS_UTC) return hhmm;
+  const m = /^(\d{1,2})(?::(\d{2}))?/.exec(hhmm.trim());
+  if (!m) return hhmm;
+  const utcH = parseInt(m[1], 10);
+  const utcM = parseInt(m[2] || "0", 10);
+  if (!Number.isFinite(utcH)) return hhmm;
+  const d = new Date();
+  d.setUTCHours(utcH, utcM, 0, 0);
+  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+}
+
+/**
+ * Generates "HH:MM" slots from start (inclusive) to end (exclusive).
+ * Preserves the original hourly cadence but now:
+ *   - respects minutes (e.g. "13:30" → 13:30, 14:30, …)
+ *   - understands AM/PM
+ */
+const generateTimeSlots = (start?: string | null, end?: string | null) => {
   const slots: string[] = [];
-  let current = parseInt(start?.split(":")[0] || "9");
-  const stop = parseInt(end?.split(":")[0] || "17");
-  while (current < stop) {
-    slots.push(`${current.toString().padStart(2, "0")}:00`);
-    current++;
+  let cur = parseHourToMinutes(start, 9 * 60);
+  const stop = parseHourToMinutes(end, 17 * 60);
+  while (cur < stop) {
+    const h = Math.floor(cur / 60);
+    const m = cur % 60;
+    slots.push(`${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`);
+    cur += 60;
   }
   return slots;
 };
@@ -175,7 +225,7 @@ function MedicAvatar({
   );
 }
 
-// ─── Skeleton (matches new compact card shape) ────────
+// ─── Skeleton ────────────────────────────────────────
 function SkeletonCard() {
   return (
     <div className="bg-white rounded-2xl sm:rounded-3xl border border-emerald-100 p-2.5 sm:p-4 lg:p-5 shadow-xs animate-pulse flex flex-col justify-between">
@@ -414,8 +464,6 @@ export default function DozaMedicsPanel({ user }: any) {
   ]);
 
   // ─── Auto-set booking date/time for instant/emergency ──
-  // NOTE: Emergency starts NOW — the backend ignores the requested slot
-  // and stamps scheduledAt = server time.
   const autoBookingDateTime = useMemo(() => {
     if (bookingMode === "instant") {
       const d = new Date();
@@ -434,10 +482,12 @@ export default function DozaMedicsPanel({ user }: any) {
   const timeSlots = useMemo<TimeSlot[]>(() => {
     if (!viewingMedic || bookingMode !== "scheduled") return [];
 
-    const all = generateTimeSlots(
-      viewingMedic.availability?.hours?.start,
-      viewingMedic.availability?.hours?.end,
-    );
+    // Normalise availability once so both the slot generator and the
+    // "is this slot before now?" check operate on the same wall-clock time.
+    const start = availabilityToLocal(viewingMedic.availability?.hours?.start);
+    const end = availabilityToLocal(viewingMedic.availability?.hours?.end);
+
+    const all = generateTimeSlots(start, end);
 
     if (!selectedDate) {
       return all.map((t) => ({ time: t, disabled: false }));
@@ -473,10 +523,11 @@ export default function DozaMedicsPanel({ user }: any) {
     const t = new Date();
     t.setHours(0, 0, 0, 0);
     if (!viewingMedic) return t;
-    const todaySlots = generateTimeSlots(
-      viewingMedic.availability?.hours?.start,
-      viewingMedic.availability?.hours?.end,
-    );
+
+    const start = availabilityToLocal(viewingMedic.availability?.hours?.start);
+    const end = availabilityToLocal(viewingMedic.availability?.hours?.end);
+    const todaySlots = generateTimeSlots(start, end);
+
     const now = new Date();
     const minStart = new Date(now.getTime() + MIN_LEAD_MINUTES * 60 * 1000);
     const hasToday = todaySlots.some((slot) => {
@@ -711,7 +762,16 @@ export default function DozaMedicsPanel({ user }: any) {
                 "error",
               );
             }
-          } catch {
+          } catch (err) {
+            // ⚠️ This is the branch that produces "Payment captured but save failed".
+            // Log the real error so you can see whether it was:
+            //   - a 400 amount-mismatch (see app/api/appointments/route.ts),
+            //   - a network error,
+            //   - or a server 500 from a downstream email/reminder failure.
+            console.error(
+              "[doza][appointments] save failed after payment:",
+              err,
+            );
             triggerNotify(
               "Payment captured but save failed. Contact support with your Paystack receipt.",
               "error",
@@ -819,7 +879,7 @@ export default function DozaMedicsPanel({ user }: any) {
         }
       `}</style>
 
-      {/* Toast — Lucide icons, no text characters */}
+      {/* Toast */}
       <AnimatePresence>
         {notification && (
           <motion.div
@@ -885,7 +945,6 @@ export default function DozaMedicsPanel({ user }: any) {
           </div>
 
           {isColdStart ? (
-            // ── Bento 2-per-row skeleton grid on mobile ──
             <div className="grid grid-cols-2 md:grid-cols-3 gap-2.5 md:gap-3 lg:gap-4">
               {[...Array(6)].map((_, i) => (
                 <SkeletonCard key={i} />
@@ -905,7 +964,6 @@ export default function DozaMedicsPanel({ user }: any) {
               </p>
             </div>
           ) : (
-            // ── Bento 2-per-row grid on mobile, 3 on md+ ──
             <div className="grid grid-cols-2 md:grid-cols-3 gap-2.5 md:gap-3 lg:gap-4">
               {medics.map((m: any) => (
                 <MedicCard
@@ -1946,9 +2004,6 @@ export default function DozaMedicsPanel({ user }: any) {
 }
 
 // ─── Subcomponents ────────────────────────────────────
-// Bento-style compact card. On mobile this sits in a 2-col grid so it
-// needs to work at ~170px wide: square image, tight overlays, one-row
-// footer with a chevron-only Book pill.
 function MedicCard({ medic, onOpen, isComparing, onCompare }: any) {
   const hourly = Number(medic.price) || 0;
   const hasRating = Number(medic.ratingCount) > 0;
@@ -1991,7 +2046,6 @@ function MedicCard({ medic, onOpen, isComparing, onCompare }: any) {
         )}
         <div className="absolute inset-0 bg-gradient-to-t from-emerald-950 via-emerald-950/40 to-transparent" />
 
-        {/* Status badges — compact on mobile */}
         <div className="absolute top-2 left-2 sm:top-3 sm:left-3 flex flex-col items-start gap-1 sm:gap-1.5 max-w-[calc(100%-3rem)]">
           {isOnline && (
             <span className="inline-flex items-center gap-1 px-1.5 sm:px-2 py-0.5 sm:py-1 rounded-full bg-emerald-500 text-white shadow-sm shadow-emerald-900/20 text-[9px] sm:text-[10px] font-bold uppercase tracking-wider">
@@ -2035,7 +2089,6 @@ function MedicCard({ medic, onOpen, isComparing, onCompare }: any) {
           )}
         </div>
 
-        {/* Compare button — smaller on mobile */}
         <button
           onClick={(e) => {
             e.stopPropagation();
@@ -2057,7 +2110,6 @@ function MedicCard({ medic, onOpen, isComparing, onCompare }: any) {
           <Scale size={13} className="sm:w-4 sm:h-4" />
         </button>
 
-        {/* Name & meta — tight on mobile */}
         <div className="absolute bottom-0 left-0 right-0 p-2.5 sm:p-4 space-y-0.5 sm:space-y-1">
           <p className="text-[8px] sm:text-[10px] font-bold uppercase tracking-widest text-emerald-200 truncate">
             {medic.specialty}
@@ -2085,7 +2137,6 @@ function MedicCard({ medic, onOpen, isComparing, onCompare }: any) {
         </div>
       </div>
 
-      {/* Footer — rate + actions, one row */}
       <div className="flex items-center justify-between gap-1.5 sm:gap-2 px-2 sm:px-3 py-2 sm:py-2.5 bg-white">
         <div className="min-w-0">
           <p className="hidden sm:block text-[9px] font-bold uppercase tracking-wider text-emerald-700/60 leading-none">

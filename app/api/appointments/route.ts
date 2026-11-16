@@ -59,7 +59,6 @@ function computeScheduledAt(dateStr: string, timeStr: string): string {
   return new Date(y, m - 1, d, h, min, 0, 0).toISOString();
 }
 
-/** Local-time helpers so an emergency starts "now" in the user's timezone. */
 function toLocalDateStr(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(
     d.getDate(),
@@ -300,14 +299,11 @@ export async function POST(request: NextRequest) {
     const startDate = new Date(startMs);
 
     const scheduledAt = startDate.toISOString();
-    // For emergency, rewrite date/time to the actual (immediate) start so
-    // every consumer (panel cards, ChatPanel, emails) agrees on the window.
     const effectiveDate = isEmergency ? toLocalDateStr(startDate) : data.date;
     const effectiveTime = isEmergency ? toLocalTimeStr(startDate) : data.time;
 
     const appointmentId = `apt-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
-    // For instant talk, duration is fixed by the medic's window
     const instantWindowMinutes =
       Number(availability.instantTalkWindowMinutes) || 15;
 
@@ -320,6 +316,11 @@ export async function POST(request: NextRequest) {
     );
 
     // ── Recompute amount server-side ──────────────────
+    // MUST match the client exactly. The client only knows
+    // `viewingMedic.price` (= practiceInfo.hourlyRate) and `service.price`.
+    // It does NOT know about onlineRate, inPersonRate or homeVisitFee —
+    // so we must not introduce them here, or the client and server
+    // disagree and every booking fails with "amount does not match".
     const baseRate = Number(medic.practiceInfo?.hourlyRate) || 0;
     const services = Array.isArray(medic.practiceInfo?.services)
       ? medic.practiceInfo.services
@@ -334,12 +335,9 @@ export async function POST(request: NextRequest) {
     } else if (data.instantTalk === true) {
       expectedAmount = Math.round(baseRate * (instantWindowMinutes / 60));
     } else {
+      // Scheduled online or in-person — hourlyRate × duration.
       const hours = durationMinutes / 60;
-      const typeRate =
-        data.consultType === "inPerson"
-          ? Number(pricing.inPersonRate) || baseRate
-          : Number(pricing.onlineRate) || baseRate;
-      expectedAmount = Math.round(typeRate * hours);
+      expectedAmount = Math.round(baseRate * hours);
     }
 
     if (data.instantTalk === true) {
@@ -349,9 +347,9 @@ export async function POST(request: NextRequest) {
       expectedAmount += Number(availability.emergencyPremium) || 0;
       expectedAmount += Number(pricing.urgentFee) || 0;
     }
-    if (data.consultType === "inPerson" && Number(pricing.homeVisitFee) > 0) {
-      expectedAmount += Number(pricing.homeVisitFee);
-    }
+    // NOTE: homeVisitFee deliberately NOT added — the client never
+    //       includes it in `computedPrice`, so adding it here would
+    //       always trip the amount-mismatch check for in-person visits.
 
     // Sanity check — client must match within ₦1
     const clientAmount = Number(data.amount) || 0;
@@ -364,6 +362,15 @@ export async function POST(request: NextRequest) {
         expectedAmount,
         instantTalk: data.instantTalk,
         emergency: data.emergency,
+        consultType: data.consultType,
+        duration: durationLabel,
+        durationMinutes,
+        // expose the pricing fields that used to cause mismatches:
+        hourlyRate: baseRate,
+        onlineRate: pricing.onlineRate,
+        inPersonRate: pricing.inPersonRate,
+        homeVisitFee: pricing.homeVisitFee,
+        urgentFee: pricing.urgentFee,
       });
       return NextResponse.json(
         {
@@ -396,14 +403,13 @@ export async function POST(request: NextRequest) {
             uid,
             reference: data.paymentReference,
             message: "Payment verification failed",
-            // ── diagnostics ──
             httpStatus: paystackRes.status,
             paystackOk: paystackRes.ok,
-            paystackTopStatus: verification?.status, // boolean, Paystack's own gate
-            paystackDataStatus: verification?.data?.status, // "success" | "failed" | etc.
-            paystackMessage: verification?.message, // "Transaction not found", etc.
+            paystackTopStatus: verification?.status,
+            paystackDataStatus: verification?.data?.status,
+            paystackMessage: verification?.message,
             hasSecretKey: !!process.env.PAYSTACK_SECRET_KEY,
-            keyPrefix: (process.env.PAYSTACK_SECRET_KEY || "").slice(0, 8), // "sk_test_" or "sk_live_"
+            keyPrefix: (process.env.PAYSTACK_SECRET_KEY || "").slice(0, 8),
             keyLength: (process.env.PAYSTACK_SECRET_KEY || "").length,
           });
           return NextResponse.json(
@@ -412,7 +418,6 @@ export async function POST(request: NextRequest) {
           );
         }
 
-        // Paystack returns amount in kobo (NGN × 100).
         const paidKobo = Number(verification.data.amount) || 0;
         const expectedKobo = Math.round(finalAmount * 100);
         if (paidKobo < expectedKobo) {
@@ -508,146 +513,97 @@ export async function POST(request: NextRequest) {
 
     // ── Mirror to medic node ───────────────────────────
     const medicRecord = {
-      id: appointmentId,
-      patientId: uid,
+      ...appointment,
+      patientUid: uid,
       patientName: patient.name,
+      patientEmail: patient.email,
       patientProfileImage: patient.image,
       patientAge: patient.age,
       patientGender: patient.gender,
-
-      date: effectiveDate,
-      time: effectiveTime,
-      scheduledAt,
-      duration: durationLabel,
-      durationMinutes,
-
-      type:
-        data.consultType === "inPerson"
-          ? data.address
-            ? "home"
-            : "in-person"
-          : "video",
-      consultType: data.consultType ?? "online",
-      address: data.address ?? null,
-
-      reason: data.reason,
-      notes: data.notes ?? null,
-      amount: finalAmount,
-      paymentReference: data.paymentReference ?? null,
-
-      serviceId: data.serviceId ?? null,
-      serviceName: data.serviceName ?? (service?.name || null),
-      instantTalk: data.instantTalk === true,
-      emergency: data.emergency === true,
-      priceBreakdown: data.priceBreakdown ?? null,
-
-      status: isEmergency ? "inSession" : "upcoming",
-      createdAt: appointment.createdAt,
-      source: "patient_booking",
     };
-
     try {
-      const medicRef = adminDb.ref(
-        `${MEDICS_NODE}/${data.medicId}/appointments`,
-      );
-      const mSnap = await medicRef.once("value");
-      const mVal = mSnap.val();
-      const mList = mVal
-        ? Array.isArray(mVal)
-          ? mVal
-          : Object.values(mVal)
-        : [];
-      (mList as any[]).push(medicRecord);
-      await medicRef.set(mList);
-
-      const { notifyMedic } = await import("@/app/utils/medicNotify");
-
-      const modeBadge =
-        data.emergency === true
-          ? "EMERGENCY"
-          : data.instantTalk === true
-            ? "INSTANT"
-            : "";
-      const serviceTag = service?.name
-        ? ` (${service.name})`
-        : data.serviceName
-          ? ` (${data.serviceName})`
-          : "";
-
-      await notifyMedic(data.medicId, {
-        type: "appointment_booked",
-        title:
-          data.emergency === true
-            ? "Emergency booking"
-            : data.instantTalk === true
-              ? "Instant talk request"
-              : "New appointment booked",
-        body: isEmergency
-          ? `EMERGENCY — STAT: ${patient.name} needs a ${durationLabel} ${
-              data.consultType === "inPerson" ? "in-person" : "online"
-            } session NOW${serviceTag}`
-          : `${modeBadge ? modeBadge + " · " : ""}${patient.name} booked a ${durationLabel} ${
-              data.consultType === "inPerson" ? "in-person" : "online"
-            } session${serviceTag} for ${new Date(scheduledAt).toLocaleString(
-              "en-US",
-              {
-                weekday: "short",
-                month: "short",
-                day: "numeric",
-                hour: "numeric",
-                minute: "2-digit",
-              },
-            )}`,
-        appointmentId,
-        patientId: uid,
-        patientName: patient.name,
-        patientProfileImage: patient.image,
-        dedupeKey: `booking-${appointmentId}`,
-      });
-    } catch (mirrorErr: any) {
-      logger.warn({
+      await adminDb
+        .ref(`${MEDICS_NODE}/${data.medicId}/appointments/${appointmentId}`)
+        .set(medicRecord);
+    } catch (e: any) {
+      logger.error({
         uid,
-        medicUid: data.medicId,
-        message: "Medic mirror write or notification failed",
-        error: mirrorErr?.message,
+        appointmentId,
+        message: "Failed to mirror appointment to medic node",
+        errorMessage: e?.message,
       });
     }
 
-    // ── Emails ────────────────────────────────────────
-    const appUrl =
-      process.env.NEXT_PUBLIC_APP_URL || "https://users.dozamedic.com";
-
+    // ── Emails (non-fatal) ────────────────────────────
+    // bookingConfirmedPatient / bookingConfirmedMedic return
+    // { subject, html } — not a plain HTML string. Unpack them.
+    // bookingConfirmedMedic expects the patient's NAME (string),
+    // not the whole patient object.
     if (patient.email) {
-      const tpl = bookingConfirmedPatient(appointment as any, appUrl);
-      sendMail({
-        to: patient.email,
-        subject: tpl.subject,
-        html: tpl.html,
-      }).catch(() => {});
+      try {
+        const tpl = bookingConfirmedPatient(appointment);
+        await sendMail({
+          to: patient.email,
+          subject: tpl.subject,
+          html: tpl.html,
+        });
+      } catch (e: any) {
+        logger.error({
+          uid,
+          appointmentId,
+          message: "Patient confirmation email failed",
+          errorMessage: e?.message,
+        });
+      }
     }
     if (medic.email) {
-      const tpl = bookingConfirmedMedic(appointment as any, appUrl);
-      sendMail({
-        to: medic.email,
-        subject: tpl.subject,
-        html: tpl.html,
-      }).catch(() => {});
+      try {
+        const tpl = bookingConfirmedMedic(appointment, patient.name);
+        await sendMail({
+          to: medic.email,
+          subject: tpl.subject,
+          html: tpl.html,
+        });
+      } catch (e: any) {
+        logger.error({
+          uid,
+          appointmentId,
+          message: "Medic notification email failed",
+          errorMessage: e?.message,
+        });
+      }
     }
 
-    // Emergency sessions start now — a future reminder would be wrong.
-    if (!isEmergency) {
-      scheduleAppointmentReminder({
+    // ── Reminder (non-fatal) ──────────────────────────
+    // scheduleAppointmentReminder expects a narrow object,
+    // not the full appointment record.
+    try {
+      await scheduleAppointmentReminder({
+        uid,
+        appointmentId: appointment.id,
+        medicId: appointment.medicId,
+        scheduledAtISO: appointment.scheduledAt,
+      });
+    } catch (e: any) {
+      logger.error({
         uid,
         appointmentId,
-        medicId: data.medicId,
-        scheduledAtISO: scheduledAt,
-      }).catch(() => {});
+        message: "Failed to schedule reminder",
+        errorMessage: e?.message,
+      });
     }
 
-    return NextResponse.json(
-      { success: true, data: appointment },
-      { status: 201 },
-    );
+    logger.info({
+      uid,
+      appointmentId,
+      medicId: data.medicId,
+      amount: finalAmount,
+      instantTalk: data.instantTalk,
+      emergency: data.emergency,
+      message: "Appointment created",
+    });
+
+    return NextResponse.json({ success: true, data: appointment });
   } catch (error: any) {
     logger.error({
       uid,
