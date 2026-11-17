@@ -89,9 +89,8 @@ interface TimeSlot {
 
 /**
  * Parses "HH", "HH:MM", "H:MM AM/PM", "h am" → minutes since midnight.
- * The old implementation did `parseInt(start.split(":")[0])`, which:
- *   - dropped minutes (e.g. "13:30" → 13:00)
- *   - mis-read "1:00 PM" as 1am instead of 13:00
+ * 🟡 FIX 6: added hour/minute range guards so "25:00" or "9:99"
+ * cannot generate slots past midnight or crash downstream.
  */
 function parseHourToMinutes(v?: string | null, fallback = 0): number {
   if (!v) return fallback;
@@ -102,6 +101,9 @@ function parseHourToMinutes(v?: string | null, fallback = 0): number {
   const mer = (m[3] || "").toLowerCase();
   if (mer === "pm" && h < 12) h += 12;
   if (mer === "am" && h === 12) h = 0;
+  // Guard against malformed input like "25:00" or "9:99"
+  if (!Number.isFinite(h) || h > 23) return fallback;
+  if (!Number.isFinite(min) || min > 59) return fallback;
   return h * 60 + min;
 }
 
@@ -127,9 +129,6 @@ function availabilityToLocal(hhmm?: string | null): string | undefined {
 
 /**
  * Generates "HH:MM" slots from start (inclusive) to end (exclusive).
- * Preserves the original hourly cadence but now:
- *   - respects minutes (e.g. "13:30" → 13:30, 14:30, …)
- *   - understands AM/PM
  */
 const generateTimeSlots = (start?: string | null, end?: string | null) => {
   const slots: string[] = [];
@@ -321,6 +320,19 @@ export default function DozaMedicsPanel({ user }: any) {
     type: "success" | "error";
   } | null>(null);
 
+  // 🟡 FIX 10: minute ticker so time-slot availability and minDate
+  // stay fresh even if the user leaves the modal open across an
+  // hour boundary (or leaves it open overnight).
+  const [nowMinuteKey, setNowMinuteKey] = useState<number>(() =>
+    Math.floor(Date.now() / 60_000),
+  );
+  useEffect(() => {
+    const id = setInterval(() => {
+      setNowMinuteKey(Math.floor(Date.now() / 60_000));
+    }, 60_000);
+    return () => clearInterval(id);
+  }, []);
+
   // ─── Scroll restoration ──────────────────────────────
   const scrollRestoredRef = useRef(false);
   useEffect(() => {
@@ -449,8 +461,12 @@ export default function DozaMedicsPanel({ user }: any) {
     if (!viewingMedic) return "";
     if (bookingMode === "instant")
       return `${instantWindowMinutes} min instant call`;
-    if (selectedService)
-      return `${selectedService.durationMinutes} min · ${selectedService.name}`;
+    // 🟡 FIX 11: be explicit when a service is in-person
+    if (selectedService) {
+      return `${selectedService.durationMinutes} min · ${selectedService.name}${
+        consultType === "inPerson" ? " (in-person)" : ""
+      }`;
+    }
     if (consultType === "inPerson") return "1 hour home visit";
     if (!selectedDuration) return "Select a duration";
     return `${selectedDuration} online session`;
@@ -479,6 +495,8 @@ export default function DozaMedicsPanel({ user }: any) {
   }, [bookingMode, viewingMedic]);
 
   // ─── Time slots (only for scheduled) ─────────────────
+  // 🟡 FIX 10: nowMinuteKey in deps forces recompute every minute,
+  // so past-time slots roll off the grid even without a re-mount.
   const timeSlots = useMemo<TimeSlot[]>(() => {
     if (!viewingMedic || bookingMode !== "scheduled") return [];
 
@@ -506,7 +524,8 @@ export default function DozaMedicsPanel({ user }: any) {
       slotTime.setHours(h, m, 0, 0);
       return { time: t, disabled: slotTime < minStart };
     });
-  }, [viewingMedic, selectedDate, bookingMode]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewingMedic, selectedDate, bookingMode, nowMinuteKey]);
 
   useEffect(() => {
     if (!selectedTime || bookingMode !== "scheduled") return;
@@ -519,6 +538,7 @@ export default function DozaMedicsPanel({ user }: any) {
     setSelectedTime("");
   };
 
+  // 🟡 FIX 10: minDate also re-evaluates every minute.
   const minDate = useMemo(() => {
     const t = new Date();
     t.setHours(0, 0, 0, 0);
@@ -538,7 +558,8 @@ export default function DozaMedicsPanel({ user }: any) {
     });
     if (!hasToday) t.setDate(t.getDate() + 1);
     return t;
-  }, [viewingMedic]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewingMedic, nowMinuteKey]);
 
   const maxDate = useMemo(() => {
     const d = new Date();
@@ -751,7 +772,14 @@ export default function DozaMedicsPanel({ user }: any) {
               }
 
               setViewingMedic(null);
-              await mutate("/api/appointments").catch(() => {});
+              // 🟡 FIX 8: also revalidate the medic list so the grid
+              // reflects any status changes made while the modal was open.
+              await Promise.all([
+                mutate("/api/appointments").catch(() => {}),
+                mutate(`/api/medics?category=${selectedCategory}`).catch(
+                  () => {},
+                ),
+              ]);
               setTimeout(() => {
                 setActivePanel("appointment");
               }, 800);
@@ -763,17 +791,20 @@ export default function DozaMedicsPanel({ user }: any) {
               );
             }
           } catch (err) {
-            // ⚠️ This is the branch that produces "Payment captured but save failed".
-            // Log the real error so you can see whether it was:
-            //   - a 400 amount-mismatch (see app/api/appointments/route.ts),
-            //   - a network error,
-            //   - or a server 500 from a downstream email/reminder failure.
-            console.error(
-              "[doza][appointments] save failed after payment:",
-              err,
-            );
+            // 🟡 FIX 9: include the Paystack reference in both the
+            // console log and the user-facing toast so support can
+            // reconcile the charge without a back-and-forth.
+            console.error("[doza][appointments] save failed after payment:", {
+              paymentReference,
+              medicId: viewingMedic.id,
+              bookingMode,
+              consultType,
+              amount: computedPrice,
+              serviceId: selectedServiceId,
+              error: err,
+            });
             triggerNotify(
-              "Payment captured but save failed. Contact support with your Paystack receipt.",
+              `Payment captured but save failed. Contact support with Paystack ref ${paymentReference}.`,
               "error",
             );
           } finally {
@@ -971,17 +1002,21 @@ export default function DozaMedicsPanel({ user }: any) {
                   medic={m}
                   onOpen={(mode: BookingMode) => openMedicModal(m, mode)}
                   isComparing={compareList.some((c) => c.id === m.id)}
+                  // 🟡 FIX 7: functional setState — no more stale closure.
                   onCompare={() => {
-                    if (compareList.find((c) => c.id === m.id)) {
-                      setCompareList(compareList.filter((c) => c.id !== m.id));
-                    } else if (compareList.length < 3) {
-                      setCompareList([...compareList, m]);
-                    } else {
-                      triggerNotify(
-                        "You can compare up to 3 medics at a time",
-                        "error",
-                      );
-                    }
+                    setCompareList((prev) => {
+                      if (prev.some((c) => c.id === m.id)) {
+                        return prev.filter((c) => c.id !== m.id);
+                      }
+                      if (prev.length >= 3) {
+                        triggerNotify(
+                          "You can compare up to 3 medics at a time",
+                          "error",
+                        );
+                        return prev;
+                      }
+                      return [...prev, m];
+                    });
                   }}
                 />
               ))}

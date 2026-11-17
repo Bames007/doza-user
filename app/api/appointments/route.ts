@@ -290,27 +290,35 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // ── Emergency = STAT. Start the session now, ignoring the requested slot. ──
+    // 🔴 BUG 4 FIX: Emergency AND instant both start now.
+    // Emergency = STAT (ignore requested slot).
+    // Instant   = also live immediately; the client only rounds
+    //             the display time up to the next 5-minute mark.
     const isEmergency = data.emergency === true;
+    const isInstant = data.instantTalk === true;
 
     const requestedScheduledAt = computeScheduledAt(data.date, data.time);
     const requestedScheduledMs = new Date(requestedScheduledAt).getTime();
-    const startMs = isEmergency ? Date.now() : requestedScheduledMs;
+    const startMs =
+      isEmergency || isInstant ? Date.now() : requestedScheduledMs;
     const startDate = new Date(startMs);
 
     const scheduledAt = startDate.toISOString();
-    const effectiveDate = isEmergency ? toLocalDateStr(startDate) : data.date;
-    const effectiveTime = isEmergency ? toLocalTimeStr(startDate) : data.time;
+    const effectiveDate =
+      isEmergency || isInstant ? toLocalDateStr(startDate) : data.date;
+    const effectiveTime =
+      isEmergency || isInstant ? toLocalTimeStr(startDate) : data.time;
 
-    const appointmentId = `apt-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const appointmentId = `apt-${Date.now()}-${Math.random()
+      .toString(36)
+      .slice(2, 8)}`;
 
     const instantWindowMinutes =
       Number(availability.instantTalkWindowMinutes) || 15;
 
-    const durationLabel =
-      data.instantTalk === true
-        ? `${instantWindowMinutes} min`
-        : (data.duration ?? "60 min");
+    const durationLabel = isInstant
+      ? `${instantWindowMinutes} min`
+      : (data.duration ?? "60 min");
     const durationMinutes = Math.round(
       parseDurationToMs(durationLabel) / 60_000,
     );
@@ -329,10 +337,30 @@ export async function POST(request: NextRequest) {
       ? services.find((s: any) => s.id === data.serviceId)
       : null;
 
+    // 🔴 BUG 3 FIX: reject stale serviceId instead of silently
+    // falling back to hourly-rate pricing (which then trips the
+    // amount-mismatch AFTER Paystack already captured money).
+    if (data.serviceId && !service) {
+      logger.warn({
+        uid,
+        medicId: data.medicId,
+        serviceId: data.serviceId,
+        message: "Service not found on medic record",
+      });
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            "This service is no longer available. Please refresh and try again.",
+        },
+        { status: 409 },
+      );
+    }
+
     let expectedAmount = 0;
     if (service) {
       expectedAmount = Number(service.price) || 0;
-    } else if (data.instantTalk === true) {
+    } else if (isInstant) {
       expectedAmount = Math.round(baseRate * (instantWindowMinutes / 60));
     } else {
       // Scheduled online or in-person — hourlyRate × duration.
@@ -340,10 +368,10 @@ export async function POST(request: NextRequest) {
       expectedAmount = Math.round(baseRate * hours);
     }
 
-    if (data.instantTalk === true) {
+    if (isInstant) {
       expectedAmount += Number(availability.instantTalkPremium) || 0;
     }
-    if (data.emergency === true) {
+    if (isEmergency) {
       expectedAmount += Number(availability.emergencyPremium) || 0;
       expectedAmount += Number(pricing.urgentFee) || 0;
     }
@@ -351,9 +379,11 @@ export async function POST(request: NextRequest) {
     //       includes it in `computedPrice`, so adding it here would
     //       always trip the amount-mismatch check for in-person visits.
 
-    // Sanity check — client must match within ₦1
+    // 🔴 BUG 2 FIX: validate whenever we have an expected amount,
+    // not only when baseRate > 0 (fixed-price-only medics have
+    // baseRate === 0 but still need amount validation).
     const clientAmount = Number(data.amount) || 0;
-    if (baseRate > 0 && Math.abs(expectedAmount - clientAmount) > 1) {
+    if (expectedAmount > 0 && Math.abs(expectedAmount - clientAmount) > 1) {
       logger.warn({
         uid,
         medicId: data.medicId,
@@ -365,6 +395,7 @@ export async function POST(request: NextRequest) {
         consultType: data.consultType,
         duration: durationLabel,
         durationMinutes,
+        serviceId: data.serviceId,
         // expose the pricing fields that used to cause mismatches:
         hourlyRate: baseRate,
         onlineRate: pricing.onlineRate,
@@ -383,6 +414,25 @@ export async function POST(request: NextRequest) {
     }
 
     const finalAmount = expectedAmount > 0 ? expectedAmount : clientAmount;
+
+    // 🔴 BUG 1 FIX: if the booking requires money, a payment
+    // reference is mandatory. Otherwise the Paystack block below
+    // is skipped and the appointment is created for free.
+    if (finalAmount > 0 && !data.paymentReference) {
+      logger.warn({
+        uid,
+        medicId: data.medicId,
+        message: "Booking attempted without payment reference",
+        finalAmount,
+      });
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Payment reference is required to complete this booking.",
+        },
+        { status: 402 },
+      );
+    }
 
     // ── Verify Paystack payment server-side ────────────
     if (data.paymentReference) {
@@ -478,7 +528,11 @@ export async function POST(request: NextRequest) {
       patientEmail: patient.email,
       patientName: patient.name,
       patientProfileImage: patient.image,
-      status: isEmergency ? ("inSession" as const) : ("upcoming" as const),
+      // 🔴 BUG 4 FIX: instant sessions start live too.
+      status:
+        isEmergency || isInstant
+          ? ("inSession" as const)
+          : ("upcoming" as const),
       createdAt: new Date().toISOString(),
     };
 
@@ -575,22 +629,25 @@ export async function POST(request: NextRequest) {
     }
 
     // ── Reminder (non-fatal) ──────────────────────────
-    // scheduleAppointmentReminder expects a narrow object,
-    // not the full appointment record.
-    try {
-      await scheduleAppointmentReminder({
-        uid,
-        appointmentId: appointment.id,
-        medicId: appointment.medicId,
-        scheduledAtISO: appointment.scheduledAt,
-      });
-    } catch (e: any) {
-      logger.error({
-        uid,
-        appointmentId,
-        message: "Failed to schedule reminder",
-        errorMessage: e?.message,
-      });
+    // 🔴 BUG 4 FIX: skip reminders for instant sessions —
+    // they're already live, a reminder a few minutes later
+    // would fire after the call has ended.
+    if (!isInstant) {
+      try {
+        await scheduleAppointmentReminder({
+          uid,
+          appointmentId: appointment.id,
+          medicId: appointment.medicId,
+          scheduledAtISO: appointment.scheduledAt,
+        });
+      } catch (e: any) {
+        logger.error({
+          uid,
+          appointmentId,
+          message: "Failed to schedule reminder",
+          errorMessage: e?.message,
+        });
+      }
     }
 
     logger.info({
