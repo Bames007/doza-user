@@ -15,8 +15,9 @@ import UserDashboardSidebar from "./components/UserDashboardSidebar";
 import MiniChatPill from "./components/ui/MiniChatPill";
 import { cn } from "@/app/utils/utils";
 import BubbleTransition from "@/app/components/BubbleTransitions";
+import { useBackGuard } from "@/app/utils/useBackGuard";
+import ExitConfirmModal from "@/app/components/ExitConfirmModal";
 
-// ─── Deep link support ─────────────────────────────────────────
 const VALID_PANELS: PanelId[] = [
   "dashboard",
   "health-tracker",
@@ -53,16 +54,36 @@ function DeepLinkHandler() {
     try {
       const url = new URL(window.location.href);
       url.searchParams.delete("panel");
-      window.history.replaceState({}, "", url.toString());
+
+      // Preserve Next.js App Router state — do NOT pass {} here.
+      window.history.replaceState(window.history.state, "", url.toString());
     } catch {}
   }, [setActivePanel]);
 
   return null;
 }
 
-// ✅ NEW — Global chat pill. Lives inside DashboardProvider so it can
-// call setActivePanel, but rendered as a sibling of the layout so the
-// fixed positioning never fights with overflow/transform on layout divs.
+// ✅ THE ONLY place useBackGuard is mounted.
+function BackButtonGuard() {
+  const { activePanel, setActivePanel } = useDashboard();
+
+  const { showExitConfirm, confirmExit, cancelExit } = useBackGuard({
+    activePanel,
+    rootPanel: "dashboard",
+    onReturnHome: () => setActivePanel("dashboard"),
+  });
+
+  return (
+    <ExitConfirmModal
+      open={showExitConfirm}
+      onConfirm={confirmExit}
+      onCancel={cancelExit}
+      title="CLOSE THE DOZA APP?"
+      body="Are you sure you want to close? Your session stays active — you can come right back."
+    />
+  );
+}
+
 function GlobalChatPill({ isMobile }: { isMobile: boolean }) {
   const { setActivePanel } = useDashboard();
   return (
@@ -80,7 +101,6 @@ export default function DashboardClientWrapper({
   user: User;
   children: ReactNode;
 }) {
-  // ─── Mobile detection — runs BEFORE first paint ──────────────
   const [isMobile, setIsMobile] = useState(false);
   useLayoutEffect(() => {
     const check = () => setIsMobile(window.innerWidth < 768);
@@ -89,14 +109,12 @@ export default function DashboardClientWrapper({
     return () => window.removeEventListener("resize", check);
   }, []);
 
-  // ─── Bubble lifecycle ─────────────────────────────────────────
   const [showBubble, setShowBubble] = useState(true);
   const [bubblePhase, setBubblePhase] = useState<"closing" | "opening">(
     "closing",
   );
   const [closingDone, setClosingDone] = useState(false);
 
-  // ─── Readiness signals ────────────────────────────────────────
   const dashboardReadyRef = useRef(false);
   const minimumHoldRef = useRef(false);
 
@@ -121,7 +139,6 @@ export default function DashboardClientWrapper({
     return () => clearTimeout(t);
   }, []);
 
-  // ─── Phase transitions ───────────────────────────────────────
   const handleAnimationComplete = useCallback(() => {
     if (bubblePhase === "closing") {
       setClosingDone(true);
@@ -156,6 +173,7 @@ export default function DashboardClientWrapper({
     <UserProvider user={user}>
       <DashboardProvider>
         <DeepLinkHandler />
+        <BackButtonGuard />
 
         {showBubble && (
           <BubbleTransition
@@ -183,7 +201,6 @@ export default function DashboardClientWrapper({
           </main>
         </div>
 
-        {/* ✅ NEW — Global chat pill, always available above every panel */}
         <GlobalChatPill isMobile={isMobile} />
       </DashboardProvider>
     </UserProvider>

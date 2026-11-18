@@ -1,6 +1,8 @@
+// app/dashboard/page.tsx
 "use client";
 
 import { useDashboard } from "./DashboardContext";
+
 import DashboardPanel from "./components/panels/DashboardPanel";
 import HealthTrackerPanel from "./components/panels/HealthTrackerPanel";
 import FamilyPanel from "./components/panels/FamilyPanel";
@@ -18,6 +20,14 @@ import AppointmentsPanel from "./components/panels/AppointmentPanel";
 import DozaPanel from "./components/panels/DozaPanel";
 import DozaTherapistPanel from "./components/panels/DozaTherapistPanel";
 import MoodboardHistoryPanel from "./components/panels/MoodBoardHistoryPanel";
+
+// ⚠️ useBackGuard + ExitConfirmModal are mounted ONCE, in
+//    DashboardClientWrapper.tsx (BackButtonGuard).
+//    Do NOT re-import or re-mount them here — a second mount gives
+//    you two popstate listeners, two sentinel history entries, and
+//    two ExitConfirmModals with independent state, which is exactly
+//    the failure mode where "sub-panel back works but dashboard back
+//    closes the page".
 
 export default function DashboardPage() {
   const { activePanel } = useDashboard();

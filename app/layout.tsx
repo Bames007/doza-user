@@ -134,7 +134,8 @@ export default function RootLayout({
 
         <div className="relative min-h-screen flex flex-col">
           <StorageCheckBanner />
-          <main className="flex-grow flex flex-col">{children}</main>
+          {/* Not a <main> — DashboardClientWrapper supplies its own <main id="dashboard-scroll">. */}
+          <div className="flex-grow flex flex-col">{children}</div>
 
           <FloatingFeedbackButton />
 
