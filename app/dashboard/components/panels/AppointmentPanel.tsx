@@ -1,7 +1,13 @@
 // app/dashboard/components/panels/AppointmentsPanel.tsx
 "use client";
 
-import React, { useState, useEffect, useRef, useMemo } from "react";
+import React, {
+  useState,
+  useEffect,
+  useRef,
+  useMemo,
+  useCallback,
+} from "react";
 import useSWR, { mutate } from "swr";
 import { authFetcher } from "@/app/utils/client-auth";
 import { motion, AnimatePresence } from "framer-motion";
@@ -89,6 +95,9 @@ interface Apt {
   rebookedTo?: string;
   rebookedFrom?: string;
   hasMessages?: boolean;
+  lastMessageAt?: number | null;
+  lastMessageSenderRole?: "patient" | "medic" | null;
+  lastMessagePreview?: string | null;
 }
 
 function getScheduledMs(apt: Apt): number {
@@ -200,6 +209,36 @@ const statusConfig: Record<
   },
 };
 
+// ── Past appointment grouping ─────────────────────────
+const MS_DAY = 24 * 60 * 60 * 1000;
+
+function dayStart(ms: number): number {
+  const d = new Date(ms);
+  d.setHours(0, 0, 0, 0);
+  return d.getTime();
+}
+
+type PastGroup = "today" | "yesterday" | "week" | "older";
+
+const PAST_GROUPS: { id: PastGroup; label: string }[] = [
+  { id: "today", label: "Today" },
+  { id: "yesterday", label: "Yesterday" },
+  { id: "week", label: "Last 7 days" },
+  { id: "older", label: "Older" },
+];
+
+function getPastGroup(apt: Apt, now: number): PastGroup {
+  const scheduledMs = getScheduledMs(apt);
+  const todayStart = dayStart(now);
+  const yesterdayStart = todayStart - MS_DAY;
+  const weekStart = todayStart - 7 * MS_DAY;
+
+  if (scheduledMs >= todayStart) return "today";
+  if (scheduledMs >= yesterdayStart) return "yesterday";
+  if (scheduledMs >= weekStart) return "week";
+  return "older";
+}
+
 export default function AppointmentsPanel() {
   const { setActivePanel } = useDashboard();
   const { data: res, isLoading } = useSWR(
@@ -242,6 +281,17 @@ export default function AppointmentsPanel() {
   const [rebookTarget, setRebookTarget] = useState<Apt | null>(null);
 
   const scrollRestoredRef = useRef(false);
+
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent<{ appointmentId: string }>).detail;
+      if (detail?.appointmentId) setOpenChatId(detail.appointmentId);
+    };
+    window.addEventListener("doza:open-appointment-chat", handler);
+    return () =>
+      window.removeEventListener("doza:open-appointment-chat", handler);
+  }, []);
+
   useEffect(() => {
     const el =
       (document.getElementById("dashboard-scroll") as HTMLElement | null) ||
@@ -257,7 +307,7 @@ export default function AppointmentsPanel() {
     return () => el.removeEventListener("scroll", onScroll);
   }, []);
 
-  const { upcoming, past, inSession } = useMemo(() => {
+  const { upcoming, past, inSession, pastGroups } = useMemo(() => {
     const u: Apt[] = [];
     const p: Apt[] = [];
     const s: Apt[] = [];
@@ -269,7 +319,23 @@ export default function AppointmentsPanel() {
     }
     u.sort((a, b) => getScheduledMs(a) - getScheduledMs(b));
     p.sort((a, b) => getScheduledMs(b) - getScheduledMs(a));
-    return { upcoming: u, past: p, inSession: s };
+
+    // Bucket the (already newest-first) past list.
+    const grouped: Record<PastGroup, Apt[]> = {
+      today: [],
+      yesterday: [],
+      week: [],
+      older: [],
+    };
+    for (const a of p) grouped[getPastGroup(a, now)].push(a);
+
+    // Drop empty buckets so the UI doesn't show phantom headers.
+    const pastGroups = PAST_GROUPS.map((g) => ({
+      ...g,
+      items: grouped[g.id],
+    })).filter((g) => g.items.length > 0);
+
+    return { upcoming: u, past: p, inSession: s, pastGroups };
   }, [appointments, now]);
 
   const toggleExpanded = (id: string) => {
@@ -295,11 +361,24 @@ export default function AppointmentsPanel() {
     }
   };
 
-  // When chat closes, refresh appointments so hasMessages updates
-  const handleChatClose = () => {
+  // ─────────────────────────────────────────────────────────────
+  // Memoized so ChatPanel's mount-only history guard doesn't re-run.
+  //
+  // This component ticks `now` every 10s and its `mutate`-driven
+  // re-renders cause `handleChatClose` to be a new function on every
+  // render. When ChatPanel put `onClose` in the deps of its
+  // history-push effect, that meant the effect re-ran every 10s,
+  // each time pushing a new `__chatOpen` history entry — which
+  // eventually broke back navigation AND (through the resulting
+  // state churn) message sending. Wrapping it in `useCallback` keeps
+  // the identity stable across re-renders, which keeps ChatPanel's
+  // mount-only effect from re-running. SWR's `mutate` is stable, so
+  // the empty dep array is correct.
+  // ─────────────────────────────────────────────────────────────
+  const handleChatClose = useCallback(() => {
     setOpenChatId(null);
     mutate("/api/appointments");
-  };
+  }, []);
 
   if (isLoading && appointments.length === 0) return <LoadingState />;
 
@@ -423,17 +502,35 @@ export default function AppointmentsPanel() {
               description="Completed, cancelled, and missed appointments will show here with notes and prescriptions."
             />
           ) : (
-            <div className="space-y-3">
-              {past.map((apt) => (
-                <HistoryCard
-                  key={apt.id}
-                  apt={apt}
-                  now={now}
-                  expanded={expandedIds.has(apt.id)}
-                  onToggle={() => toggleExpanded(apt.id)}
-                  onViewChat={() => setOpenChatId(apt.id)}
-                  onRebook={() => setRebookTarget(apt)}
-                />
+            <div className="space-y-5">
+              {pastGroups.map((group) => (
+                <div key={group.id} className="space-y-3">
+                  <div className="flex items-center gap-2 px-1">
+                    <span className="h-1.5 w-1.5 rounded-full bg-slate-400" />
+                    <h3 className="text-[10px] font-bold uppercase tracking-widest text-slate-500">
+                      {group.label}
+                    </h3>
+                    <span className="text-[10px] font-medium text-slate-400">
+                      {group.items.length}{" "}
+                      {group.items.length === 1
+                        ? "appointment"
+                        : "appointments"}
+                    </span>
+                  </div>
+                  <div className="space-y-3">
+                    {group.items.map((apt) => (
+                      <HistoryCard
+                        key={apt.id}
+                        apt={apt}
+                        now={now}
+                        expanded={expandedIds.has(apt.id)}
+                        onToggle={() => toggleExpanded(apt.id)}
+                        onViewChat={() => setOpenChatId(apt.id)}
+                        onRebook={() => setRebookTarget(apt)}
+                      />
+                    ))}
+                  </div>
+                </div>
               ))}
             </div>
           )}

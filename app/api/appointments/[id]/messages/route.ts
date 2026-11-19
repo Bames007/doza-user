@@ -4,9 +4,46 @@ import { verifySessionCookie } from "@/app/utils/auth";
 import { adminDb } from "@/app/utils/firebaseAdmin";
 import { z } from "zod";
 import logger from "@/app/utils/logger";
+import { notifyNewChatMessage } from "@/app/utils/webpush";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+// ─── Monotonic microsecond-ish timestamp ────────────────
+// Date.now() is only 1 ms; two messages in the same ms would sort by
+// the random ID suffix. We keep a per-process sub-ms sequence so that:
+//   • createdAt is strictly monotonically increasing (float, e.g. 1737…001)
+//   • the message ID embeds the microsecond value so orderByKey() on
+//     RTDB returns the same order limitToLast(100) expects.
+let lastCreatedAtMs = 0;
+let lastCreatedAtSeq = 0;
+
+function nextCreatedAt(): { createdAt: number; createdAtUs: number } {
+  const now = Date.now();
+  if (now === lastCreatedAtMs) {
+    lastCreatedAtSeq++;
+    if (lastCreatedAtSeq >= 1000) {
+      // 1000+ messages in one ms — roll into the next ms rather than
+      // producing fractional .999 collisions.
+      lastCreatedAtMs++;
+      lastCreatedAtSeq = 0;
+    }
+  } else if (now > lastCreatedAtMs) {
+    lastCreatedAtMs = now;
+    lastCreatedAtSeq = 0;
+  } else {
+    // Clock went backwards (NTP). Keep monotonic.
+    lastCreatedAtSeq++;
+    if (lastCreatedAtSeq >= 1000) {
+      lastCreatedAtMs++;
+      lastCreatedAtSeq = 0;
+    }
+  }
+  return {
+    createdAt: lastCreatedAtMs + lastCreatedAtSeq / 1000,
+    createdAtUs: lastCreatedAtMs * 1000 + lastCreatedAtSeq,
+  };
+}
 
 // ─── Deep-strip undefined (Firebase RTDB rejects any undefined) ──
 function stripUndefined<T>(value: T): T {
@@ -72,6 +109,35 @@ async function findAppointmentForMedic(
   return findInList(`doza_medics/${uid}/appointments`, appointmentId);
 }
 
+function humanizeFrequency(f: any, times?: string[]): string {
+  if (f === "once") return "Once daily";
+  if (f === "twice") return "Twice daily";
+  if (f === "thrice") return "3× daily";
+  if (f === "custom" && Array.isArray(times) && times.length) {
+    return times.join(", ");
+  }
+  return typeof f === "string" ? f : "";
+}
+
+function normalizePrescriptionForDisplay(p: any): any {
+  if (!p || !Array.isArray(p.drugs)) return p;
+  return {
+    drugs: p.drugs.map((d: any) => ({
+      name: d.name ?? "",
+      dosage: d.dosage ?? "",
+      frequency: humanizeFrequency(d.frequency, d.times),
+      duration:
+        typeof d.durationDays === "number" && d.durationDays > 0
+          ? `${d.durationDays} day${d.durationDays === 1 ? "" : "s"}`
+          : typeof d.duration === "string"
+            ? d.duration
+            : "",
+      notes: d.instructions ?? d.notes ?? "",
+    })),
+    instructions: p.generalInstructions ?? p.instructions ?? "",
+  };
+}
+
 // ─── Access resolution ────────────────────────────────
 type AccessResult =
   | { role: "patient" | "medic"; meta: any; apt?: undefined }
@@ -126,9 +192,6 @@ async function createMetaFromAppointment(
   let medicId: string | null = null;
 
   if (role === "medic") {
-    // 🔴 FIX 1: the medic-side mirror from /api/appointments POST
-    // writes the field as `patientUid`, not `patientId`. Without
-    // this fallback, medic-first opens of a fresh chat return 500.
     patientId = apt.patientId || apt.patientUid || null;
     medicId = uid;
   } else {
@@ -156,7 +219,7 @@ async function createMetaFromAppointment(
   const meta = stripUndefined({
     patientId,
     patientName: apt.patientName || "Patient",
-    patientProfileImage: apt.patientProfileImage || apt.patientImage || null,
+    patientProfileImage: apt.patientProfileImage || null,
     medicId,
     medicName: apt.medicName || "Your medic",
     medicProfileImage: apt.medicProfileImage || null,
@@ -245,6 +308,7 @@ export async function GET(
         }))
       : [];
 
+    // createdAt is now a monotonic float — sort still works.
     rawMessages.sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
 
     const messages = rawMessages.map((m: any) => {
@@ -261,10 +325,16 @@ export async function GET(
         mediaUrl: hasFile
           ? `/api/appointments/${appointmentId}/files/${m.id}`
           : null,
-        prescriptionData: m.prescriptionData ?? null,
+        // 🟦 Normalize the medic's rich prescription shape into the
+        //    simple shape the user-side PrescriptionBubble expects.
+        prescriptionData:
+          m.mediaType === "prescription" && m.prescriptionData
+            ? normalizePrescriptionForDisplay(m.prescriptionData)
+            : (m.prescriptionData ?? null),
         testsData: m.testsData ?? null,
         noteData: m.noteData ?? null,
         createdAt: m.createdAt,
+        editedAt: m.editedAt ?? null,
       };
     });
 
@@ -309,15 +379,24 @@ const sendMessageSchema = z
           .array(
             z.object({
               name: z.string().min(1).max(120),
-              dosage: z.string().max(80).optional().default(""),
-              frequency: z.string().max(80).optional().default(""),
-              duration: z.string().max(80).optional().default(""),
-              notes: z.string().max(300).optional().default(""),
+              dosage: z.string().min(1).max(80),
+              quantityPerDose: z.number().positive().max(100),
+              totalQuantity: z.number().int().nonnegative().max(10000),
+              durationDays: z.number().int().nonnegative().max(3650),
+              frequency: z.enum(["once", "twice", "thrice", "custom"]),
+              times: z
+                .array(z.string().regex(/^\d{2}:\d{2}$/))
+                .max(10)
+                .default([]),
+              instructions: z.string().max(300).optional().default(""),
             }),
           )
           .min(1)
           .max(20),
-        instructions: z.string().max(1000).optional().default(""),
+        generalInstructions: z.string().max(1000).optional().default(""),
+        prescribedBy: z.string().optional(),
+        prescribedAt: z.string().optional(),
+        centerName: z.string().optional(),
       })
       .optional(),
     testsData: z
@@ -486,7 +565,26 @@ export async function POST(
       }
     }
 
-    const messageId = `msg-${now}-${Math.random().toString(36).slice(2, 8)}`;
+    const finalPrescriptionData =
+      mediaType === "prescription" && prescriptionData
+        ? {
+            drugs: prescriptionData.drugs,
+            generalInstructions: prescriptionData.generalInstructions,
+            prescribedBy: meta.medicName,
+            prescribedAt: new Date(now).toISOString(),
+            centerName: meta.medicName,
+          }
+        : prescriptionData || null;
+
+    // Monotonic sub-ms timestamp + matching message ID.
+    // createdAtUs is a 16-digit integer (ms*1000 + seq). It sorts
+    // lexicographically the same way as createdAt sorts numerically,
+    // so orderByKey() + limitToLast(100) still returns the right slice.
+    const { createdAt, createdAtUs } = nextCreatedAt();
+    const messageId = `msg-${createdAtUs}-${Math.random()
+      .toString(36)
+      .slice(2, 8)}`;
+
     const message = stripUndefined({
       id: messageId,
       senderId: uid,
@@ -497,10 +595,11 @@ export async function POST(
       mediaDurationMs: mediaDurationMs || null,
       fileName: fileName || null,
       fileSize: fileSize || null,
-      prescriptionData: prescriptionData || null,
+      prescriptionData: finalPrescriptionData,
       testsData: testsData || null,
       noteData: noteData || null,
-      createdAt: now,
+      createdAt,
+      editedAt: null,
     });
 
     await adminDb
@@ -512,6 +611,34 @@ export async function POST(
         .ref(`doza/chats/${appointmentId}/meta/status`)
         .set("active");
     }
+
+    const preview = text?.trim()
+      ? text.trim().slice(0, 80)
+      : mediaType === "image"
+        ? "📷 Photo"
+        : mediaType === "voice"
+          ? "🎤 Voice note"
+          : mediaType === "pdf"
+            ? "📄 Document"
+            : mediaType === "prescription"
+              ? "💊 Prescription"
+              : mediaType === "tests"
+                ? "🧪 Lab tests"
+                : mediaType === "note"
+                  ? "📝 Clinical note"
+                  : "New message";
+
+    notifyNewChatMessage({
+      appointmentId,
+      meta: {
+        medicId: meta.medicId,
+        patientId: meta.patientId,
+        medicName: meta.medicName,
+        patientName: meta.patientName,
+      },
+      senderRole: access.role,
+      preview,
+    }).catch(() => {});
 
     return NextResponse.json({ success: true, data: message }, { status: 201 });
   } catch (err: any) {

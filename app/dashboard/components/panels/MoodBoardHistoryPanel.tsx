@@ -1,6 +1,13 @@
 "use client";
 
-import React, { useState, useEffect, useMemo, useRef, Activity } from "react";
+import React, {
+  useState,
+  useEffect,
+  useMemo,
+  useRef,
+  Activity,
+  useCallback,
+} from "react";
 import useSWR from "swr";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -25,12 +32,14 @@ import {
   History,
   ArrowRight,
   ActivityIcon,
+  Share2,
 } from "lucide-react";
 import { useDashboard } from "../../DashboardContext";
 import { useUserContext } from "../../UserContext";
 import { authFetcher } from "@/app/utils/client-auth";
 import { cn } from "@/app/utils/utils";
 import { poppins, bebasNeue } from "@/app/constants";
+import ShareMoodJournalModal from "../modals/ShareMoodJournalModal";
 
 // ─── Constants ────────────────────────────────────────
 const MAX_JOURNAL_LENGTH = 2000;
@@ -171,21 +180,33 @@ function useSpeechToText() {
   const [transcript, setTranscript] = useState("");
   const [error, setError] = useState<string | null>(null);
   const recognitionRef = useRef<any>(null);
+  const startingRef = useRef(false);
 
+  // Feature detect once on mount.
   useEffect(() => {
     if (typeof window === "undefined") return;
     const SR =
       (window as any).SpeechRecognition ||
       (window as any).webkitSpeechRecognition;
-    if (!SR) {
-      setSupported(false);
-      return;
-    }
-    setSupported(true);
+    setSupported(!!SR);
+  }, []);
+
+  // Create a brand-new SpeechRecognition instance. Reusing a cached
+  // instance across sessions is the #1 cause of "Could not start
+  // microphone" — after stop() / abort() the instance stays in a
+  // transient state and the next start() throws InvalidStateError.
+  const createRecognition = useCallback(() => {
+    if (typeof window === "undefined") return null;
+    const SR =
+      (window as any).SpeechRecognition ||
+      (window as any).webkitSpeechRecognition;
+    if (!SR) return null;
+
     const recognition = new SR();
     recognition.continuous = true;
     recognition.interimResults = true;
     recognition.lang = "en-US";
+    recognition.maxAlternatives = 1;
 
     recognition.onresult = (event: any) => {
       let finalT = "";
@@ -200,46 +221,122 @@ function useSpeechToText() {
     };
 
     recognition.onerror = (e: any) => {
-      if (e.error !== "no-speech" && e.error !== "aborted") {
-        setError(e.error || "Microphone error");
+      const code = e?.error || "unknown";
+      // These two are benign — onend will fire normally.
+      if (code !== "no-speech" && code !== "aborted") {
+        setError(
+          code === "not-allowed" || code === "service-not-allowed"
+            ? "Microphone access denied. Allow it in your browser settings."
+            : code === "audio-capture"
+              ? "No microphone detected. Connect one and try again."
+              : code === "network"
+                ? "Network error. Check your connection and try again."
+                : `Voice input error (${code}).`,
+        );
+        console.warn("[SpeechRecognition] error:", code, e);
       }
       setListening(false);
     };
 
-    recognition.onend = () => setListening(false);
-    recognitionRef.current = recognition;
+    recognition.onend = () => {
+      setListening(false);
+      // Clear so the next start() builds a fresh instance.
+      if (recognitionRef.current === recognition) {
+        recognitionRef.current = null;
+      }
+      startingRef.current = false;
+    };
 
-    return () => {
+    recognition.onstart = () => {
+      startingRef.current = false;
+      setListening(true);
+    };
+
+    return recognition;
+  }, []);
+
+  const start = useCallback(() => {
+    if (startingRef.current) return;
+
+    // If a stale instance is still around (e.g. rapid stop → start),
+    // force-abort it before creating a fresh one.
+    if (recognitionRef.current) {
+      try {
+        recognitionRef.current.abort();
+      } catch {}
+      recognitionRef.current = null;
+    }
+
+    const recognition = createRecognition();
+    if (!recognition) {
+      setError("Voice input is not supported in this browser.");
+      setSupported(false);
+      return;
+    }
+
+    recognitionRef.current = recognition;
+    setError(null);
+    setTranscript("");
+    startingRef.current = true;
+
+    try {
+      recognition.start();
+      // onstart will flip listening=true. If the browser skips onstart
+      // (older Safari), fall back to optimistic true.
+      setListening(true);
+    } catch (err: any) {
+      startingRef.current = false;
+      recognitionRef.current = null;
       try {
         recognition.abort();
       } catch {}
-    };
-  }, []);
+      setListening(false);
 
-  const start = () => {
-    if (!recognitionRef.current || listening) return;
-    setError(null);
-    setTranscript("");
-    try {
-      recognitionRef.current.start();
-      setListening(true);
-    } catch {
-      setError("Could not start microphone");
+      const name = err?.name || "";
+      console.error("[SpeechRecognition] start failed:", err);
+
+      if (name === "InvalidStateError") {
+        setError("Microphone is busy. Wait a moment and try again.");
+      } else if (name === "NotAllowedError") {
+        setError("Microphone permission denied.");
+      } else if (name === "NotSupportedError") {
+        setError("Voice input is not supported in this browser.");
+        setSupported(false);
+      } else {
+        setError(
+          "Could not start microphone. Check browser permissions and try again.",
+        );
+      }
     }
-  };
+  }, [createRecognition]);
 
-  const stop = () => {
-    if (!recognitionRef.current) return;
+  const stop = useCallback(() => {
+    if (!recognitionRef.current) {
+      setListening(false);
+      return;
+    }
     try {
       recognitionRef.current.stop();
     } catch {}
-    setListening(false);
-  };
+    // Don't null here — onend fires async and cleans up.
+  }, []);
 
-  const reset = () => {
+  const reset = useCallback(() => {
     setTranscript("");
     setError(null);
-  };
+  }, []);
+
+  // Full cleanup on unmount.
+  useEffect(() => {
+    return () => {
+      if (recognitionRef.current) {
+        try {
+          recognitionRef.current.abort();
+        } catch {}
+        recognitionRef.current = null;
+      }
+    };
+  }, []);
 
   return { supported, listening, transcript, error, start, stop, reset };
 }
@@ -277,6 +374,7 @@ export default function MoodJournalPanel() {
   const [filter, setFilter] = useState<FilterKey>("all");
   const [showFilters, setShowFilters] = useState(false);
 
+  const [showShareModal, setShowShareModal] = useState(false);
   const voice = useSpeechToText();
   const baselineRef = useRef("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -475,14 +573,25 @@ export default function MoodJournalPanel() {
                 })}
               </p>
             </div>
-            {stats && stats.streak > 0 && (
-              <div className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-amber-50 border border-amber-200 rounded-full shrink-0 shadow-2xs">
-                <Flame size={14} className="text-amber-600" />
-                <span className="text-xs font-bold text-amber-800">
-                  {stats.streak}d
-                </span>
-              </div>
-            )}
+            <div className="flex items-center gap-2 shrink-0">
+              {stats && stats.streak > 0 && (
+                <div className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-amber-50 border border-amber-200 rounded-full shadow-2xs">
+                  <Flame size={14} className="text-amber-600" />
+                  <span className="text-xs font-bold text-amber-800">
+                    {stats.streak}d
+                  </span>
+                </div>
+              )}
+              <button
+                type="button"
+                onClick={() => setShowShareModal(true)}
+                aria-label="Share your journaling journey"
+                className="inline-flex items-center gap-1.5 min-h-9 px-3 bg-white text-emerald-700 border border-emerald-200 rounded-full text-xs font-bold hover:bg-emerald-50 active:scale-95 transition-all shadow-2xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:ring-offset-2"
+              >
+                <Share2 size={13} />
+                <span className="hidden sm:inline">Share</span>
+              </button>
+            </div>
           </div>
         </header>
 
@@ -936,6 +1045,12 @@ export default function MoodJournalPanel() {
           </div>
         )}
       </div>
+
+      <AnimatePresence>
+        {showShareModal && (
+          <ShareMoodJournalModal onClose={() => setShowShareModal(false)} />
+        )}
+      </AnimatePresence>
     </motion.div>
   );
 }

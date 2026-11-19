@@ -13,6 +13,8 @@ import { UserProvider, User } from "./UserContext";
 import { DashboardProvider, useDashboard, PanelId } from "./DashboardContext";
 import UserDashboardSidebar from "./components/UserDashboardSidebar";
 import MiniChatPill from "./components/ui/MiniChatPill";
+import PatientNotificationToast from "./components/PatientNotificationToast";
+import { usePatientNotifications } from "./hooks/usePatientNotifications";
 import { cn } from "@/app/utils/utils";
 import BubbleTransition from "@/app/components/BubbleTransitions";
 import { useBackGuard } from "@/app/utils/useBackGuard";
@@ -46,24 +48,36 @@ function DeepLinkHandler() {
 
     const params = new URLSearchParams(window.location.search);
     const panel = params.get("panel");
-    if (!panel) return;
-    if (!VALID_PANELS.includes(panel as PanelId)) return;
+    const appointmentId = params.get("appointmentId");
 
-    setActivePanel(panel as PanelId);
+    if (panel && VALID_PANELS.includes(panel as PanelId)) {
+      setActivePanel(panel as PanelId);
+    }
 
-    try {
-      const url = new URL(window.location.href);
-      url.searchParams.delete("panel");
+    // If a push deep-linked us into a specific chat, open it once mounted.
+    if (appointmentId) {
+      window.setTimeout(() => {
+        window.dispatchEvent(
+          new CustomEvent("doza:open-appointment-chat", {
+            detail: { appointmentId },
+          }),
+        );
+      }, 250);
+    }
 
-      // Preserve Next.js App Router state — do NOT pass {} here.
-      window.history.replaceState(window.history.state, "", url.toString());
-    } catch {}
+    if (panel || appointmentId) {
+      try {
+        const url = new URL(window.location.href);
+        url.searchParams.delete("panel");
+        url.searchParams.delete("appointmentId");
+        window.history.replaceState(window.history.state, "", url.toString());
+      } catch {}
+    }
   }, [setActivePanel]);
 
   return null;
 }
 
-// ✅ THE ONLY place useBackGuard is mounted.
 function BackButtonGuard() {
   const { activePanel, setActivePanel } = useDashboard();
 
@@ -90,6 +104,46 @@ function GlobalChatPill({ isMobile }: { isMobile: boolean }) {
     <MiniChatPill
       isMobile={isMobile}
       onOpenChat={() => setActivePanel("appointment")}
+    />
+  );
+}
+
+// ── NEW: Notification bridge. Mounts the polling hook + toast, and
+//        global listener so OS-notification clicks work from any panel.
+function NotificationBridge() {
+  const { setActivePanel } = useDashboard();
+  const { notifications, dismiss } = usePatientNotifications();
+
+  const handleOpenChat = useCallback(
+    (appointmentId: string) => {
+      setActivePanel("appointment");
+      window.setTimeout(() => {
+        window.dispatchEvent(
+          new CustomEvent("doza:open-appointment-chat", {
+            detail: { appointmentId },
+          }),
+        );
+      }, 100);
+    },
+    [setActivePanel],
+  );
+
+  // Catch OS-notification clicks that fire while user is NOT on the appointment panel.
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent<{ appointmentId: string }>).detail;
+      if (detail?.appointmentId) handleOpenChat(detail.appointmentId);
+    };
+    window.addEventListener("doza:open-appointment-chat", handler);
+    return () =>
+      window.removeEventListener("doza:open-appointment-chat", handler);
+  }, [handleOpenChat]);
+
+  return (
+    <PatientNotificationToast
+      items={notifications}
+      onDismiss={dismiss}
+      onOpenChat={handleOpenChat}
     />
   );
 }
@@ -174,6 +228,7 @@ export default function DashboardClientWrapper({
       <DashboardProvider>
         <DeepLinkHandler />
         <BackButtonGuard />
+        <NotificationBridge />
 
         {showBubble && (
           <BubbleTransition

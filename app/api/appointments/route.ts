@@ -81,6 +81,62 @@ function parseDurationToMs(label: string | null | undefined): number {
   return 60 * 60 * 1000;
 }
 
+function previewFor(msg: any): string | null {
+  if (!msg) return null;
+  if (msg.text) return String(msg.text).slice(0, 80);
+  switch (msg.mediaType) {
+    case "image":
+      return "📷 Photo";
+    case "voice":
+      return "🎤 Voice note";
+    case "pdf":
+      return "📄 Document";
+    case "prescription":
+      return "💊 Prescription";
+    case "tests":
+      return "🧪 Lab tests";
+    case "note":
+      return "📝 Clinical note";
+    default:
+      return "New message";
+  }
+}
+
+async function getChatSummary(appointmentId: string): Promise<{
+  lastMessageAt: number | null;
+  lastMessageSenderRole: "patient" | "medic" | null;
+  lastMessagePreview: string | null;
+}> {
+  try {
+    // No index needed — message IDs are `msg-${createdAt}-...` so
+    // limitToLast(1) on key order returns the newest message.
+    const snap = await adminDb
+      .ref(`doza/chats/${appointmentId}/messages`)
+      .limitToLast(1)
+      .once("value");
+    const val = snap.val();
+    if (!val) {
+      return {
+        lastMessageAt: null,
+        lastMessageSenderRole: null,
+        lastMessagePreview: null,
+      };
+    }
+    const [, msg] = Object.entries(val)[0] as [string, any];
+    return {
+      lastMessageAt: msg?.createdAt ?? null,
+      lastMessageSenderRole: msg?.senderRole ?? null,
+      lastMessagePreview: previewFor(msg),
+    };
+  } catch {
+    return {
+      lastMessageAt: null,
+      lastMessageSenderRole: null,
+      lastMessagePreview: null,
+    };
+  }
+}
+
 function getScheduledMs(apt: any): number {
   if (apt.scheduledAt) return new Date(apt.scheduledAt).getTime();
   if (apt.date && apt.time) {
@@ -195,17 +251,30 @@ export async function GET(request: NextRequest) {
     const enriched = await Promise.all(
       (raw as any[]).map(async (apt) => {
         if (!apt?.id) return apt;
-        if (apt.status === "completed" || apt.status === "cancelled") {
-          return apt;
-        }
+
+        const isTerminal =
+          apt.status === "completed" || apt.status === "cancelled";
+
         const scheduledMs = getScheduledMs(apt);
         const durationMs = parseDurationToMs(apt.duration);
         const endedMs = scheduledMs + durationMs;
+        const isPast = now >= endedMs;
 
-        if (now < endedMs) return apt;
+        // Fetch last-message summary in parallel with the hasMessages check.
+        const [summary, hasMsg] = await Promise.all([
+          getChatSummary(apt.id),
+          // hasMessages is only needed for past, non-terminal appointments
+          // (rebook offer / "session used" badge).
+          isPast && !isTerminal
+            ? hasChatMessages(apt.id)
+            : Promise.resolve(undefined),
+        ]);
 
-        const hasMessages = await hasChatMessages(apt.id);
-        return { ...apt, hasMessages };
+        return {
+          ...apt,
+          ...summary,
+          ...(hasMsg !== undefined ? { hasMessages: hasMsg } : {}),
+        };
       }),
     );
 

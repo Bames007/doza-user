@@ -2,6 +2,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { isChatBackGuarded } from "@/app/utils/chat-seen-state";
 
 interface UseBackGuardOptions {
   activePanel: string;
@@ -52,7 +53,8 @@ export function useBackGuard({
     if (!enabled) return;
     if (typeof window === "undefined") return;
 
-    // Push a sentinel history entry on mount so pressing "Back" triggers popstate instead of leaving
+    // Push a sentinel history entry on mount so pressing "Back" triggers
+    // popstate instead of leaving the app.
     const initSentinel = () => {
       try {
         const state = window.history.state;
@@ -74,6 +76,16 @@ export function useBackGuard({
     const handlePopState = (event: PopStateEvent) => {
       if (confirmedRef.current) {
         log("popstate ignored (already confirmed exit)");
+        return;
+      }
+
+      // 🔴 NEW: if a chat overlay is mounted, it owns the back gesture.
+      //     Its own popstate listener will call onClose(). We must not
+      //     touch history, navigate panels, or show the exit-confirm
+      //     modal — otherwise the user sees the modal behind the chat
+      //     and the chat never closes.
+      if (isChatBackGuarded()) {
+        log("popstate ignored (chat is open)");
         return;
       }
 
@@ -108,7 +120,6 @@ export function useBackGuard({
     setShowExitConfirm(false);
     if (typeof window === "undefined") return;
 
-    // Allow the browser to go back naturally or redirect home/out
     setTimeout(() => {
       try {
         window.history.go(-2); // Step past our sentinel and app history
