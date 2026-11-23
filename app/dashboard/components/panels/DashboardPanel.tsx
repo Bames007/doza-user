@@ -41,6 +41,7 @@ import {
   Plus,
   Smile,
   Stethoscope,
+  Play,
 } from "lucide-react";
 import { useDashboard } from "../../DashboardContext";
 import { authFetcher } from "@/app/utils/client-auth";
@@ -701,7 +702,14 @@ export default function DashboardPanel() {
               icon={HeartPulse}
               onClick={() => setActivePanel("health-tracker")}
             />
-            {/* NEW */}
+            {/* NEW: Workout Session → opens the Challenges panel */}
+            <ActionImageCard
+              image="https://images.unsplash.com/photo-1552674605-db6ffd4facb5?auto=format&fit=crop&w=1200&q=80"
+              title="Start Workout Session"
+              category="Challenges & GPS"
+              icon={Play}
+              onClick={() => setActivePanel("challenges")}
+            />
             <ActionImageCard
               image="https://images.unsplash.com/photo-1622253692010-333f2da6031d?auto=format&fit=crop&w=1200&q=80"
               title="Contact a Medic"

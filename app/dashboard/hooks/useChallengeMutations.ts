@@ -9,7 +9,6 @@ import { challengeSchema, commentSchema } from "@/app/types/schemas";
 import { UserInfo } from "./useProfile";
 
 // Fuzzy invalidate every SWR key that starts with /api/challenges.
-// Works whether the key is a string or a [url, userId] tuple.
 function invalidateChallenges() {
   return mutate(
     (key) => {
@@ -56,13 +55,10 @@ export function useChallengeMutations(user: UserInfo | null) {
       creatorName: user?.fullName || "Anonymous",
       creatorPhoto: user?.avatar || null,
     };
-    const result = await authPost("/api/challenges", payload);
-    if (result.success) {
-      await invalidateChallenges();
-      return true;
-    }
-    alert("Error: " + result.error);
-    return false;
+    // authPost throws ApiError on 4xx/5xx — the caller (modal) handles it.
+    await authPost("/api/challenges", payload);
+    await invalidateChallenges();
+    return true;
   };
 
   const handleJoin = async (challengeId: string, isPublic: boolean) => {

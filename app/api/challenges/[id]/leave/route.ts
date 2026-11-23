@@ -3,10 +3,10 @@ import { verifySessionCookie } from "@/app/utils/auth";
 import { adminDb } from "@/app/utils/firebaseAdmin";
 
 export async function POST(
-  request: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const uid = await verifySessionCookie(request);
+  const uid = await verifySessionCookie(req);
   if (!uid) {
     return NextResponse.json(
       { success: false, error: "Unauthorized" },
@@ -15,20 +15,32 @@ export async function POST(
   }
 
   const { id } = await params;
+  const challengeRef = adminDb.ref(`doza/challenges/${id}`);
 
   try {
-    const challengeRef = adminDb.ref(`doza/challenges/${id}`);
-    const snapshot = await challengeRef.once("value");
-    const challenge = snapshot.val();
+    await challengeRef.transaction((challenge) => {
+      if (!challenge) throw new Error("not_found");
+      if (challenge.creatorId === uid) throw new Error("creator_cannot_leave");
+      if (!challenge.participants?.[uid]) throw new Error("not_participant");
 
-    if (!challenge) {
+      delete challenge.participants[uid];
+      challenge.participantCount = Math.max(
+        0,
+        Object.keys(challenge.participants).length,
+      );
+      return challenge;
+    });
+
+    return NextResponse.json({ success: true });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Unknown error";
+    if (message === "not_found") {
       return NextResponse.json(
         { success: false, error: "Challenge not found" },
         { status: 404 },
       );
     }
-
-    if (challenge.creatorId === uid) {
+    if (message === "creator_cannot_leave") {
       return NextResponse.json(
         {
           success: false,
@@ -37,25 +49,15 @@ export async function POST(
         { status: 400 },
       );
     }
-
-    if (!challenge.participants || !challenge.participants[uid]) {
+    if (message === "not_participant") {
       return NextResponse.json(
         { success: false, error: "You are not a participant" },
         { status: 400 },
       );
     }
-
-    const updates: any = {};
-    updates[`participants/${uid}`] = null;
-    updates.participantCount = (challenge.participantCount || 1) - 1;
-
-    await challengeRef.update(updates);
-
-    return NextResponse.json({ success: true });
-  } catch (error) {
-    console.error("POST leave challenge error:", error);
+    console.error("leave error:", err);
     return NextResponse.json(
-      { success: false, error: "Internal server error" },
+      { success: false, error: "Unable to leave" },
       { status: 500 },
     );
   }

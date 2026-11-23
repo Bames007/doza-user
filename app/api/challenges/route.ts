@@ -3,56 +3,40 @@ import { verifySessionCookie } from "@/app/utils/auth";
 import { adminDb } from "@/app/utils/firebaseAdmin";
 import { z } from "zod";
 import logger from "@/app/utils/logger";
+import { awardPoints } from "@/app/server/awardPoints";
+import { getProfile } from "@/app/server/getProfile";
 
-const ChallengeCreateSchema = z.object({
-  name: z.string().min(3).max(50),
-  description: z.string().min(5).max(250),
-  activity: z.string(),
-  targetValue: z.number().positive(),
-  targetUnit: z.string(),
-  startDate: z.string(),
-  endDate: z.string(),
-  isPublic: z.boolean(),
-  creatorName: z.string().optional(),
-  creatorPhoto: z.string().url().optional().nullable(),
-});
+// ─── Schemas ─────────────────────────────────────────────────
+
+const ChallengeCreateSchema = z
+  .object({
+    name: z.string().min(3).max(50),
+    description: z.string().min(5).max(250),
+    activity: z.string(),
+    targetValue: z.number().positive(),
+    targetUnit: z.string(),
+    startDate: z.string(),
+    endDate: z.string(),
+    isPublic: z.boolean(),
+    imageUrl: z
+      .string()
+      .optional()
+      .nullable()
+      .refine((v) => !v || /^https?:\/\/.+/.test(v), {
+        message: "imageUrl must be a valid http(s) URL",
+      }),
+    invitedEmails: z.string().optional().nullable(),
+  })
+  .refine((d) => new Date(d.endDate) > new Date(d.startDate), {
+    message: "End date must be after start date",
+    path: ["endDate"],
+  });
 
 function generateInviteCode() {
   return Math.random().toString(36).substring(2, 8).toUpperCase();
 }
 
-async function awardPoints(
-  uid: string,
-  points: number,
-  reason: string,
-  challengeId: string | null,
-) {
-  if (!challengeId) return;
-
-  const pointsRef = adminDb.ref(`doza/users/${uid}/points`);
-  const pointsSnap = await pointsRef.once("value");
-  const currentPoints = pointsSnap.val() || { total: 0, history: [] };
-
-  const newTotal = currentPoints.total + points;
-  const entry = {
-    points,
-    reason,
-    challengeId,
-    timestamp: Date.now(),
-  };
-
-  await pointsRef.set({
-    total: newTotal,
-    history: [...(currentPoints.history || []), entry],
-  });
-
-  const leaderboardRef = adminDb.ref("doza/leaderboard");
-  await leaderboardRef.child(uid).set({
-    uid,
-    totalPoints: newTotal,
-    updatedAt: Date.now(),
-  });
-}
+// ─── GET ─────────────────────────────────────────────────────
 
 export async function GET(request: NextRequest) {
   const uid = await verifySessionCookie(request);
@@ -64,21 +48,13 @@ export async function GET(request: NextRequest) {
   }
 
   const { searchParams } = new URL(request.url);
-  const type = searchParams.get("type");
-  const visibility = searchParams.get("visibility");
-  const search = searchParams.get("search") || "";
+  const type = searchParams.get("type"); // "my" or null
+  const visibility = searchParams.get("visibility"); // "public" or null
+  const search = (searchParams.get("search") || "").toLowerCase();
   const activity = searchParams.get("activity") || "";
 
   try {
-    let challengesRef: any = adminDb.ref("doza/challenges");
-
-    if (visibility === "public") {
-      challengesRef = challengesRef.orderByChild("isPublic").equalTo(true);
-    } else if (type === "my") {
-      challengesRef = challengesRef.limitToLast(100);
-    }
-
-    const snapshot = await challengesRef.once("value");
+    const snapshot = await adminDb.ref("doza/challenges").once("value");
     const allChallenges = snapshot.val() || {};
 
     let challenges = Object.entries(allChallenges).map(([id, data]) => ({
@@ -86,6 +62,15 @@ export async function GET(request: NextRequest) {
       ...(data as any),
     }));
 
+    // Privacy gate: hide private challenges the user isn't involved in
+    challenges = challenges.filter(
+      (c: any) =>
+        c.isPublic === true ||
+        c.creatorId === uid ||
+        (c.participants && c.participants[uid]),
+    );
+
+    // type=my → only challenges the user created or joined
     if (type === "my") {
       challenges = challenges.filter(
         (c: any) =>
@@ -93,9 +78,14 @@ export async function GET(request: NextRequest) {
       );
     }
 
+    // visibility=public → only public challenges
+    if (visibility === "public") {
+      challenges = challenges.filter((c: any) => c.isPublic === true);
+    }
+
     if (search) {
       challenges = challenges.filter((c: any) =>
-        c.name?.toLowerCase().includes(search.toLowerCase()),
+        (c.name || "").toLowerCase().includes(search),
       );
     }
 
@@ -103,7 +93,11 @@ export async function GET(request: NextRequest) {
       challenges = challenges.filter((c: any) => c.activity === activity);
     }
 
-    return NextResponse.json({ success: true, data: challenges.reverse() });
+    challenges.sort(
+      (a: any, b: any) => (b.createdAt || 0) - (a.createdAt || 0),
+    );
+
+    return NextResponse.json({ success: true, data: challenges });
   } catch (error) {
     logger.error({
       uid,
@@ -116,6 +110,8 @@ export async function GET(request: NextRequest) {
     );
   }
 }
+
+// ─── POST ────────────────────────────────────────────────────
 
 export async function POST(request: NextRequest) {
   const uid = await verifySessionCookie(request);
@@ -140,6 +136,7 @@ export async function POST(request: NextRequest) {
         {
           success: false,
           error: "Invalid challenge data",
+          code: "VALIDATION_ERROR",
           details: result.error.flatten(),
         },
         { status: 400 },
@@ -149,7 +146,7 @@ export async function POST(request: NextRequest) {
     const body = result.data;
     const challengesRef = adminDb.ref("doza/challenges");
 
-    // Check 5-challenge limit
+    // 5-active-challenge limit
     const snapshot = await challengesRef
       .orderByChild("creatorId")
       .equalTo(uid)
@@ -165,39 +162,59 @@ export async function POST(request: NextRequest) {
         {
           success: false,
           error: "You can only have 5 active challenges at a time",
+          code: "ACTIVE_LIMIT",
+          meta: { activeChallenges, limit: 5 },
         },
         { status: 400 },
       );
     }
 
-    // Check cooldown (1 challenge per 24 hours)
+    // 24h cooldown
     const lastCreated = Object.values(existingChallenges)
       .filter((c: any) => c.creatorId === uid)
-      .sort((a: any, b: any) => b.createdAt - a.createdAt)[0] as any;
+      .sort((a: any, b: any) => (b.createdAt || 0) - (a.createdAt || 0))[0] as
+      | any
+      | undefined;
 
-    if (lastCreated && Date.now() - lastCreated.createdAt < 86400000) {
+    if (lastCreated && Date.now() - (lastCreated.createdAt || 0) < 86400000) {
+      const nextAllowedAt = (lastCreated.createdAt || 0) + 86400000;
       return NextResponse.json(
-        { success: false, error: "You can only create one challenge per day" },
+        {
+          success: false,
+          error: "You can only create one challenge per day",
+          code: "DAILY_LIMIT",
+          meta: { nextAllowedAt },
+        },
         { status: 400 },
       );
     }
 
+    const profile = await getProfile(uid);
     const newChallengeRef = challengesRef.push();
-    const challengeId = newChallengeRef.key;
+    const challengeId = newChallengeRef.key as string;
 
     const challengeData: any = {
-      ...body,
+      name: body.name,
+      description: body.description,
+      activity: body.activity,
+      targetValue: body.targetValue,
+      targetUnit: body.targetUnit,
+      startDate: body.startDate,
+      endDate: body.endDate,
+      isPublic: body.isPublic,
+      imageUrl: body.imageUrl || null,
+      invitedEmails: body.invitedEmails || null,
       id: challengeId,
       creatorId: uid,
-      creatorName: body.creatorName || "Anonymous",
-      creatorPhoto: body.creatorPhoto || null,
+      creatorName: profile.name,
+      creatorPhoto: profile.photo,
       createdAt: Date.now(),
       participantCount: 1,
       participants: {
         [uid]: {
           userId: uid,
-          name: body.creatorName || "Anonymous",
-          photo: body.creatorPhoto || null,
+          name: profile.name,
+          photo: profile.photo,
           joinedAt: Date.now(),
           progress: 0,
           completed: false,
@@ -224,10 +241,7 @@ export async function POST(request: NextRequest) {
     }
 
     await newChallengeRef.set(challengeData);
-
-    if (challengeId) {
-      await awardPoints(uid, 20, "challenge_created", challengeId);
-    }
+    await awardPoints(uid, 20, "challenge_created", challengeId);
 
     logger.info({ uid, challengeId, message: "Challenge created" });
     return NextResponse.json({

@@ -1,6 +1,9 @@
+// api/challenges/[id]/comments/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { verifySessionCookie } from "@/app/utils/auth";
 import { adminDb } from "@/app/utils/firebaseAdmin";
+
+const VALID_TYPES = new Set(["comment", "share"]);
 
 export async function POST(
   request: NextRequest,
@@ -18,11 +21,20 @@ export async function POST(
 
   try {
     const body = await request.json();
-    const { text } = body;
+    const { text, type, shareUrl, shareMethod } = body ?? {};
 
-    if (!text) {
+    const entryType = VALID_TYPES.has(type) ? type : "comment";
+
+    if (entryType === "comment" && (!text || !text.trim())) {
       return NextResponse.json(
         { success: false, error: "Missing comment text" },
+        { status: 400 },
+      );
+    }
+
+    if (entryType === "share" && (!shareUrl || typeof shareUrl !== "string")) {
+      return NextResponse.json(
+        { success: false, error: "Missing shareUrl" },
         { status: 400 },
       );
     }
@@ -40,7 +52,7 @@ export async function POST(
 
     if (!challenge.participants || !challenge.participants[uid]) {
       return NextResponse.json(
-        { success: false, error: "Only participants can comment" },
+        { success: false, error: "Only participants can post" },
         { status: 403 },
       );
     }
@@ -54,13 +66,21 @@ export async function POST(
     const newCommentRef = commentsRef.push();
     const commentId = newCommentRef.key;
 
-    const commentData = {
+    const commentData: any = {
       authorId: uid,
       authorName: userName,
       authorImage: userPhoto,
-      text,
+      text:
+        (text && String(text).trim()) ||
+        `Shared this challenge via ${shareMethod || "link"}`,
       timestamp: Date.now(),
+      type: entryType,
     };
+
+    if (entryType === "share") {
+      commentData.shareUrl = shareUrl;
+      commentData.shareMethod = shareMethod || "link";
+    }
 
     await newCommentRef.set(commentData);
 

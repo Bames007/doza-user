@@ -1,6 +1,7 @@
 // app/dashboard/components/panels/SocialChallengesPanel.tsx
 "use client";
 
+import { useEffect, useState } from "react";
 import { useUser } from "@/app/dashboard/hooks/useProfile";
 import { useDashboard } from "../../DashboardContext";
 import { useChallenges } from "../../hooks/useChallenge";
@@ -64,8 +65,20 @@ export default function SocialChallengesPanel() {
     handleAddComment,
   } = useChallengeMutations(user);
 
+  // ── Show the skeleton ONLY on the very first load ───────────
+  // After data has arrived once, later `isLoading` flips (from
+  // search/filter refetches) must NOT unmount the panel —
+  // otherwise the search input loses focus and the whole page
+  // flashes into the skeleton on every keystroke.
+  const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
+  useEffect(() => {
+    if (!userLoading && !isLoading) setHasLoadedOnce(true);
+  }, [userLoading, isLoading]);
+
   // ─── SKELETON ──────────────────────────────────────────────
-  if (userLoading || isLoading) return <ChallengesSkeletonLoader />;
+  if (userLoading || (isLoading && !hasLoadedOnce)) {
+    return <ChallengesSkeletonLoader />;
+  }
 
   // ─── SAFE FALLBACK ─────────────────────────────────────────
   if (!user) {
@@ -80,6 +93,10 @@ export default function SocialChallengesPanel() {
   const isCreator = (challenge: any) => challenge.creatorId === user.id;
   const isParticipant = (challenge: any) =>
     challenge.participants && !!challenge.participants[user.id];
+
+  // Result count must match what the grid actually renders
+  const filteredCount =
+    filteredChallenges.ongoing.length + filteredChallenges.ended.length;
 
   return (
     <div className="min-h-screen bg-[#F8FAFC] pb-24 sm:pb-28 lg:pb-32 pt-4 sm:pt-5 lg:pt-6">
@@ -132,7 +149,7 @@ export default function SocialChallengesPanel() {
               setSelectedActivity("");
               setMonthFilter("all");
             }}
-            resultCount={discoverChallenges.length}
+            resultCount={filteredCount}
           />
         )}
 
@@ -173,30 +190,26 @@ export default function SocialChallengesPanel() {
         )}
 
         {/* ─── EMPTY — DISCOVER ────────────────────────────────── */}
-        {activeTab === "discover" &&
-          filteredChallenges.ongoing.length === 0 &&
-          filteredChallenges.ended.length === 0 && (
-            <EmptyState
-              icon={<Globe className="w-10 h-10 text-slate-400" />}
-              title="No health challenges found"
-              description="We couldn't find matches. Try adjusting your search keywords, or create a brand new one yourself!"
-              action={() => setShowCreateModal(true)}
-              actionLabel="Create Challenge"
-            />
-          )}
+        {activeTab === "discover" && filteredCount === 0 && (
+          <EmptyState
+            icon={<Globe className="w-10 h-10 text-slate-400" />}
+            title="No health challenges found"
+            description="We couldn't find matches. Try adjusting your search keywords, or create a brand new one yourself!"
+            action={() => setShowCreateModal(true)}
+            actionLabel="Create Challenge"
+          />
+        )}
 
         {/* ─── EMPTY — MY ──────────────────────────────────────── */}
-        {activeTab === "my" &&
-          filteredChallenges.ongoing.length === 0 &&
-          filteredChallenges.ended.length === 0 && (
-            <EmptyState
-              icon={<Users className="w-10 h-10 text-slate-400" />}
-              title="You haven't joined any groups yet"
-              description="Staying active together is easier! Join an open group challenge or start a private one."
-              action={() => setActiveTab("discover")}
-              actionLabel="Discover Challenges"
-            />
-          )}
+        {activeTab === "my" && filteredCount === 0 && (
+          <EmptyState
+            icon={<Users className="w-10 h-10 text-slate-400" />}
+            title="You haven't joined any groups yet"
+            description="Staying active together is easier! Join an open group challenge or start a private one."
+            action={() => setActiveTab("discover")}
+            actionLabel="Discover Challenges"
+          />
+        )}
       </div>
 
       {/* ─── OVERLAYS ──────────────────────────────────────────── */}

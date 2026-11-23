@@ -2,6 +2,27 @@
 import logger from "./logger";
 
 // -------------------------------------------------------------------
+// Typed error — carries status, machine-readable code, and meta
+// -------------------------------------------------------------------
+export class ApiError extends Error {
+  status: number;
+  code?: string;
+  meta?: Record<string, unknown>;
+  constructor(
+    message: string,
+    status: number,
+    code?: string,
+    meta?: Record<string, unknown>,
+  ) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+    this.code = code;
+    this.meta = meta;
+  }
+}
+
+// -------------------------------------------------------------------
 // 1. Helper – read user identity from localStorage (for headers only)
 // -------------------------------------------------------------------
 function getUserIdentity(): { id: string; name: string; role: string } {
@@ -42,6 +63,28 @@ async function buildHeaders(extraHeaders?: Record<string, string>) {
 }
 
 // -------------------------------------------------------------------
+// Shared 4xx/5xx logger — 4xx is a client problem (warn), 5xx is ours (error)
+// -------------------------------------------------------------------
+function logHttpFailure(
+  method: string,
+  url: string,
+  status: number,
+  code?: string,
+) {
+  if (status >= 400 && status < 500) {
+    logger.warn(
+      { url, status, code },
+      `${method} rejected: ${url} (${status})`,
+    );
+  } else {
+    logger.error(
+      { url, status },
+      `${method} request failed: ${url} (${status})`,
+    );
+  }
+}
+
+// -------------------------------------------------------------------
 // 3. authFetcher – with offline handling & smarter 401 guard
 // -------------------------------------------------------------------
 export async function authFetcher(url: string, options?: RequestInit) {
@@ -54,17 +97,15 @@ export async function authFetcher(url: string, options?: RequestInit) {
     res = await fetch(url, {
       ...options,
       headers,
-      credentials: "include", // ← always send cookies
+      credentials: "include", // always send cookies
     });
-  } catch (fetchError: any) {
-    // Network offline – no response at all
+  } catch {
     logger.warn({ url }, "Network error – likely offline");
     throw new Error("NETWORK_OFFLINE");
   }
 
-  // Try to parse response body
   const text = await res.text();
-  let result;
+  let result: any;
   try {
     result = JSON.parse(text);
   } catch {
@@ -72,21 +113,19 @@ export async function authFetcher(url: string, options?: RequestInit) {
   }
 
   if (!res.ok) {
-    // Log the error for debugging
-    logger.error(
-      { url, status: res.status, body: text.substring(0, 200) },
-      `API request failed: ${url} (${res.status})`,
+    logHttpFailure(
+      (options?.method || "GET").toUpperCase(),
+      url,
+      res.status,
+      result?.code,
     );
 
-    // 🔐 Session expired or missing – but avoid redirect loops
     if (res.status === 401 && typeof window !== "undefined") {
-      // Skip redirect for auth endpoints and if already on login page
       const isAuthEndpoint = url.includes("/api/auth/");
       const isLoginPage = window.location.pathname === "/login";
       const isHomePage = window.location.pathname === "/";
 
       if (!isAuthEndpoint && !isLoginPage && !isHomePage) {
-        // Clear stale user data
         localStorage.removeItem("userSession");
         localStorage.removeItem("userId");
         localStorage.removeItem("userName");
@@ -96,18 +135,16 @@ export async function authFetcher(url: string, options?: RequestInit) {
       throw new Error("AUTH_REQUIRED");
     }
 
-    // Other server errors
-    throw new Error(
-      result.error ||
-        `HTTP ${res.status}: ${text.substring(0, 100)}${text.length > 100 ? "…" : ""}`,
-    );
+    const message =
+      result?.error || result?.message || `Request failed (${res.status})`;
+    throw new ApiError(message, res.status, result?.code, result?.meta);
   }
 
   return result;
 }
 
 // -------------------------------------------------------------------
-// 4. Other HTTP methods (with same 401 guard)
+// 4. POST / PUT / DELETE
 // -------------------------------------------------------------------
 export async function authPost(url: string, data?: any) {
   const { headers } = await buildHeaders();
@@ -122,12 +159,12 @@ export async function authPost(url: string, data?: any) {
   } catch {
     throw new Error("NETWORK_OFFLINE");
   }
-  const result = await res.json();
+
+  const result = await res.json().catch(() => ({}) as any);
+
   if (!res.ok) {
-    logger.error(
-      { url, status: res.status },
-      `POST request failed: ${url} (${res.status})`,
-    );
+    logHttpFailure("POST", url, res.status, result?.code);
+
     if (res.status === 401 && typeof window !== "undefined") {
       const isAuthEndpoint = url.includes("/api/auth/");
       const isLoginPage = window.location.pathname === "/login";
@@ -137,8 +174,12 @@ export async function authPost(url: string, data?: any) {
       }
       throw new Error("AUTH_REQUIRED");
     }
-    throw new Error(`HTTP ${res.status}: ${result.error || res.statusText}`);
+
+    const message =
+      result?.error || result?.message || res.statusText || "Request failed";
+    throw new ApiError(message, res.status, result?.code, result?.meta);
   }
+
   return result;
 }
 
@@ -155,12 +196,12 @@ export async function authPut(url: string, data?: any) {
   } catch {
     throw new Error("NETWORK_OFFLINE");
   }
-  const result = await res.json();
+
+  const result = await res.json().catch(() => ({}) as any);
+
   if (!res.ok) {
-    logger.error(
-      { url, status: res.status },
-      `PUT request failed: ${url} (${res.status})`,
-    );
+    logHttpFailure("PUT", url, res.status, result?.code);
+
     if (res.status === 401 && typeof window !== "undefined") {
       const isAuthEndpoint = url.includes("/api/auth/");
       const isLoginPage = window.location.pathname === "/login";
@@ -170,8 +211,12 @@ export async function authPut(url: string, data?: any) {
       }
       throw new Error("AUTH_REQUIRED");
     }
-    throw new Error(`HTTP ${res.status}: ${result.error || res.statusText}`);
+
+    const message =
+      result?.error || result?.message || res.statusText || "Request failed";
+    throw new ApiError(message, res.status, result?.code, result?.meta);
   }
+
   return result;
 }
 
@@ -187,12 +232,12 @@ export async function authDelete(url: string) {
   } catch {
     throw new Error("NETWORK_OFFLINE");
   }
-  const result = await res.json();
+
+  const result = await res.json().catch(() => ({}) as any);
+
   if (!res.ok) {
-    logger.error(
-      { url, status: res.status },
-      `DELETE request failed: ${url} (${res.status})`,
-    );
+    logHttpFailure("DELETE", url, res.status, result?.code);
+
     if (res.status === 401 && typeof window !== "undefined") {
       const isAuthEndpoint = url.includes("/api/auth/");
       const isLoginPage = window.location.pathname === "/login";
@@ -202,7 +247,11 @@ export async function authDelete(url: string) {
       }
       throw new Error("AUTH_REQUIRED");
     }
-    throw new Error(`HTTP ${res.status}: ${result.error || res.statusText}`);
+
+    const message =
+      result?.error || result?.message || res.statusText || "Request failed";
+    throw new ApiError(message, res.status, result?.code, result?.meta);
   }
+
   return result;
 }

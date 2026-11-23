@@ -3,9 +3,10 @@ import { verifySessionCookie } from "@/app/utils/auth";
 import { adminDb } from "@/app/utils/firebaseAdmin";
 import { z } from "zod";
 import logger from "@/app/utils/logger";
+import { awardPoints, awardPointsOnce } from "@/app/server/awardPoints";
 
 const progressSchema = z.object({
-  progress: z.number().min(0),
+  progress: z.number().min(0).max(100000),
 });
 
 export async function POST(
@@ -25,7 +26,6 @@ export async function POST(
   try {
     const body = await request.json();
     const parseResult = progressSchema.safeParse(body);
-
     if (!parseResult.success) {
       return NextResponse.json(
         { success: false, error: "Invalid progress value" },
@@ -52,14 +52,29 @@ export async function POST(
       );
     }
 
+    const now = Date.now();
+    const start = new Date(challenge.startDate).getTime();
+    const end = new Date(challenge.endDate).getTime();
+
+    if (now < start || now > end) {
+      return NextResponse.json(
+        { success: false, error: "Challenge is not active" },
+        { status: 400 },
+      );
+    }
+
+    if (progress > challenge.targetValue * 2) {
+      return NextResponse.json(
+        { success: false, error: "Progress exceeds allowed range" },
+        { status: 400 },
+      );
+    }
+
     const oldProgress = challenge.participants[uid].progress || 0;
     const progressIncrease = progress - oldProgress;
 
-    await challengeRef.update({
-      [`participants/${uid}/progress`]: progress,
-    });
+    await challengeRef.update({ [`participants/${uid}/progress`]: progress });
 
-    // Award points for progress (1 point per unit of progress)
     if (progressIncrease > 0) {
       await awardPoints(
         uid,
@@ -69,14 +84,12 @@ export async function POST(
       );
     }
 
-    // Check if challenge completed
-    if (progress >= challenge.targetValue) {
-      await challengeRef.update({
-        [`participants/${uid}/completed`]: true,
-      });
-
-      // Bonus completion points
-      await awardPoints(uid, 50, "challenge_completed", id);
+    if (
+      progress >= challenge.targetValue &&
+      !challenge.participants[uid].completed
+    ) {
+      await challengeRef.update({ [`participants/${uid}/completed`]: true });
+      await awardPointsOnce(uid, 50, "challenge_completed", id);
     }
 
     logger.info({
@@ -98,30 +111,4 @@ export async function POST(
       { status: 500 },
     );
   }
-}
-
-async function awardPoints(
-  uid: string,
-  points: number,
-  reason: string,
-  challengeId: string,
-) {
-  const pointsRef = adminDb.ref(`doza/users/${uid}/points`);
-  const pointsSnap = await pointsRef.once("value");
-  const currentPoints = pointsSnap.val() || { total: 0, history: [] };
-
-  const newTotal = currentPoints.total + points;
-  await pointsRef.set({
-    total: newTotal,
-    history: [
-      ...(currentPoints.history || []),
-      { points, reason, challengeId, timestamp: Date.now() },
-    ],
-  });
-
-  await adminDb.ref("doza/leaderboard").child(uid).set({
-    uid,
-    totalPoints: newTotal,
-    updatedAt: Date.now(),
-  });
 }
