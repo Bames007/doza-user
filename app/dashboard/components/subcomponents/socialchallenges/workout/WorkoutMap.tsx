@@ -1,5 +1,6 @@
 "use client";
 import { useEffect } from "react";
+import L from "leaflet";
 import {
   MapContainer,
   TileLayer,
@@ -12,6 +13,26 @@ import "leaflet/dist/leaflet.css";
 import "leaflet-defaulticon-compatibility/dist/leaflet-defaulticon-compatibility.css";
 import "leaflet-defaulticon-compatibility";
 
+const runnerIcon = L.divIcon({
+  className: "",
+  iconSize: [34, 34],
+  iconAnchor: [17, 17],
+  html: `
+    <div style="width:34px;height:34px;background:#ffffff;border-radius:50%;border:3px solid #10b981;box-shadow:0 3px 10px rgba(16,185,129,0.55);display:flex;align-items:center;justify-content:center;">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="#10b981" xmlns="http://www.w3.org/2000/svg">
+        <circle cx="16" cy="4.5" r="2.2"/>
+        <path d="M15 8l-4 2-2.2 4 1.7 1 2-3 2 1.8 1.2 3.7 1.8-.8-1.5-4.5 2.8 1 1-1.8-3.3-1.4z"/>
+      </svg>
+    </div>`,
+});
+
+const startIcon = L.divIcon({
+  className: "",
+  iconSize: [18, 18],
+  iconAnchor: [9, 9],
+  html: `<div style="width:18px;height:18px;background:#10b981;border:3px solid #ffffff;border-radius:50%;box-shadow:0 2px 6px rgba(0,0,0,0.35);"></div>`,
+});
+
 function FollowPosition({ position }: { position?: [number, number] | null }) {
   const map = useMap();
   useEffect(() => {
@@ -19,9 +40,7 @@ function FollowPosition({ position }: { position?: [number, number] | null }) {
     if (position[0] === 0 && position[1] === 0) return;
     const c = map.getCenter();
     const delta = Math.abs(c.lat - position[0]) + Math.abs(c.lng - position[1]);
-    if (delta > 0.0005) {
-      map.panTo(position, { animate: true, duration: 0.5 });
-    }
+    if (delta > 0.0005) map.panTo(position, { animate: true, duration: 0.5 });
   }, [position, map]);
   return null;
 }
@@ -48,12 +67,15 @@ export function WorkoutMap({
   trackingState,
   error,
   onRetry,
+  frozen = false,
 }: {
   route: Array<{ lat: number; lng: number }>;
   current?: { lat: number; lng: number };
   trackingState?: "idle" | "active" | "paused" | "completed";
   error?: string | null;
   onRetry?: () => void;
+  /** When true, stop following (used for the post-run summary view). */
+  frozen?: boolean;
 }) {
   const points: [number, number][] = route.map((p) => [p.lat, p.lng]);
   const lastPoint: [number, number] | null =
@@ -61,9 +83,9 @@ export function WorkoutMap({
   const currentTuple: [number, number] | null = current
     ? [current.lat, current.lng]
     : lastPoint;
+  const startPoint = points[0] ?? null;
 
   if (!currentTuple) {
-    // ── 1. Error — the tracker gave up or was rejected ──
     if (error) {
       return (
         <div className="h-full w-full flex flex-col items-center justify-center gap-3 bg-slate-100 px-6">
@@ -85,8 +107,6 @@ export function WorkoutMap({
         </div>
       );
     }
-
-    // ── 2. Not started yet — clear "tap Start" message ──
     if (!trackingState || trackingState === "idle") {
       return (
         <div className="h-full w-full flex flex-col items-center justify-center gap-3 bg-slate-100 px-6">
@@ -100,8 +120,6 @@ export function WorkoutMap({
         </div>
       );
     }
-
-    // ── 3. Active/paused but no fix yet — the "waiting" state ──
     return (
       <div className="h-full w-full flex flex-col items-center justify-center gap-3 bg-slate-100 px-6">
         <div className="relative">
@@ -110,10 +128,6 @@ export function WorkoutMap({
         </div>
         <p className="text-xs font-semibold text-slate-600">
           Acquiring GPS fix…
-        </p>
-        <p className="text-[10px] text-slate-400 text-center max-w-xs">
-          Move to an open area and keep the app in the foreground. If this
-          hangs, tap Retry.
         </p>
         {onRetry && (
           <button
@@ -140,13 +154,20 @@ export function WorkoutMap({
         url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
       />
       {points.length > 1 && (
-        <Polyline
-          positions={points}
-          pathOptions={{ color: "#10b981", weight: 4 }}
-        />
+        <>
+          <Polyline
+            positions={points}
+            pathOptions={{ color: "#10b981", weight: 5, opacity: 0.95 }}
+          />
+          <Polyline
+            positions={points}
+            pathOptions={{ color: "#34d399", weight: 2, opacity: 0.9 }}
+          />
+        </>
       )}
-      <Marker position={currentTuple} />
-      <FollowPosition position={currentTuple} />
+      {startPoint && <Marker position={startPoint} icon={startIcon} />}
+      <Marker position={currentTuple} icon={runnerIcon} />
+      {!frozen && <FollowPosition position={currentTuple} />}
       <MapResizer />
     </MapContainer>
   );

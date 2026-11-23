@@ -45,8 +45,9 @@ import { UserInfo } from "@/app/dashboard/hooks/useProfile";
 import { useChallengeSharing } from "@/app/dashboard/hooks/useChallengeSharing";
 import type { WorkoutSnapshot } from "@/app/dashboard/hooks/useWorkoutTracker";
 import { LiveWorkoutPanel } from "./LiveWorkoutPanel";
-import { WorkoutScorecard } from "./workout/WorkoutScorecard";
+// import { WorkoutScorecard } from "./workout/WorkoutScorecard";
 import ShareChallengeModal from "./ShareChallengesModal";
+import { WorkoutSummary } from "./workout/WorkoutSummary";
 
 const FOCUS =
   "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:ring-offset-2";
@@ -1040,13 +1041,23 @@ export function ChallengeDetail({
       )}
 
       {/* ─── SESSION SCORECARD ──────────────────────────────── */}
-      {pendingSession && (
+      {/* {pendingSession && (
         <WorkoutScorecard
           session={pendingSession}
           challengeName={challenge.name}
           isSaving={isSaving}
           onDiscard={() => setPendingSession(null)}
           onSave={handleSessionSave}
+        />
+      )} */}
+
+      {pendingSession && (
+        <WorkoutSummary
+          session={pendingSession}
+          challengeName={challenge.name}
+          isSaving={isSaving}
+          onSave={handleSessionSave}
+          onDiscard={() => setPendingSession(null)}
         />
       )}
 

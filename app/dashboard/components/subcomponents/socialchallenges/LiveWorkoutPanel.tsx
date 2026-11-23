@@ -2,7 +2,7 @@
 import { useEffect, useRef } from "react";
 import dynamic from "next/dynamic";
 import { motion } from "framer-motion";
-import { Play, Pause, Square, Volume2, VolumeX } from "lucide-react";
+import { Play, Pause, Square, Volume2, VolumeX, Check } from "lucide-react";
 import { cn } from "@/app/utils/utils";
 import {
   useWorkoutTracker,
@@ -35,19 +35,14 @@ export function LiveWorkoutPanel({
   const { speak } = useVoiceCoach({ enabled: voiceEnabled });
   const lastMilestoneRef = useRef(0);
 
-  // Voice milestones — 100 m warm-up cue, then every whole km.
   useEffect(() => {
     if (tracker.state !== "active") return;
     const metres = tracker.distanceMeters;
-
-    // First 100 m → confirms the voice coach is alive (iOS gesture sanity).
     if (metres >= 100 && lastMilestoneRef.current < 100) {
       lastMilestoneRef.current = 100;
       speak("Great start. Keep it up!", { force: true });
       return;
     }
-
-    // Then every whole km.
     const km = Math.floor(metres / 1000);
     if (km > 0 && km * 1000 > lastMilestoneRef.current) {
       lastMilestoneRef.current = km * 1000;
@@ -55,12 +50,15 @@ export function LiveWorkoutPanel({
     }
   }, [tracker.distanceMeters, tracker.state, speak]);
 
-  // iOS Safari only allows speechSynthesis inside a user gesture.
-  // Start + first utterance must happen synchronously in the same tick.
   const handleStart = () => {
     lastMilestoneRef.current = 0;
     tracker.start();
     speak("Workout started. Let's go!", { force: true });
+  };
+
+  const handleFinish = () => {
+    const snapshot = tracker.stop();
+    onStop(snapshot);
   };
 
   const formatTime = (ms: number) => {
@@ -82,11 +80,6 @@ export function LiveWorkoutPanel({
 
   const km = (tracker.distanceMeters / 1000).toFixed(2);
 
-  const handleStop = () => {
-    const snapshot = tracker.stop();
-    onStop(snapshot);
-  };
-
   return (
     <motion.div
       initial={{ opacity: 0 }}
@@ -101,7 +94,6 @@ export function LiveWorkoutPanel({
           error={tracker.error}
           onRetry={tracker.retry}
         />
-
         <div className="absolute top-0 left-0 right-0 p-4 flex items-start justify-between bg-gradient-to-b from-slate-950/80 to-transparent z-[1000] pointer-events-none">
           <div className="pointer-events-auto">
             <p className="text-[10px] font-bold uppercase tracking-widest text-emerald-400">
@@ -123,7 +115,6 @@ export function LiveWorkoutPanel({
             )}
           </button>
         </div>
-
         {tracker.error && (
           <div className="absolute top-20 left-4 right-4 bg-rose-500/90 text-white text-xs font-semibold px-3 py-2 rounded-xl z-[1000]">
             {tracker.error}
@@ -146,7 +137,6 @@ export function LiveWorkoutPanel({
             unit=""
           />
         </div>
-
         <div className="flex justify-center gap-6 text-[11px] text-slate-400 font-medium">
           <span>
             Speed{" "}
@@ -167,7 +157,6 @@ export function LiveWorkoutPanel({
             </b>
           </span>
         </div>
-
         <div className="flex items-center justify-center gap-3">
           {tracker.state === "idle" && (
             <ControlButton
@@ -185,10 +174,10 @@ export function LiveWorkoutPanel({
                 label="Pause"
               />
               <ControlButton
-                onClick={handleStop}
-                icon={<Square className="w-6 h-6" />}
-                label="Stop"
-                danger
+                onClick={handleFinish}
+                icon={<Check className="w-6 h-6" />}
+                label="Finish"
+                success
               />
             </>
           )}
@@ -201,16 +190,16 @@ export function LiveWorkoutPanel({
                 primary
               />
               <ControlButton
-                onClick={handleStop}
-                icon={<Square className="w-6 h-6" />}
-                label="Stop"
-                danger
+                onClick={handleFinish}
+                icon={<Check className="w-6 h-6" />}
+                label="Finish"
+                success
               />
             </>
           )}
           {tracker.state === "completed" && (
             <p className="text-emerald-400 text-sm font-bold">
-              Session saved. Generating scorecard…
+              Session saved. Generating summary…
             </p>
           )}
         </div>
@@ -250,15 +239,26 @@ function Stat({
   );
 }
 
-function ControlButton({ onClick, icon, label, primary, danger }: any) {
+function ControlButton({
+  onClick,
+  icon,
+  label,
+  primary,
+  success,
+  danger,
+}: any) {
   return (
     <button
       onClick={onClick}
       className={cn(
         "flex items-center justify-center gap-2 min-h-14 px-7 rounded-2xl font-black uppercase tracking-wider text-xs transition-all active:scale-95",
         primary && "bg-emerald-500 text-white shadow-lg shadow-emerald-500/30",
+        success && "bg-emerald-600 text-white shadow-lg shadow-emerald-600/40",
         danger && "bg-rose-600 text-white shadow-lg shadow-rose-600/30",
-        !primary && !danger && "bg-white/10 text-white hover:bg-white/20",
+        !primary &&
+          !success &&
+          !danger &&
+          "bg-white/10 text-white hover:bg-white/20",
       )}
     >
       {icon}
