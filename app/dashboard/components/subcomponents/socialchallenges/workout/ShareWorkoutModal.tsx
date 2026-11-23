@@ -137,41 +137,27 @@ export default function ShareWorkoutModal({
 
   const openExternal = (url: string) =>
     window.open(url, "_blank", "noopener,noreferrer");
-  const handleWhatsApp = () => {
-    downloadImage();
-    copyToClipboard(fullText);
+  const handleWhatsApp = () =>
     openExternal(`https://wa.me/?text=${encodeURIComponent(fullText)}`);
-  };
-  const handleX = () => {
-    downloadImage();
+  const handleX = () =>
     openExternal(
       `https://twitter.com/intent/tweet?text=${encodeURIComponent(caption)}&url=${encodeURIComponent(shareUrl)}`,
     );
-  };
-  const handleFacebook = () => {
-    downloadImage();
+  const handleFacebook = () =>
     openExternal(
       `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(shareUrl)}`,
     );
-  };
-  const handleTelegram = () => {
-    downloadImage();
+  const handleTelegram = () =>
     openExternal(
       `https://t.me/share/url?url=${encodeURIComponent(shareUrl)}&text=${encodeURIComponent(caption)}`,
     );
-  };
-  const handleEmail = () => {
-    downloadImage();
+  const handleEmail = () =>
     openExternal(
-      `mailto:?subject=${encodeURIComponent("My Doza workout")}&body=${encodeURIComponent(fullText)}`,
+      `mailto:?subject=${encodeURIComponent("My Doza Medic Fitness Workout")}&body=${encodeURIComponent(fullText)}`,
     );
-  };
-  const handleSMS = () => {
-    downloadImage();
+  const handleSMS = () =>
     openExternal(`sms:?&body=${encodeURIComponent(fullText)}`);
-  };
   const handleInstagram = () => copyToClipboard(fullText);
-
   const canNativeShare =
     typeof navigator !== "undefined" && typeof navigator.share === "function";
 

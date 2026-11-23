@@ -90,6 +90,11 @@ export function ChallengeDetail({
   const [pendingSession, setPendingSession] = useState<WorkoutSnapshot | null>(
     null,
   );
+  const [initialPosition, setInitialPosition] = useState<{
+    lat: number;
+    lng: number;
+  } | null>(null);
+
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [requestingGeo, setRequestingGeo] = useState(false);
@@ -219,12 +224,6 @@ export function ChallengeDetail({
   };
 
   // ── GPS permission gate ─────────────────────────────────
-  // The prompt is a *sanity check*, not the tracker. `getCurrentPosition`
-  // is one-shot with the strictest options (high accuracy, no cached fix,
-  // short timeout) which routinely fails indoors / on desktop / on iOS.
-  // The tracker itself uses `watchPosition`, which keeps retrying. So:
-  //   - Denied (code 1)  → hard stop (watch will fail too).
-  //   - Timeout/unavail  → open the panel anyway; watch will recover.
   const handleStartGps = async () => {
     if (!navigator.geolocation) {
       setSaveError("Geolocation is not supported on this device.");
@@ -233,8 +232,9 @@ export function ChallengeDetail({
     setSaveError(null);
     setRequestingGeo(true);
 
+    let seed: { lat: number; lng: number } | null = null;
+
     try {
-      // 1) If Permissions API already says "denied", don't waste 8s.
       if (navigator.permissions) {
         try {
           const status = await navigator.permissions.query({
@@ -251,34 +251,34 @@ export function ChallengeDetail({
         }
       }
 
-      // 2) Trigger the browser prompt with tolerant options.
       try {
-        await new Promise<GeolocationPosition>((resolve, reject) => {
-          navigator.geolocation.getCurrentPosition(resolve, reject, {
-            enableHighAccuracy: false, // network fix is fine just to prompt
-            timeout: 8000,
-            maximumAge: 60_000, // allow a cached fix
-          });
-        });
+        const pos = await new Promise<GeolocationPosition>(
+          (resolve, reject) => {
+            navigator.geolocation.getCurrentPosition(resolve, reject, {
+              enableHighAccuracy: false,
+              timeout: 8000,
+              maximumAge: 60_000,
+            });
+          },
+        );
+        seed = { lat: pos.coords.latitude, lng: pos.coords.longitude };
       } catch (err: any) {
         if (err?.code === 1) {
-          // User explicitly denied — hard stop.
           setSaveError(
             "Location permission denied. Enable location access in your browser settings and try again.",
           );
           return;
         }
-        // Codes 2 (unavailable) / 3 (timeout) → open the panel anyway.
-        // watchPosition inside the tracker will keep retrying and surface
-        // its own live error banner if it never gets a fix.
+        // Codes 2/3 (unavailable / timeout) → open panel anyway; panel seeds
+        // itself or surfaces the error via its own banner.
       }
 
+      setInitialPosition(seed);
       setLiveOpen(true);
     } finally {
       setRequestingGeo(false);
     }
   };
-
   // ── Badge PDF ───────────────────────────────────────────
   const shareBadge = async () => {
     if (!badgeRef.current) return;
@@ -1033,6 +1033,7 @@ export function ChallengeDetail({
           challengeName={challenge.name}
           voiceEnabled={voiceEnabled}
           onToggleVoice={() => setVoiceEnabled((v) => !v)}
+          initialPosition={initialPosition}
           onStop={(snapshot) => {
             setLiveOpen(false);
             setPendingSession(snapshot);

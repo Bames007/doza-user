@@ -3,13 +3,12 @@ import { useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Share2,
-  X,
   Check,
   Loader2,
   MapPin,
   Clock,
-  Zap,
   TrendingUp,
+  AlertTriangle,
 } from "lucide-react";
 import { cn } from "@/app/utils/utils";
 import type { WorkoutSnapshot } from "@/app/dashboard/hooks/useWorkoutTracker";
@@ -56,9 +55,11 @@ export function WorkoutSummary({
   const captureRef = useRef<HTMLDivElement>(null);
   const [shareImage, setShareImage] = useState<string | null>(null);
   const [capturing, setCapturing] = useState(false);
+  const [captureError, setCaptureError] = useState<string | null>(null);
 
   const km = (session.distanceMeters / 1000).toFixed(2);
   const maxKmh = (session.maxSpeedMps * 3.6).toFixed(1);
+  const minKmh = (session.minSpeedMps * 3.6).toFixed(1);
   const avgKmh = (session.avgSpeedMps * 3.6).toFixed(1);
   const dateLabel = new Date(session.startedAt).toLocaleDateString(undefined, {
     dateStyle: "medium",
@@ -68,30 +69,32 @@ export function WorkoutSummary({
     () =>
       `Just finished a ${km} km ${session.activity} on ${challengeName} — paced ${fmtPace(
         session.avgPaceSecPerKm,
-      )} with a peak of ${maxKmh} km/h. Logged with Doza 💚`,
+      )}, peak ${maxKmh} km/h. Logged with Doza 💚`,
     [km, session, challengeName, maxKmh],
   );
 
   const handleShare = async () => {
     if (!captureRef.current) return;
     setCapturing(true);
+    setCaptureError(null);
     try {
-      // Give tiles a beat to paint before capturing.
-      await new Promise((r) => setTimeout(r, 600));
+      // Give tiles time to paint before html2canvas runs.
+      await new Promise((r) => setTimeout(r, 1200));
       const html2canvas = (await import("html2canvas")).default;
       const canvas = await html2canvas(captureRef.current, {
         useCORS: true,
+        allowTaint: false,
         backgroundColor: "#020617",
         scale: 2,
-        onclone: (doc) => {
-          doc
-            .querySelectorAll("[data-no-capture]")
-            .forEach((el) => el.remove());
-        },
+        logging: false,
+        imageTimeout: 20000,
       });
       setShareImage(canvas.toDataURL("image/png"));
     } catch (err) {
       console.error("[summary] capture failed", err);
+      setCaptureError(
+        "Couldn't capture the map image. Try again — or take a screenshot manually.",
+      );
     } finally {
       setCapturing(false);
     }
@@ -107,7 +110,6 @@ export function WorkoutSummary({
       animate={{ opacity: 1 }}
       className="fixed inset-0 z-50 bg-slate-950 flex flex-col"
     >
-      {/* CAPTURE AREA — map + stats + logo all in one shot */}
       <div ref={captureRef} className="relative flex-1 min-h-0 bg-slate-950">
         <WorkoutMap
           route={session.route}
@@ -115,7 +117,6 @@ export function WorkoutSummary({
           frozen
         />
 
-        {/* Doza branding — captured */}
         <div className="absolute top-4 left-4 flex items-center gap-2 bg-black/60 backdrop-blur-md px-3 py-1.5 rounded-xl">
           <img src="/logo.png" alt="Doza" className="w-5 h-5 object-contain" />
           <span className="text-white font-black text-[11px] tracking-widest">
@@ -123,7 +124,6 @@ export function WorkoutSummary({
           </span>
         </div>
 
-        {/* Stats overlay — captured */}
         <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-slate-950 via-slate-950/95 to-transparent pt-16 pb-6 px-5">
           <div className="flex items-center gap-2 text-emerald-400 text-[10px] font-bold uppercase tracking-widest mb-1">
             <MapPin className="w-3 h-3" /> {session.activity} · {dateLabel}
@@ -145,13 +145,9 @@ export function WorkoutSummary({
               value={fmtPace(session.avgPaceSecPerKm)}
               unit=""
             />
-            <CaptureStat label="Max Speed" value={maxKmh} unit="km/h" />
             <CaptureStat label="Avg Speed" value={avgKmh} unit="km/h" />
-            <CaptureStat
-              label="Total Moves"
-              value={String(session.route.length)}
-              unit="pts"
-            />
+            <CaptureStat label="Top Speed" value={maxKmh} unit="km/h" />
+            <CaptureStat label="Slowest" value={minKmh} unit="km/h" />
           </div>
 
           <div className="flex items-center gap-4 mt-4 pt-3 border-t border-white/10 text-[10px] text-slate-400 font-medium">
@@ -167,11 +163,15 @@ export function WorkoutSummary({
         </div>
       </div>
 
-      {/* BUTTONS — not captured */}
-      <div
-        data-no-capture
-        className="shrink-0 bg-slate-900 border-t border-white/10 p-4 pb-[max(1rem,env(safe-area-inset-bottom))] space-y-2"
-      >
+      <div className="shrink-0 bg-slate-900 border-t border-white/10 p-4 pb-[max(1rem,env(safe-area-inset-bottom))] space-y-2">
+        {captureError && (
+          <div className="flex items-start gap-2 bg-rose-500/15 border border-rose-500/40 rounded-xl px-3 py-2">
+            <AlertTriangle className="w-3.5 h-3.5 text-rose-400 shrink-0 mt-0.5" />
+            <p className="text-[11px] text-rose-200 leading-snug">
+              {captureError}
+            </p>
+          </div>
+        )}
         <button
           onClick={handleShare}
           disabled={capturing}

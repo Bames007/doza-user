@@ -2,7 +2,7 @@
 import { useEffect, useRef } from "react";
 import dynamic from "next/dynamic";
 import { motion } from "framer-motion";
-import { Play, Pause, Square, Volume2, VolumeX, Check } from "lucide-react";
+import { Play, Pause, Volume2, VolumeX, Check } from "lucide-react";
 import { cn } from "@/app/utils/utils";
 import {
   useWorkoutTracker,
@@ -24,16 +24,37 @@ export function LiveWorkoutPanel({
   onStop,
   voiceEnabled,
   onToggleVoice,
+  initialPosition,
 }: {
   activity: string;
   challengeName: string;
   onStop: (session: WorkoutSnapshot) => void;
   voiceEnabled: boolean;
   onToggleVoice: () => void;
+  initialPosition?: { lat: number; lng: number } | null;
 }) {
   const tracker = useWorkoutTracker({ activity, autoPause: true });
   const { speak } = useVoiceCoach({ enabled: voiceEnabled });
   const lastMilestoneRef = useRef(0);
+
+  // Seed the map before Start so it's visible immediately.
+  useEffect(() => {
+    if (initialPosition) {
+      tracker.seedPosition(initialPosition);
+      return;
+    }
+    if (!navigator.geolocation) return;
+    navigator.geolocation.getCurrentPosition(
+      (pos) =>
+        tracker.seedPosition({
+          lat: pos.coords.latitude,
+          lng: pos.coords.longitude,
+        }),
+      () => {},
+      { enableHighAccuracy: false, timeout: 8000, maximumAge: 60_000 },
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     if (tracker.state !== "active") return;
@@ -79,6 +100,7 @@ export function LiveWorkoutPanel({
   };
 
   const km = (tracker.distanceMeters / 1000).toFixed(2);
+  const acc = tracker.accuracyM;
 
   return (
     <motion.div
@@ -89,11 +111,12 @@ export function LiveWorkoutPanel({
       <div className="relative flex-1 min-h-0">
         <WorkoutMap
           route={tracker.route}
-          current={tracker.route[tracker.route.length - 1]}
+          current={tracker.currentPosition ?? undefined}
           trackingState={tracker.state}
           error={tracker.error}
           onRetry={tracker.retry}
         />
+
         <div className="absolute top-0 left-0 right-0 p-4 flex items-start justify-between bg-gradient-to-b from-slate-950/80 to-transparent z-[1000] pointer-events-none">
           <div className="pointer-events-auto">
             <p className="text-[10px] font-bold uppercase tracking-widest text-emerald-400">
@@ -102,6 +125,11 @@ export function LiveWorkoutPanel({
             <h2 className="text-white text-lg font-bold capitalize">
               {activity}
             </h2>
+            {acc !== null && (
+              <p className="text-[10px] text-white/60 font-medium mt-0.5">
+                GPS ±{Math.round(acc)}m{acc > 50 && " · weak signal"}
+              </p>
+            )}
           </div>
           <button
             onClick={onToggleVoice}
@@ -115,11 +143,6 @@ export function LiveWorkoutPanel({
             )}
           </button>
         </div>
-        {tracker.error && (
-          <div className="absolute top-20 left-4 right-4 bg-rose-500/90 text-white text-xs font-semibold px-3 py-2 rounded-xl z-[1000]">
-            {tracker.error}
-          </div>
-        )}
       </div>
 
       <div className="shrink-0 bg-slate-900/95 backdrop-blur-xl rounded-t-[28px] border-t border-white/10 p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] space-y-5 z-[1000]">

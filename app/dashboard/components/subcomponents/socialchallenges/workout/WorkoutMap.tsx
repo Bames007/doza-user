@@ -74,7 +74,6 @@ export function WorkoutMap({
   trackingState?: "idle" | "active" | "paused" | "completed";
   error?: string | null;
   onRetry?: () => void;
-  /** When true, stop following (used for the post-run summary view). */
   frozen?: boolean;
 }) {
   const points: [number, number][] = route.map((p) => [p.lat, p.lng]);
@@ -110,12 +109,14 @@ export function WorkoutMap({
     if (!trackingState || trackingState === "idle") {
       return (
         <div className="h-full w-full flex flex-col items-center justify-center gap-3 bg-slate-100 px-6">
-          <div className="w-12 h-12 rounded-full bg-emerald-100 flex items-center justify-center">
-            <MapPin className="w-6 h-6 text-emerald-600" />
+          <div className="relative">
+            <MapPin className="w-8 h-8 text-emerald-600" />
+            <Loader2 className="w-4 h-4 text-emerald-600 animate-spin absolute -bottom-1 -right-1" />
           </div>
-          <p className="text-sm font-bold text-slate-800">Ready when you are</p>
+          <p className="text-sm font-bold text-slate-800">Finding you…</p>
           <p className="text-xs text-slate-500 text-center max-w-xs">
-            Tap <b>Start</b> below to begin tracking your route.
+            Getting an initial GPS fix so the map is ready the moment you tap
+            Start.
           </p>
         </div>
       );
@@ -144,7 +145,7 @@ export function WorkoutMap({
   return (
     <MapContainer
       center={currentTuple}
-      zoom={16}
+      zoom={17}
       scrollWheelZoom={false}
       style={{ height: "100%", width: "100%" }}
       preferCanvas
@@ -152,6 +153,7 @@ export function WorkoutMap({
       <TileLayer
         attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
         url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+        crossOrigin="" /* required so html2canvas can capture tiles */
       />
       {points.length > 1 && (
         <>
