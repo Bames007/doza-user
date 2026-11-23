@@ -21,6 +21,7 @@ import {
   Check,
   Flame,
   Play,
+  Loader2,
 } from "lucide-react";
 import {
   LineChart,
@@ -90,6 +91,7 @@ export function ChallengeDetail({
   );
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [requestingGeo, setRequestingGeo] = useState(false);
 
   // ── Optimistic feed (comments + shares show instantly) ──
   const [pendingComments, setPendingComments] = useState<
@@ -212,6 +214,41 @@ export function ChallengeDetail({
       );
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  // ── GPS permission gate ─────────────────────────────────
+  // Explicitly triggers the browser permission prompt before the
+  // LiveWorkoutPanel mounts, so the user sees the request at the
+  // exact moment they tap "Start GPS Session".
+  const handleStartGps = async () => {
+    if (!navigator.geolocation) {
+      setSaveError("Geolocation is not supported on this device.");
+      return;
+    }
+    setSaveError(null);
+    setRequestingGeo(true);
+    try {
+      await new Promise<GeolocationPosition>((resolve, reject) => {
+        navigator.geolocation.getCurrentPosition(resolve, reject, {
+          enableHighAccuracy: true,
+          timeout: 15000,
+          maximumAge: 0,
+        });
+      });
+      setLiveOpen(true);
+    } catch (err: any) {
+      setSaveError(
+        err?.code === 1
+          ? "Location permission denied. Enable location access in your browser settings and try again."
+          : err?.code === 2
+            ? "Location unavailable. Check your device GPS and try again."
+            : err?.code === 3
+              ? "Couldn't get your location in time. Move to an open area and try again."
+              : "Couldn't access your location. Please try again.",
+      );
+    } finally {
+      setRequestingGeo(false);
     }
   };
 
@@ -517,79 +554,26 @@ export function ChallengeDetail({
                       />
                     </div>
 
-                    {isActive && (
-                      <div className="pt-2 space-y-2">
-                        {/* Primary CTA for GPS activities */}
-                        {isGpsActivity && (
-                          <button
-                            onClick={() => setLiveOpen(true)}
-                            className={cn(
-                              "w-full min-h-12 bg-white text-emerald-700 text-[11px] font-black uppercase tracking-wider rounded-xl hover:bg-emerald-50 transition-all active:scale-95 flex items-center justify-center gap-2 shadow-lg shadow-emerald-900/20",
-                              FOCUS,
-                            )}
-                          >
-                            <Play className="w-4 h-4" /> Start GPS Session
-                          </button>
+                    {isGpsActivity && (
+                      <button
+                        onClick={handleStartGps}
+                        disabled={requestingGeo}
+                        className={cn(
+                          "w-full min-h-12 bg-white text-emerald-700 text-[11px] font-black uppercase tracking-wider rounded-xl hover:bg-emerald-50 transition-all active:scale-95 flex items-center justify-center gap-2 shadow-lg shadow-emerald-900/20 disabled:opacity-60 disabled:cursor-wait",
+                          FOCUS,
                         )}
-
-                        {!showProgressInput ? (
-                          <button
-                            onClick={() => setShowProgressInput(true)}
-                            className={cn(
-                              "w-full min-h-11 bg-white/15 text-white text-[11px] font-bold uppercase tracking-wider rounded-xl hover:bg-white/25 transition-all active:scale-95",
-                              FOCUS,
-                            )}
-                          >
-                            {isGpsActivity
-                              ? "Log Progress Manually"
-                              : "Log Progress"}
-                          </button>
+                      >
+                        {requestingGeo ? (
+                          <>
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                            Getting Location…
+                          </>
                         ) : (
-                          <motion.div
-                            initial={{ opacity: 0, y: -5 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            className="flex flex-col sm:flex-row gap-2"
-                          >
-                            <input
-                              type="number"
-                              value={progressValue}
-                              onChange={(e) =>
-                                setProgressValue(
-                                  parseFloat(e.target.value) || 0,
-                                )
-                              }
-                              className="flex-1 min-h-11 px-4 text-base sm:text-sm bg-white/15 border border-white/30 rounded-xl text-white placeholder:text-emerald-100/70 focus:outline-none focus:bg-white/25 focus:border-white transition-colors"
-                              placeholder="Enter value…"
-                            />
-                            <div className="flex gap-2">
-                              <button
-                                onClick={async () => {
-                                  await onProgressUpdate(
-                                    challenge.id,
-                                    progressValue,
-                                  );
-                                  setShowProgressInput(false);
-                                }}
-                                className={cn(
-                                  "flex-1 sm:flex-initial min-h-11 px-4 bg-white text-emerald-700 font-bold text-[11px] uppercase tracking-wider rounded-xl transition-all active:scale-95 hover:bg-emerald-50",
-                                  FOCUS,
-                                )}
-                              >
-                                Save
-                              </button>
-                              <button
-                                onClick={() => setShowProgressInput(false)}
-                                className={cn(
-                                  "flex-1 sm:flex-initial min-h-11 px-4 bg-white/15 hover:bg-white/25 text-white font-bold text-[11px] uppercase tracking-wider rounded-xl transition-all",
-                                  FOCUS,
-                                )}
-                              >
-                                Cancel
-                              </button>
-                            </div>
-                          </motion.div>
+                          <>
+                            <Play className="w-4 h-4" /> Start GPS Session
+                          </>
                         )}
-                      </div>
+                      </button>
                     )}
                   </div>
                 )}

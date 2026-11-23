@@ -26,6 +26,11 @@ export interface WorkoutSnapshot {
   activity: string;
 }
 
+export interface LatLng {
+  lat: number;
+  lng: number;
+}
+
 export function useWorkoutTracker({
   autoPause = true,
   activity,
@@ -39,6 +44,7 @@ export function useWorkoutTracker({
   const [route, setRoute] = useState<
     Array<{ lat: number; lng: number; t: number }>
   >([]);
+  const [currentPosition, setCurrentPosition] = useState<LatLng | null>(null);
   const [currentSpeedMps, setCurrentSpeedMps] = useState(0);
   const [error, setError] = useState<string | null>(null);
 
@@ -50,7 +56,6 @@ export function useWorkoutTracker({
   const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const lastMovementRef = useRef<number>(0);
 
-  // Mirror state in refs so callbacks read the latest value without stale closures
   const stateRef = useRef<TrackerState>("idle");
   const distanceRef = useRef(0);
   const routeRef = useRef<Array<{ lat: number; lng: number; t: number }>>([]);
@@ -91,6 +96,12 @@ export function useWorkoutTracker({
         setCurrentSpeedMps(speed);
         if (speed > 0.5) lastMovementRef.current = Date.now();
 
+        // Always publish the latest position so the map can follow it.
+        setCurrentPosition({
+          lat: pos.coords.latitude,
+          lng: pos.coords.longitude,
+        });
+
         if (lastPosRef.current) {
           const d = haversine(lastPosRef.current, pos.coords);
           if (d > 1) {
@@ -104,12 +115,62 @@ export function useWorkoutTracker({
               },
             ]);
           }
+        } else {
+          // First fix → seed the route so the map isn't stuck at [0,0].
+          setRoute([
+            {
+              lat: pos.coords.latitude,
+              lng: pos.coords.longitude,
+              t: Date.now(),
+            },
+          ]);
         }
         lastPosRef.current = pos.coords;
       },
-      (err) => setError(err.message),
-      { enableHighAccuracy: true, maximumAge: 2000, timeout: 10000 },
+      (err) => {
+        const msg =
+          err.code === 1
+            ? "Location permission denied. Enable location access in your browser settings."
+            : err.code === 2
+              ? "Location unavailable. Check your device GPS."
+              : err.code === 3
+                ? "Location request timed out. Move to an open area and try again."
+                : err.message;
+        setError(msg);
+      },
+      { enableHighAccuracy: true, maximumAge: 2000, timeout: 15000 },
     );
+  }, []);
+
+  // Explicit permission prompt (call before start() if you want to gate UI)
+  const requestPermission = useCallback(async (): Promise<boolean> => {
+    if (!navigator.geolocation) {
+      setError("Geolocation is not supported on this device.");
+      return false;
+    }
+    try {
+      const pos = await new Promise<GeolocationPosition>((resolve, reject) => {
+        navigator.geolocation.getCurrentPosition(resolve, reject, {
+          enableHighAccuracy: true,
+          timeout: 15000,
+          maximumAge: 0,
+        });
+      });
+      setCurrentPosition({
+        lat: pos.coords.latitude,
+        lng: pos.coords.longitude,
+      });
+      return true;
+    } catch (err: any) {
+      setError(
+        err?.code === 1
+          ? "Location permission denied. Enable location access and try again."
+          : err?.code === 3
+            ? "Location request timed out. Move to an open area and try again."
+            : "Couldn't access your location. Please try again.",
+      );
+      return false;
+    }
   }, []);
 
   const start = useCallback(() => {
@@ -125,6 +186,7 @@ export function useWorkoutTracker({
     setElapsedMs(0);
     setDistanceMeters(0);
     setRoute([]);
+    setCurrentPosition(null);
     setState("active");
     startWatch();
 
@@ -194,6 +256,7 @@ export function useWorkoutTracker({
     elapsedMs,
     distanceMeters,
     route,
+    currentPosition,
     currentSpeedMps,
     error,
     avgPaceSecPerKm,
@@ -203,5 +266,6 @@ export function useWorkoutTracker({
     pause,
     resume,
     stop,
+    requestPermission,
   };
 }
