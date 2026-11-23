@@ -97,6 +97,9 @@ export function LiveWorkoutPanel({
         <WorkoutMap
           route={tracker.route}
           current={tracker.route[tracker.route.length - 1]}
+          trackingState={tracker.state}
+          error={tracker.error}
+          onRetry={tracker.retry}
         />
 
         <div className="absolute top-0 left-0 right-0 p-4 flex items-start justify-between bg-gradient-to-b from-slate-950/80 to-transparent z-[1000] pointer-events-none">

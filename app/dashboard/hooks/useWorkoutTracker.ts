@@ -2,6 +2,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 const EARTH_RADIUS_M = 6_371_000;
+const FIRST_FIX_TIMEOUT_MS = 30_000; // watchdog: no fix in 30s → surface error
+
 const toRad = (deg: number) => (deg * Math.PI) / 180;
 
 function haversine(a: GeolocationCoordinates, b: GeolocationCoordinates) {
@@ -55,6 +57,7 @@ export function useWorkoutTracker({
   const activeMsRef = useRef(0);
   const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const lastMovementRef = useRef<number>(0);
+  const firstFixTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const stateRef = useRef<TrackerState>("idle");
   const distanceRef = useRef(0);
@@ -73,6 +76,8 @@ export function useWorkoutTracker({
   const clearTimers = useCallback(() => {
     if (tickRef.current) clearInterval(tickRef.current);
     tickRef.current = null;
+    if (firstFixTimeoutRef.current) clearTimeout(firstFixTimeoutRef.current);
+    firstFixTimeoutRef.current = null;
   }, []);
 
   const pause = useCallback(() => {
@@ -83,6 +88,10 @@ export function useWorkoutTracker({
       navigator.geolocation.clearWatch(watchIdRef.current);
       watchIdRef.current = null;
     }
+    if (firstFixTimeoutRef.current) {
+      clearTimeout(firstFixTimeoutRef.current);
+      firstFixTimeoutRef.current = null;
+    }
   }, []);
 
   const startWatch = useCallback(() => {
@@ -90,13 +99,30 @@ export function useWorkoutTracker({
       navigator.geolocation.clearWatch(watchIdRef.current);
     }
     lastMovementRef.current = Date.now();
+
+    // Watchdog — Chrome desktop silently retries watchPosition forever when
+    // no fix is available. Surface a real error after 30s so the UI can act.
+    if (firstFixTimeoutRef.current) clearTimeout(firstFixTimeoutRef.current);
+    firstFixTimeoutRef.current = setTimeout(() => {
+      if (!lastPosRef.current) {
+        setError(
+          "GPS signal is weak. Move to an open area, or check that location services are enabled for your browser.",
+        );
+      }
+    }, FIRST_FIX_TIMEOUT_MS);
+
     watchIdRef.current = navigator.geolocation.watchPosition(
       (pos) => {
+        // First fix — cancel the watchdog.
+        if (firstFixTimeoutRef.current) {
+          clearTimeout(firstFixTimeoutRef.current);
+          firstFixTimeoutRef.current = null;
+        }
+
         const speed = pos.coords.speed ?? 0;
         setCurrentSpeedMps(speed);
         if (speed > 0.5) lastMovementRef.current = Date.now();
 
-        // Always publish the latest position so the map can follow it.
         setCurrentPosition({
           lat: pos.coords.latitude,
           lng: pos.coords.longitude,
@@ -116,7 +142,7 @@ export function useWorkoutTracker({
             ]);
           }
         } else {
-          // First fix → seed the route so the map isn't stuck at [0,0].
+          // First fix → seed the route so the map isn't stuck empty.
           setRoute([
             {
               lat: pos.coords.latitude,
@@ -138,11 +164,10 @@ export function useWorkoutTracker({
                 : err.message;
         setError(msg);
       },
-      { enableHighAccuracy: true, maximumAge: 2000, timeout: 15000 },
+      { enableHighAccuracy: true, maximumAge: 2000, timeout: 30000 },
     );
   }, []);
 
-  // Explicit permission prompt (call before start() if you want to gate UI)
   const requestPermission = useCallback(async (): Promise<boolean> => {
     if (!navigator.geolocation) {
       setError("Geolocation is not supported on this device.");
@@ -210,6 +235,15 @@ export function useWorkoutTracker({
     startWatch();
   }, [startWatch]);
 
+  // Retry: restart the watch while keeping the same session going.
+  // Used by the "Retry GPS" button in the map placeholder.
+  const retry = useCallback(() => {
+    if (stateRef.current !== "active") return;
+    setError(null);
+    lastPosRef.current = null;
+    startWatch();
+  }, [startWatch]);
+
   const stop = useCallback((): WorkoutSnapshot => {
     clearTimers();
     if (watchIdRef.current !== null) {
@@ -266,6 +300,7 @@ export function useWorkoutTracker({
     pause,
     resume,
     stop,
+    retry,
     requestPermission,
   };
 }
