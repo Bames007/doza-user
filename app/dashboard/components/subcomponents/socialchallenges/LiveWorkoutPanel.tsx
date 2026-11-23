@@ -33,17 +33,35 @@ export function LiveWorkoutPanel({
 }) {
   const tracker = useWorkoutTracker({ activity, autoPause: true });
   const { speak } = useVoiceCoach({ enabled: voiceEnabled });
-  const lastKmRef = useRef(0);
+  const lastMilestoneRef = useRef(0);
 
-  // Voice milestones — fire on each new km
+  // Voice milestones — 100 m warm-up cue, then every whole km.
   useEffect(() => {
     if (tracker.state !== "active") return;
-    const km = Math.floor(tracker.distanceMeters / 1000);
-    if (km > 0 && km !== lastKmRef.current) {
-      lastKmRef.current = km;
+    const metres = tracker.distanceMeters;
+
+    // First 100 m → confirms the voice coach is alive (iOS gesture sanity).
+    if (metres >= 100 && lastMilestoneRef.current < 100) {
+      lastMilestoneRef.current = 100;
+      speak("Great start. Keep it up!", { force: true });
+      return;
+    }
+
+    // Then every whole km.
+    const km = Math.floor(metres / 1000);
+    if (km > 0 && km * 1000 > lastMilestoneRef.current) {
+      lastMilestoneRef.current = km * 1000;
       speak(`${km} kilometer${km > 1 ? "s" : ""} down. Keep it going!`);
     }
   }, [tracker.distanceMeters, tracker.state, speak]);
+
+  // iOS Safari only allows speechSynthesis inside a user gesture.
+  // Start + first utterance must happen synchronously in the same tick.
+  const handleStart = () => {
+    lastMilestoneRef.current = 0;
+    tracker.start();
+    speak("Workout started. Let's go!", { force: true });
+  };
 
   const formatTime = (ms: number) => {
     const s = Math.floor(ms / 1000);
@@ -150,7 +168,7 @@ export function LiveWorkoutPanel({
         <div className="flex items-center justify-center gap-3">
           {tracker.state === "idle" && (
             <ControlButton
-              onClick={tracker.start}
+              onClick={handleStart}
               icon={<Play className="w-6 h-6" />}
               label="Start"
               primary

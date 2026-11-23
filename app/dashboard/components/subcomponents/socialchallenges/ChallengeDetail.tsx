@@ -218,9 +218,12 @@ export function ChallengeDetail({
   };
 
   // ── GPS permission gate ─────────────────────────────────
-  // Explicitly triggers the browser permission prompt before the
-  // LiveWorkoutPanel mounts, so the user sees the request at the
-  // exact moment they tap "Start GPS Session".
+  // The prompt is a *sanity check*, not the tracker. `getCurrentPosition`
+  // is one-shot with the strictest options (high accuracy, no cached fix,
+  // short timeout) which routinely fails indoors / on desktop / on iOS.
+  // The tracker itself uses `watchPosition`, which keeps retrying. So:
+  //   - Denied (code 1)  → hard stop (watch will fail too).
+  //   - Timeout/unavail  → open the panel anyway; watch will recover.
   const handleStartGps = async () => {
     if (!navigator.geolocation) {
       setSaveError("Geolocation is not supported on this device.");
@@ -228,25 +231,48 @@ export function ChallengeDetail({
     }
     setSaveError(null);
     setRequestingGeo(true);
+
     try {
-      await new Promise<GeolocationPosition>((resolve, reject) => {
-        navigator.geolocation.getCurrentPosition(resolve, reject, {
-          enableHighAccuracy: true,
-          timeout: 15000,
-          maximumAge: 0,
+      // 1) If Permissions API already says "denied", don't waste 8s.
+      if (navigator.permissions) {
+        try {
+          const status = await navigator.permissions.query({
+            name: "geolocation" as PermissionName,
+          });
+          if (status.state === "denied") {
+            setSaveError(
+              "Location permission denied. Enable location access in your browser settings and try again.",
+            );
+            return;
+          }
+        } catch {
+          /* Permissions API may not support geolocation — proceed */
+        }
+      }
+
+      // 2) Trigger the browser prompt with tolerant options.
+      try {
+        await new Promise<GeolocationPosition>((resolve, reject) => {
+          navigator.geolocation.getCurrentPosition(resolve, reject, {
+            enableHighAccuracy: false, // network fix is fine just to prompt
+            timeout: 8000,
+            maximumAge: 60_000, // allow a cached fix
+          });
         });
-      });
+      } catch (err: any) {
+        if (err?.code === 1) {
+          // User explicitly denied — hard stop.
+          setSaveError(
+            "Location permission denied. Enable location access in your browser settings and try again.",
+          );
+          return;
+        }
+        // Codes 2 (unavailable) / 3 (timeout) → open the panel anyway.
+        // watchPosition inside the tracker will keep retrying and surface
+        // its own live error banner if it never gets a fix.
+      }
+
       setLiveOpen(true);
-    } catch (err: any) {
-      setSaveError(
-        err?.code === 1
-          ? "Location permission denied. Enable location access in your browser settings and try again."
-          : err?.code === 2
-            ? "Location unavailable. Check your device GPS and try again."
-            : err?.code === 3
-              ? "Couldn't get your location in time. Move to an open area and try again."
-              : "Couldn't access your location. Please try again.",
-      );
     } finally {
       setRequestingGeo(false);
     }
