@@ -1,4 +1,4 @@
-import { Medal, Award, Star, Sparkles } from "lucide-react";
+import { Medal, Award, Star, Diamond } from "lucide-react";
 
 export const activityOptions = [
   { value: "running", label: "Running", unit: "km", icon: "🏃" },
@@ -47,7 +47,7 @@ export const badges = [
     threshold: 100,
     color: "text-purple-600",
     bg: "bg-purple-100",
-    icon: Sparkles,
+    icon: Diamond,
   },
 ];
 

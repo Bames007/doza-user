@@ -44,15 +44,17 @@ import type {
 import { UserInfo } from "@/app/dashboard/hooks/useProfile";
 import { useChallengeSharing } from "@/app/dashboard/hooks/useChallengeSharing";
 import type { WorkoutSnapshot } from "@/app/dashboard/hooks/useWorkoutTracker";
-import { LiveWorkoutPanel } from "./LiveWorkoutPanel";
-// import { WorkoutScorecard } from "./workout/WorkoutScorecard";
+import { ActivityWorkoutRouter } from "./workout/ActivityWorkoutRouter";
+import {
+  GPS_ACTIVITIES,
+  REP_ACTIVITIES,
+  getTrackerConfig,
+} from "./workout/activityTrackerConfig";
 import ShareChallengeModal from "./ShareChallengesModal";
 import { WorkoutSummary } from "./workout/WorkoutSummary";
 
 const FOCUS =
   "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:ring-offset-2";
-
-const GPS_ACTIVITIES = ["running", "jogging", "walking", "cycling", "swimming"];
 
 interface Props {
   challenge: Challenge;
@@ -84,7 +86,6 @@ export function ChallengeDetail({
   const [confirmDelete, setConfirmDelete] = useState(false);
   const badgeRef = useRef<HTMLDivElement>(null);
 
-  // ── Workout session state ────────────────────────────────
   const [liveOpen, setLiveOpen] = useState(false);
   const [voiceEnabled, setVoiceEnabled] = useState(true);
   const [pendingSession, setPendingSession] = useState<WorkoutSnapshot | null>(
@@ -99,12 +100,10 @@ export function ChallengeDetail({
   const [saveError, setSaveError] = useState<string | null>(null);
   const [requestingGeo, setRequestingGeo] = useState(false);
 
-  // ── Optimistic feed (comments + shares show instantly) ──
   const [pendingComments, setPendingComments] = useState<
     Array<{ tempId: string; data: any }>
   >([]);
 
-  // ── Share modal state ────────────────────────────────────
   const [showShareModal, setShowShareModal] = useState(false);
 
   const {
@@ -112,9 +111,7 @@ export function ChallengeDetail({
     handleSubmit,
     reset,
     formState: { errors },
-  } = useForm<CommentForm>({
-    resolver: zodResolver(commentSchema),
-  });
+  } = useForm<CommentForm>({ resolver: zodResolver(commentSchema) });
 
   const rawProgress = challenge.participants?.[user.id]?.progress;
   const userProgress = typeof rawProgress === "number" ? rawProgress : 0;
@@ -132,7 +129,14 @@ export function ChallengeDetail({
     Math.ceil((end.getTime() - now.getTime()) / (1000 * 3600 * 24)),
   );
 
-  const isGpsActivity = GPS_ACTIVITIES.includes(challenge.activity);
+  const isGps = (GPS_ACTIVITIES as readonly string[]).includes(
+    challenge.activity,
+  );
+  const isRep = (REP_ACTIVITIES as readonly string[]).includes(
+    challenge.activity,
+  );
+  const hasTracker = isGps || isRep;
+  const trackerConfig = getTrackerConfig(challenge.activity);
 
   const participants = useMemo(() => {
     const seen = new Set<string>();
@@ -150,10 +154,8 @@ export function ChallengeDetail({
       });
   }, [challenge.participants]);
 
-  // Only `copied` + `copyToClipboard` remain — no more web-share popups
   const { copied, copyToClipboard } = useChallengeSharing();
 
-  // Merge server-confirmed comments with pending optimistic ones.
   const comments = useMemo(() => {
     const fromProp = Object.values(challenge.comments || {}) as any[];
     const pending = pendingComments.map((p) => ({
@@ -166,7 +168,6 @@ export function ChallengeDetail({
     );
   }, [challenge.comments, pendingComments]);
 
-  // Real progress history if present; no random data
   const chartData = useMemo(() => {
     const history = (challenge.participants?.[user.id] as any)?.progressHistory;
     if (history && typeof history === "object") {
@@ -188,7 +189,7 @@ export function ChallengeDetail({
   const earnedBadges = badges.filter((b) => percent >= b.threshold);
   const heroImage = getChallengeImage(challenge);
 
-  // ── Session save handler ────────────────────────────────
+  // ── Session save (handles both GPS distance and rep counts) ──
   const handleSessionSave = async (
     session: WorkoutSnapshot,
     _points: number,
@@ -196,19 +197,20 @@ export function ChallengeDetail({
     setIsSaving(true);
     setSaveError(null);
     try {
-      // Convert the session's distance into the challenge's target unit.
-      let addedValue = session.distanceMeters / 1000; // km
-      const unit = (challenge.targetUnit || "km").toLowerCase();
-      if (unit === "mi" || unit === "mile" || unit === "miles") {
-        addedValue = addedValue * 0.621371;
-      }
-      // For non-distance GPS activities (swimming laps, etc.) we still
-      // track the km-equivalent; if the unit is "laps" or "reps", fall
-      // back to active minutes so we never divide by zero upstream.
-      if (
-        !["km", "mi", "mile", "miles", "m", "meter", "meters"].includes(unit)
-      ) {
-        addedValue = session.activeMs / 60000;
+      let addedValue = 0;
+
+      if (isRep) {
+        addedValue = session.reps ?? 0;
+      } else {
+        addedValue = session.distanceMeters / 1000; // km
+        const unit = (challenge.targetUnit || "km").toLowerCase();
+        if (unit === "mi" || unit === "mile" || unit === "miles") {
+          addedValue *= 0.621371;
+        } else if (
+          !["km", "mi", "mile", "miles", "m", "meter", "meters"].includes(unit)
+        ) {
+          addedValue = session.activeMs / 60000;
+        }
       }
 
       const newProgress = userProgress + addedValue;
@@ -223,17 +225,19 @@ export function ChallengeDetail({
     }
   };
 
-  // ── GPS permission gate ─────────────────────────────────
-  const handleStartGps = async () => {
+  const handleStartTracker = async () => {
+    if (isRep) {
+      setLiveOpen(true);
+      return;
+    }
+    // GPS gate
     if (!navigator.geolocation) {
       setSaveError("Geolocation is not supported on this device.");
       return;
     }
     setSaveError(null);
     setRequestingGeo(true);
-
     let seed: { lat: number; lng: number } | null = null;
-
     try {
       if (navigator.permissions) {
         try {
@@ -250,7 +254,6 @@ export function ChallengeDetail({
           /* Permissions API may not support geolocation — proceed */
         }
       }
-
       try {
         const pos = await new Promise<GeolocationPosition>(
           (resolve, reject) => {
@@ -269,20 +272,17 @@ export function ChallengeDetail({
           );
           return;
         }
-        // Codes 2/3 (unavailable / timeout) → open panel anyway; panel seeds
-        // itself or surfaces the error via its own banner.
       }
-
       setInitialPosition(seed);
       setLiveOpen(true);
     } finally {
       setRequestingGeo(false);
     }
   };
-  // ── Badge PDF ───────────────────────────────────────────
+
   const shareBadge = async () => {
     if (!badgeRef.current) return;
-    const html2canvas = (await import("html2canvas")).default;
+    const html2canvas = (await import("html2canvas-pro")).default;
     const jsPDF = (await import("jspdf")).default;
     const canvas = await html2canvas(badgeRef.current, { scale: 2 });
     const imgData = canvas.toDataURL("image/png");
@@ -293,8 +293,6 @@ export function ChallengeDetail({
 
   const onCommentSubmit = async (data: CommentForm) => {
     const tempId = `temp-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-
-    // 1. Show immediately
     setPendingComments((prev) => [
       ...prev,
       {
@@ -310,11 +308,8 @@ export function ChallengeDetail({
       },
     ]);
     reset();
-
-    // 2. Send in the background
     try {
       await onAddComment(challenge.id, data);
-      // Give the parent's state a beat to absorb the server result
       setTimeout(() => {
         setPendingComments((prev) => prev.filter((p) => p.tempId !== tempId));
       }, 600);
@@ -326,13 +321,9 @@ export function ChallengeDetail({
     }
   };
 
-  // Share → post as a feed item + optimistic
   const handleShared = async (shareUrl: string, shareMethod: string) => {
-    const tempId = `temp-share-${Date.now()}-${Math.random()
-      .toString(36)
-      .slice(2)}`;
+    const tempId = `temp-share-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const text = `Shared this challenge via ${shareMethod}`;
-
     setPendingComments((prev) => [
       ...prev,
       {
@@ -349,7 +340,6 @@ export function ChallengeDetail({
         },
       },
     ]);
-
     try {
       await onAddComment(challenge.id, {
         text,
@@ -366,7 +356,6 @@ export function ChallengeDetail({
     }
   };
 
-  // Lock body scroll when any overlay is open
   useEffect(() => {
     if (liveOpen || pendingSession || showShareModal) {
       const prev = document.body.style.overflow;
@@ -376,6 +365,10 @@ export function ChallengeDetail({
       };
     }
   }, [liveOpen, pendingSession, showShareModal]);
+
+  const startLabel = isRep
+    ? `Start ${trackerConfig.label} Session`
+    : "Start GPS Session";
 
   return (
     <>
@@ -394,7 +387,6 @@ export function ChallengeDetail({
           className="bg-white rounded-t-[28px] sm:rounded-[32px] max-w-2xl w-full max-h-[94dvh] sm:max-h-[90vh] flex flex-col shadow-2xl border border-emerald-100 overflow-hidden"
           onClick={(e) => e.stopPropagation()}
         >
-          {/* Drag handle (mobile) */}
           <div
             className="sm:hidden flex justify-center pt-3 shrink-0"
             aria-hidden
@@ -402,7 +394,7 @@ export function ChallengeDetail({
             <div className="w-10 h-1 rounded-full bg-emerald-200" />
           </div>
 
-          {/* ─── HERO BANNER ──────────────────────────────────────── */}
+          {/* HERO */}
           <div className="relative shrink-0 aspect-[16/10] sm:aspect-[2/1] overflow-hidden bg-emerald-700">
             <img
               src={heroImage}
@@ -411,7 +403,6 @@ export function ChallengeDetail({
               className="w-full h-full object-cover"
             />
             <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/40 to-transparent" />
-
             <button
               onClick={onClose}
               aria-label="Close"
@@ -422,7 +413,6 @@ export function ChallengeDetail({
             >
               <X className="w-4 h-4" />
             </button>
-
             <div className="absolute top-3 left-3 flex flex-wrap gap-1.5 pr-12">
               <span className="text-[10px] font-bold uppercase tracking-wider bg-emerald-600 text-white px-2.5 py-1 rounded-full shadow-md">
                 {challenge.activity}
@@ -448,7 +438,6 @@ export function ChallengeDetail({
                 </span>
               )}
             </div>
-
             <div className="absolute bottom-0 left-0 right-0 p-4 sm:p-6 space-y-1.5">
               <h2 className="text-xl sm:text-2xl font-bold text-white leading-tight line-clamp-2 tracking-tight">
                 {challenge.name}
@@ -466,10 +455,9 @@ export function ChallengeDetail({
             </div>
           </div>
 
-          {/* ─── SCROLLABLE BODY ──────────────────────────────────── */}
+          {/* BODY */}
           <div className="flex-1 overflow-y-auto overscroll-contain custom-emerald-scrollbar">
             <div className="p-4 sm:p-6 space-y-5">
-              {/* Invite code (private, creator) */}
               {isCreator && !challenge.isPublic && (challenge as any).code && (
                 <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 space-y-3">
                   <div className="flex items-center gap-2">
@@ -509,7 +497,6 @@ export function ChallengeDetail({
                 </div>
               )}
 
-              {/* Public share (creator) */}
               {isCreator && challenge.isPublic && (
                 <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 space-y-3">
                   <div className="flex items-center gap-2">
@@ -530,7 +517,6 @@ export function ChallengeDetail({
                 </div>
               )}
 
-              {/* About */}
               <section className="space-y-2">
                 <h4 className="text-[10px] font-bold text-emerald-600 uppercase tracking-widest">
                   About Challenge
@@ -540,7 +526,7 @@ export function ChallengeDetail({
                 </p>
               </section>
 
-              {/* Target + Progress — hero emerald card */}
+              {/* Target + Progress */}
               <div className="bg-emerald-600 text-white rounded-2xl p-5 space-y-4">
                 <div className="flex items-center justify-between pb-3 border-b border-white/20">
                   <div className="flex items-center gap-2">
@@ -581,9 +567,9 @@ export function ChallengeDetail({
                       />
                     </div>
 
-                    {isGpsActivity && (
+                    {hasTracker && (
                       <button
-                        onClick={handleStartGps}
+                        onClick={handleStartTracker}
                         disabled={requestingGeo}
                         className={cn(
                           "w-full min-h-12 bg-white text-emerald-700 text-[11px] font-black uppercase tracking-wider rounded-xl hover:bg-emerald-50 transition-all active:scale-95 flex items-center justify-center gap-2 shadow-lg shadow-emerald-900/20 disabled:opacity-60 disabled:cursor-wait",
@@ -597,7 +583,8 @@ export function ChallengeDetail({
                           </>
                         ) : (
                           <>
-                            <Play className="w-4 h-4" /> Start GPS Session
+                            <Play className="w-4 h-4" />
+                            {startLabel}
                           </>
                         )}
                       </button>
@@ -650,7 +637,6 @@ export function ChallengeDetail({
                     </button>
                   )}
 
-                  {/* Off-screen (not display:none) so html2canvas can capture */}
                   <div
                     ref={badgeRef}
                     aria-hidden
@@ -692,7 +678,7 @@ export function ChallengeDetail({
                 </div>
               )}
 
-              {/* Chart — real data only */}
+              {/* Chart */}
               {isParticipant && (
                 <div className="space-y-2">
                   <h3 className="text-[10px] font-bold text-emerald-600 uppercase tracking-widest flex items-center gap-1.5">
@@ -921,7 +907,7 @@ export function ChallengeDetail({
             </div>
           </div>
 
-          {/* ─── STICKY FOOTER ────────────────────────────────────── */}
+          {/* FOOTER */}
           <div className="shrink-0 border-t border-emerald-100 bg-white px-4 sm:px-6 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
             <div className="flex gap-2">
               {isCreator ? (
@@ -974,7 +960,7 @@ export function ChallengeDetail({
           </div>
         </motion.div>
 
-        {/* ─── Delete confirmation sheet ──────────────────────── */}
+        {/* Delete confirm */}
         <AnimatePresence>
           {confirmDelete && onDelete && (
             <motion.div
@@ -1026,9 +1012,9 @@ export function ChallengeDetail({
         </AnimatePresence>
       </motion.div>
 
-      {/* ─── LIVE WORKOUT PANEL ──────────────────────────────── */}
+      {/* LIVE WORKOUT ROUTER (GPS or REPS) */}
       {liveOpen && (
-        <LiveWorkoutPanel
+        <ActivityWorkoutRouter
           activity={challenge.activity}
           challengeName={challenge.name}
           voiceEnabled={voiceEnabled}
@@ -1041,17 +1027,6 @@ export function ChallengeDetail({
         />
       )}
 
-      {/* ─── SESSION SCORECARD ──────────────────────────────── */}
-      {/* {pendingSession && (
-        <WorkoutScorecard
-          session={pendingSession}
-          challengeName={challenge.name}
-          isSaving={isSaving}
-          onDiscard={() => setPendingSession(null)}
-          onSave={handleSessionSave}
-        />
-      )} */}
-
       {pendingSession && (
         <WorkoutSummary
           session={pendingSession}
@@ -1062,7 +1037,6 @@ export function ChallengeDetail({
         />
       )}
 
-      {/* ─── SHARE MODAL ─────────────────────────────────────── */}
       <AnimatePresence>
         {showShareModal && (
           <ShareChallengeModal
@@ -1083,7 +1057,6 @@ export function ChallengeDetail({
         )}
       </AnimatePresence>
 
-      {/* Save error toast (if the API rejects) */}
       <AnimatePresence>
         {saveError && (
           <motion.div

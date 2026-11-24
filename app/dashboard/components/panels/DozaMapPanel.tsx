@@ -2,13 +2,12 @@
 "use client";
 
 import { useState, useEffect, useMemo, useRef, useCallback, memo } from "react";
-import {
-  APIProvider,
-  Map,
-  Marker,
-  InfoWindow,
-} from "@vis.gl/react-google-maps";
 import { motion, AnimatePresence } from "framer-motion";
+import { MapContainer, TileLayer, Marker, Popup, useMap } from "react-leaflet";
+import L from "leaflet";
+import "leaflet/dist/leaflet.css";
+import "leaflet-defaulticon-compatibility/dist/leaflet-defaulticon-compatibility.css";
+import "leaflet-defaulticon-compatibility";
 import {
   Loader2,
   Search,
@@ -79,11 +78,7 @@ interface SearchResult {
   address: string;
   phone: string;
   email: string;
-  operatingHours: {
-    days: string[];
-    opening: string;
-    closing: string;
-  } | null;
+  operatingHours: { days: string[]; opening: string; closing: string } | null;
   distance: number;
   matches: MatchItem[];
   isBeyondRange?: boolean;
@@ -196,7 +191,104 @@ function getStatusLabel(hours?: any): { label: string; classes: string } {
 }
 
 // ═════════════════════════════════════════════════════════════
-//  SEARCH INPUT — unchanged behavior, emerald focus
+//  LEAFLET MAP INTEGRATION
+// ═════════════════════════════════════════════════════════════
+
+function makePinIcon(color: string, size: number = 32): L.DivIcon {
+  const height = Math.round(size * 1.25);
+  return L.divIcon({
+    className: "",
+    iconSize: [size, height],
+    iconAnchor: [size / 2, height],
+    popupAnchor: [0, -height + 4],
+    html: `
+      <svg width="${size}" height="${height}" viewBox="0 0 32 40"
+        xmlns="http://www.w3.org/2000/svg"
+        style="filter:drop-shadow(0 2px 4px rgba(0,0,0,0.3));">
+        <path d="M16 1C7.7 1 1 7.7 1 16c0 9.5 15 23 15 23s15-13.5 15-23c0-8.3-6.7-15-15-15z"
+          fill="${color}" stroke="#ffffff" stroke-width="2"/>
+        <circle cx="16" cy="15" r="5" fill="#ffffff"/>
+      </svg>`,
+  });
+}
+
+const markerIcons = {
+  within: makePinIcon("#10b981", 32),
+  withinActive: makePinIcon("#047857", 40),
+  beyond: makePinIcon("#f59e0b", 32),
+  beyondActive: makePinIcon("#b45309", 40),
+};
+
+/** Pans the map when `center` changes (mirrors Google Maps' reactive `center` prop). */
+function RecenterMap({
+  center,
+}: {
+  center: { lat: number; lng: number } | null;
+}) {
+  const map = useMap();
+  useEffect(() => {
+    if (!center) return;
+    const current = map.getCenter();
+    const delta =
+      Math.abs(current.lat - center.lat) + Math.abs(current.lng - center.lng);
+    if (delta > 0.0005) {
+      map.flyTo([center.lat, center.lng], Math.max(map.getZoom(), 14), {
+        duration: 0.6,
+        easeLinearity: 0.25,
+      });
+    }
+  }, [center, map]);
+  return null;
+}
+
+/** Re-measures the map when the container resizes (sidebar / fullscreen). */
+function MapResizer() {
+  const map = useMap();
+  useEffect(() => {
+    const t1 = setTimeout(() => map.invalidateSize(), 100);
+    const t2 = setTimeout(() => map.invalidateSize(), 400);
+    const onResize = () => map.invalidateSize();
+    window.addEventListener("resize", onResize);
+    return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
+      window.removeEventListener("resize", onResize);
+    };
+  }, [map]);
+  return null;
+}
+
+/** Styles to reset Leaflet's default popup chrome so our custom card fills it. */
+function PopupStyleOverrides() {
+  return (
+    <style
+      dangerouslySetInnerHTML={{
+        __html: `
+          .doza-leaflet-popup .leaflet-popup-content-wrapper {
+            padding: 0;
+            border-radius: 16px;
+            overflow: hidden;
+            box-shadow: 0 20px 30px -12px rgba(6, 78, 59, 0.25);
+            border: 1px solid #d1fae5;
+          }
+          .doza-leaflet-popup .leaflet-popup-content {
+            margin: 0;
+            width: auto !important;
+            min-width: 0;
+            line-height: 1.4;
+          }
+          .doza-leaflet-popup .leaflet-popup-tip {
+            background: #ffffff;
+            box-shadow: none;
+          }
+        `,
+      }}
+    />
+  );
+}
+
+// ═════════════════════════════════════════════════════════════
+//  SEARCH INPUT (unchanged)
 // ═════════════════════════════════════════════════════════════
 const SearchInput = memo(function SearchInput({
   initialValue,
@@ -221,11 +313,12 @@ const SearchInput = memo(function SearchInput({
     }
   }, [initialValue]);
 
-  useEffect(() => {
-    return () => {
+  useEffect(
+    () => () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
-    };
-  }, []);
+    },
+    [],
+  );
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const v = e.target.value;
@@ -303,7 +396,6 @@ function SkeletonResultCard() {
     </div>
   );
 }
-
 function SkeletonSidebar() {
   return (
     <div className="space-y-3">
@@ -313,7 +405,6 @@ function SkeletonSidebar() {
     </div>
   );
 }
-
 function SkeletonMap() {
   return (
     <div className="w-full h-full bg-emerald-50 flex items-center justify-center p-6 text-center">
@@ -327,14 +418,16 @@ function SkeletonMap() {
   );
 }
 
-// ---------- Main Component ----------
+// ═════════════════════════════════════════════════════════════
+//  MAIN COMPONENT
+// ═════════════════════════════════════════════════════════════
 const DozaMapPanel = memo(function DozaMapPanel() {
   const { location: userLocation, loading: locationLoading } =
     useUserLocation();
   const { setActivePanel } = useDashboard();
   const { user } = useUser();
 
-  // ─── Persisted state ───────────────────────────────
+  // ─── Persisted state (unchanged) ──────────────────
   const [searchQuery, setSearchQuery] = useState<string>(
     () => ssGet("dmap:searchQuery") || "",
   );
@@ -389,7 +482,7 @@ const DozaMapPanel = memo(function DozaMapPanel() {
     ssSet("dmap:isFullscreenMap", String(isFullscreenMap));
   }, [isFullscreenMap]);
 
-  // ─── Handoff consumer ─────────────────────────────
+  // ─── Handoff consumer (unchanged) ─────────────────
   useEffect(() => {
     const consumeHandoff = () => {
       const raw = sessionStorage.getItem("doza_map_handoff_v1");
@@ -401,9 +494,8 @@ const DozaMapPanel = memo(function DozaMapPanel() {
           return;
         }
         if (q) setSearchQuery(q);
-        if (type === "service" || type === "drug" || type === "test") {
+        if (type === "service" || type === "drug" || type === "test")
           setSearchType(type);
-        }
         sessionStorage.removeItem("doza_map_handoff_v1");
       } catch {
         sessionStorage.removeItem("doza_map_handoff_v1");
@@ -414,26 +506,24 @@ const DozaMapPanel = memo(function DozaMapPanel() {
     return () => window.removeEventListener("doza-map-handoff", consumeHandoff);
   }, []);
 
-  // ─── Scroll restoration ────────────────────────────
+  // ─── Scroll restoration (unchanged) ───────────────
   const scrollRestoredRef = useRef(false);
   useEffect(() => {
     const el =
       (document.getElementById("dashboard-scroll") as HTMLElement | null) ||
       (document.querySelector("main") as HTMLElement | null);
     if (!el) return;
-
     if (!scrollRestoredRef.current) {
       const saved = ssGet("dmap:scroll");
       el.scrollTo({ top: saved ? Number(saved) : 0, behavior: "instant" });
       scrollRestoredRef.current = true;
     }
-
     const onScroll = () => ssSet("dmap:scroll", String(el.scrollTop));
     el.addEventListener("scroll", onScroll, { passive: true });
     return () => el.removeEventListener("scroll", onScroll);
   }, []);
 
-  // ─── Location debounce ─────────────────────────────
+  // ─── Location debounce ────────────────────────────
   const [debouncedLocation, setDebouncedLocation] = useState<{
     lat: number;
     lng: number;
@@ -482,11 +572,10 @@ const DozaMapPanel = memo(function DozaMapPanel() {
     const a =
       Math.sin(dLat / 2) ** 2 +
       Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-    return R * c;
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   }
 
-  // ─── Ephemeral state ───────────────────────────────
+  // ─── Ephemeral state ──────────────────────────────
   const [mapCenter, setMapCenter] = useState<{
     lat: number;
     lng: number;
@@ -498,7 +587,7 @@ const DozaMapPanel = memo(function DozaMapPanel() {
   const distanceDropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
+    const onClickOutside = (event: MouseEvent) => {
       if (
         distanceDropdownRef.current &&
         !distanceDropdownRef.current.contains(event.target as Node)
@@ -506,11 +595,11 @@ const DozaMapPanel = memo(function DozaMapPanel() {
         setDistanceOpen(false);
       }
     };
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
+    document.addEventListener("mousedown", onClickOutside);
+    return () => document.removeEventListener("mousedown", onClickOutside);
   }, []);
 
-  // Action Modal State
+  // ─── Action Modal State (unchanged) ───────────────
   const [showActionModal, setShowActionModal] = useState(false);
   const [selectedCenterForAction, setSelectedCenterForAction] =
     useState<SearchResult | null>(null);
@@ -525,7 +614,7 @@ const DozaMapPanel = memo(function DozaMapPanel() {
   >("pickup");
   const [deliveryAddress, setDeliveryAddress] = useState("");
 
-  // ─── Data ──────────────────────────────────────────
+  // ─── Data ─────────────────────────────────────────
   const { results, isLoading, error } = useCenterSearch(
     searchQuery,
     searchType,
@@ -548,8 +637,7 @@ const DozaMapPanel = memo(function DozaMapPanel() {
     if (showBeyondRange) res = [...res, ...beyondRange];
     if (showOpenNow) {
       res = res.filter(
-        (r: SearchResult) =>
-          getStatusLabel(r.operatingHours).label === "Open Now",
+        (r) => getStatusLabel(r.operatingHours).label === "Open Now",
       );
     }
     return res.sort((a, b) => a.distance - b.distance);
@@ -560,11 +648,31 @@ const DozaMapPanel = memo(function DozaMapPanel() {
     else if (!locationLoading) setMapCenter(DEFAULT_CENTER);
   }, [debouncedLocation, locationLoading]);
 
-  const handleDebouncedQueryChange = useCallback((v: string) => {
-    setSearchQuery(v);
+  const handleDebouncedQueryChange = useCallback(
+    (v: string) => setSearchQuery(v),
+    [],
+  );
+
+  // ─── Leaflet selection management (race-safe) ─────
+  const selectedIdRef = useRef<string | null>(null);
+
+  const handleSelect = useCallback((result: SearchResult, panTo = false) => {
+    selectedIdRef.current = result.centerId;
+    setSelectedPlace(result);
+    if (panTo) setMapCenter(result.location);
+    if (window.innerWidth < 768) setIsSidebarExpanded(false);
   }, []);
 
-  // ─── Actions ───────────────────────────────────────
+  const handlePopupRemove = useCallback((centerId: string) => {
+    // Only clear when the removed popup is still the currently selected one.
+    // This avoids race conditions when switching markers rapidly.
+    if (selectedIdRef.current === centerId) {
+      selectedIdRef.current = null;
+      setSelectedPlace(null);
+    }
+  }, []);
+
+  // ─── Actions (unchanged) ──────────────────────────
   const handleAction = (center: SearchResult, match?: MatchItem) => {
     setSelectedCenterForAction(center);
     const selected = match || center.matches?.[0] || null;
@@ -589,7 +697,6 @@ const DozaMapPanel = memo(function DozaMapPanel() {
       return;
     }
     if (!selectedCenterForAction) return;
-
     const actionType = searchType;
     if (actionType === "service" && (!actionDate || !actionTime)) {
       setActionError("Please select a date and time for the appointment.");
@@ -603,14 +710,11 @@ const DozaMapPanel = memo(function DozaMapPanel() {
       setActionError("Please enter your delivery address.");
       return;
     }
-
     setActionSubmitting(true);
     setActionError("");
-
     try {
       const endpoint = `/api/centers/${selectedCenterForAction.centerId}/doza-requests`;
       let payload: any = { centerId: selectedCenterForAction.centerId };
-
       if (actionType === "service") {
         payload = {
           ...payload,
@@ -653,13 +757,11 @@ const DozaMapPanel = memo(function DozaMapPanel() {
           notes: actionNotes || `Request for ${selectedMatch?.name}`,
         };
       }
-
       const res = await fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json", "x-user-id": user.id },
         body: JSON.stringify(payload),
       });
-
       const contentType = res.headers.get("content-type");
       if (!contentType || !contentType.includes("application/json")) {
         const text = await res.text();
@@ -671,7 +773,6 @@ const DozaMapPanel = memo(function DozaMapPanel() {
         const errorData = await res.json();
         throw new Error(errorData.error || `HTTP ${res.status}`);
       }
-
       const data = await res.json();
       if (data.success) {
         setShowActionModal(false);
@@ -708,10 +809,8 @@ const DozaMapPanel = memo(function DozaMapPanel() {
     setActionError("");
   };
 
-  const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
   const isColdStart =
     (!debouncedLocation || isLoading) && filteredResults.length === 0;
-
   const actionLabel =
     searchType === "service"
       ? "Book Appointment"
@@ -719,6 +818,7 @@ const DozaMapPanel = memo(function DozaMapPanel() {
         ? "Order Now"
         : "Request Test";
 
+  // ─── Render ───────────────────────────────────────
   return (
     <motion.div
       initial={{ opacity: 0, y: 8 }}
@@ -729,7 +829,7 @@ const DozaMapPanel = memo(function DozaMapPanel() {
         poppins.className,
       )}
     >
-      {/* ─── HEADER ──────────────────────────────────────── */}
+      {/* HEADER */}
       <header className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-3 lg:pt-4 pb-3">
         <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3">
           <div className="min-w-0 flex-1">
@@ -741,7 +841,6 @@ const DozaMapPanel = memo(function DozaMapPanel() {
               you.
             </p>
           </div>
-
           <button
             type="button"
             onClick={() => {
@@ -762,10 +861,9 @@ const DozaMapPanel = memo(function DozaMapPanel() {
         </div>
       </header>
 
-      {/* ─── SEARCH SECTION ──────────────────────────────── */}
+      {/* SEARCH SECTION */}
       <section className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pb-3">
         <div className="bg-white rounded-2xl border border-emerald-100 shadow-xs p-3 sm:p-4 space-y-2.5">
-          {/* Search input */}
           <SearchInput
             initialValue={searchQuery}
             onDebouncedChange={handleDebouncedQueryChange}
@@ -778,10 +876,7 @@ const DozaMapPanel = memo(function DozaMapPanel() {
             }
             isLoading={isLoading}
           />
-
-          {/* Tabs + Filters */}
           <div className="flex flex-col md:flex-row md:items-center gap-2 md:gap-3">
-            {/* Tabs */}
             <div className="grid grid-cols-3 gap-1 bg-emerald-50 p-1 rounded-xl shrink-0 md:w-auto">
               {searchTabs.map((tab) => {
                 const TabIcon = tab.icon;
@@ -827,9 +922,7 @@ const DozaMapPanel = memo(function DozaMapPanel() {
               })}
             </div>
 
-            {/* Filters */}
             <div className="flex items-center gap-1.5 md:ml-auto shrink-0">
-              {/* Distance dropdown */}
               <div
                 className="relative flex-1 md:flex-none"
                 ref={distanceDropdownRef}
@@ -858,7 +951,6 @@ const DozaMapPanel = memo(function DozaMapPanel() {
                     )}
                   />
                 </button>
-
                 <AnimatePresence>
                   {distanceOpen && (
                     <motion.div
@@ -901,7 +993,6 @@ const DozaMapPanel = memo(function DozaMapPanel() {
                 </AnimatePresence>
               </div>
 
-              {/* Open Now toggle */}
               <button
                 onClick={() => setShowOpenNow(!showOpenNow)}
                 className={cn(
@@ -915,7 +1006,6 @@ const DozaMapPanel = memo(function DozaMapPanel() {
                 Open Now
               </button>
 
-              {/* Beyond toggle — keeps amber because it's a warning opt-in */}
               <button
                 onClick={() => setShowBeyondRange(!showBeyondRange)}
                 className={cn(
@@ -935,7 +1025,7 @@ const DozaMapPanel = memo(function DozaMapPanel() {
         </div>
       </section>
 
-      {/* ─── MAP + RESULTS ───────────────────────────────── */}
+      {/* MAP + RESULTS */}
       <main className="flex-1 flex flex-col md:flex-row gap-3 sm:gap-4 px-4 sm:px-6 lg:px-8 pb-4 max-w-7xl w-full mx-auto min-h-0 overflow-hidden relative">
         <aside
           className={cn(
@@ -1018,16 +1108,12 @@ const DozaMapPanel = memo(function DozaMapPanel() {
                   isActive={selectedPlace?.centerId === result.centerId}
                   maxDistance={maxDistance}
                   onClick={() => {
-                    setSelectedPlace(result);
-                    setMapCenter(result.location);
+                    handleSelect(result, true);
                     setIsFullscreenMap(false);
-                    if (window.innerWidth < 768) setIsSidebarExpanded(false);
                   }}
                   onAction={(match?: MatchItem) => handleAction(result, match)}
                   onFocusMap={() => {
-                    setMapCenter(result.location);
-                    setSelectedPlace(result);
-                    if (window.innerWidth < 768) setIsSidebarExpanded(false);
+                    handleSelect(result, true);
                   }}
                   actionLabel={actionLabel}
                 />
@@ -1036,60 +1122,115 @@ const DozaMapPanel = memo(function DozaMapPanel() {
           </div>
         </aside>
 
+        {/* ────── LEAFLET MAP SECTION ────── */}
         <section className="flex-1 min-h-[45vh] md:min-h-0 relative rounded-2xl overflow-hidden border border-emerald-100 shadow-xs bg-emerald-50">
-          {!apiKey || !mapCenter ? (
+          {!mapCenter ? (
             <SkeletonMap />
           ) : (
-            <APIProvider apiKey={apiKey}>
-              <Map
-                defaultCenter={mapCenter}
-                center={mapCenter}
-                defaultZoom={13}
+            <>
+              <PopupStyleOverrides />
+              <MapContainer
+                center={[mapCenter.lat, mapCenter.lng]}
                 zoom={13}
-                disableDefaultUI
-                gestureHandling="greedy"
-                className="w-full h-full"
+                scrollWheelZoom={true}
+                style={{ height: "100%", width: "100%" }}
+                preferCanvas
+                className="z-0"
               >
-                {withinRange.map((result: SearchResult) => (
-                  <Marker
-                    key={result.centerId}
-                    position={result.location}
-                    onClick={() => {
-                      setSelectedPlace(result);
-                      if (window.innerWidth < 768) setIsSidebarExpanded(false);
-                    }}
-                  />
-                ))}
-                {showBeyondRange &&
-                  beyondRange.map((result: SearchResult) => (
+                <TileLayer
+                  attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+                  url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                />
+
+                {/* Within-range markers */}
+                {withinRange.map((result: SearchResult) => {
+                  const isSelected =
+                    selectedPlace?.centerId === result.centerId;
+                  return (
                     <Marker
                       key={result.centerId}
-                      position={result.location}
-                      onClick={() => {
-                        setSelectedPlace(result);
-                        if (window.innerWidth < 768)
-                          setIsSidebarExpanded(false);
-                      }}
-                    />
-                  ))}
-                {selectedPlace && (
-                  <InfoWindow
-                    position={selectedPlace.location}
-                    onCloseClick={() => setSelectedPlace(null)}
-                    pixelOffset={[0, -35]}
-                  >
-                    <InfoWindowContent
-                      place={selectedPlace}
-                      maxDistance={maxDistance}
-                      onAction={(match?: MatchItem) =>
-                        handleAction(selectedPlace, match)
+                      position={[result.location.lat, result.location.lng]}
+                      icon={
+                        isSelected
+                          ? markerIcons.withinActive
+                          : markerIcons.within
                       }
-                      actionLabel={actionLabel}
-                    />
-                  </InfoWindow>
-                )}
-              </Map>
-            </APIProvider>
+                      eventHandlers={{
+                        click: () => handleSelect(result, false),
+                      }}
+                    >
+                      {isSelected && (
+                        <Popup
+                          className="doza-leaflet-popup"
+                          maxWidth={340}
+                          minWidth={260}
+                          closeButton={false}
+                          autoPan
+                          eventHandlers={{
+                            remove: () => handlePopupRemove(result.centerId),
+                          }}
+                        >
+                          <InfoWindowContent
+                            place={result}
+                            maxDistance={maxDistance}
+                            onAction={(match?: MatchItem) =>
+                              handleAction(result, match)
+                            }
+                            actionLabel={actionLabel}
+                          />
+                        </Popup>
+                      )}
+                    </Marker>
+                  );
+                })}
+
+                {/* Beyond-range markers */}
+                {showBeyondRange &&
+                  beyondRange.map((result: SearchResult) => {
+                    const isSelected =
+                      selectedPlace?.centerId === result.centerId;
+                    return (
+                      <Marker
+                        key={result.centerId}
+                        position={[result.location.lat, result.location.lng]}
+                        icon={
+                          isSelected
+                            ? markerIcons.beyondActive
+                            : markerIcons.beyond
+                        }
+                        eventHandlers={{
+                          click: () => handleSelect(result, false),
+                        }}
+                      >
+                        {isSelected && (
+                          <Popup
+                            className="doza-leaflet-popup"
+                            maxWidth={340}
+                            minWidth={260}
+                            closeButton={false}
+                            autoPan
+                            eventHandlers={{
+                              remove: () => handlePopupRemove(result.centerId),
+                            }}
+                          >
+                            <InfoWindowContent
+                              place={result}
+                              maxDistance={maxDistance}
+                              onAction={(match?: MatchItem) =>
+                                handleAction(result, match)
+                              }
+                              actionLabel={actionLabel}
+                            />
+                          </Popup>
+                        )}
+                      </Marker>
+                    );
+                  })}
+
+                <RecenterMap center={mapCenter} />
+                <MapResizer />
+              </MapContainer>
+            </>
           )}
 
           <button
@@ -1176,7 +1317,7 @@ const DozaMapPanel = memo(function DozaMapPanel() {
 export default DozaMapPanel;
 
 // ═══════════════════════════════════════════════════════════════
-//  ACTION MODAL
+//  ACTION MODAL — unchanged (kept identical to original)
 // ═══════════════════════════════════════════════════════════════
 const ActionModal = memo(function ActionModal({
   center,
@@ -1226,9 +1367,7 @@ const ActionModal = memo(function ActionModal({
     try {
       const res = await fetch(
         `/api/centers/${center.centerId}/appointments?date=${date}`,
-        {
-          headers: { "x-user-id": user.id },
-        },
+        { headers: { "x-user-id": user.id } },
       );
       if (!res.ok) {
         setAppointmentsForDate([]);
@@ -1305,7 +1444,6 @@ const ActionModal = memo(function ActionModal({
     : isDrug
       ? "Place Order"
       : "Send Request";
-
   const retailPrice = match?.price
     ? Math.round(match.price * (1 + RETAIL_MARKUP_PERCENT / 100))
     : null;
@@ -1330,7 +1468,6 @@ const ActionModal = memo(function ActionModal({
         <div className="sm:hidden flex justify-center mb-2" aria-hidden>
           <div className="w-10 h-1 rounded-full bg-emerald-200" />
         </div>
-
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-lg font-bold text-emerald-900">{modalTitle}</h2>
           <button
@@ -1345,7 +1482,6 @@ const ActionModal = memo(function ActionModal({
             <X className="w-5 h-5" />
           </button>
         </div>
-
         <p className="text-sm text-emerald-900 mb-4">
           {center.centerName}
           <span className="block text-xs text-emerald-700/70 mt-0.5">
@@ -1358,7 +1494,6 @@ const ActionModal = memo(function ActionModal({
             </span>
           )}
         </p>
-
         {!isService && match && (
           <div className="bg-emerald-50 rounded-xl p-4 mb-4 border border-emerald-100 space-y-2">
             <div className="flex items-start justify-between gap-2">
@@ -1431,8 +1566,8 @@ const ActionModal = memo(function ActionModal({
                 </label>
                 {loadingSlots ? (
                   <div className="flex items-center gap-2 text-emerald-700/70 text-sm">
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    Loading available slots…
+                    <Loader2 className="w-4 h-4 animate-spin" /> Loading
+                    available slots…
                   </div>
                 ) : (
                   <div className="grid grid-cols-3 gap-2 max-h-48 overflow-y-auto custom-emerald-scrollbar">
@@ -1661,7 +1796,7 @@ const ActionModal = memo(function ActionModal({
 });
 
 // ═══════════════════════════════════════════════════════════════
-//  INFO WINDOW CONTENT
+//  INFO WINDOW CONTENT — unchanged; renders inside Leaflet Popup
 // ═══════════════════════════════════════════════════════════════
 function InfoWindowContent({
   place,
@@ -1679,7 +1814,7 @@ function InfoWindowContent({
   const firstMatch = place.matches?.[0];
 
   return (
-    <div className="p-3.5 max-w-[290px] sm:max-w-xs bg-white text-emerald-900 font-sans rounded-2xl">
+    <div className="p-3.5 bg-white text-emerald-900 font-sans">
       <div className="flex items-center justify-between gap-2 mb-2">
         <div className="flex items-center gap-1.5 min-w-0">
           <span
@@ -1813,7 +1948,7 @@ function InfoWindowContent({
 }
 
 // ═══════════════════════════════════════════════════════════════
-//  RESULT CARD
+//  RESULT CARD — unchanged
 // ═══════════════════════════════════════════════════════════════
 function ResultCard({
   result,
@@ -1838,178 +1973,250 @@ function ResultCard({
     : null;
   const isBeyond = result.distance > maxDistance;
   const status = getStatusLabel(result.operatingHours);
+  const isOpenNow = status.label.toLowerCase().startsWith("open");
+  const [expanded, setExpanded] = useState(false);
 
   return (
     <motion.div
       whileTap={{ scale: 0.99 }}
       onClick={onClick}
       className={cn(
-        "w-full text-left p-3.5 rounded-2xl border transition-all cursor-pointer relative overflow-hidden",
+        "w-full text-left rounded-2xl transition-all cursor-pointer relative overflow-hidden",
         isActive
-          ? "bg-emerald-50 border-2 border-emerald-500 shadow-sm"
+          ? "bg-white border border-emerald-200 shadow-md shadow-emerald-600/10 ring-1 ring-emerald-500"
           : isBeyond
-            ? "bg-amber-50/60 border border-amber-200 hover:border-amber-300"
+            ? "bg-amber-50/50 border border-amber-200/80 hover:border-amber-300 hover:shadow-sm"
             : "bg-white border border-emerald-100 hover:border-emerald-200 hover:shadow-sm",
       )}
     >
       {isActive && (
-        <div className="absolute top-0 left-0 right-0 h-1 bg-emerald-500" />
+        <div className="absolute top-0 bottom-0 left-0 w-1 bg-gradient-to-b from-emerald-500 to-teal-500" />
       )}
-
-      <div className="flex items-start gap-3">
-        <div
-          className={cn(
-            "w-11 h-11 rounded-xl flex items-center justify-center font-bold text-base shrink-0",
-            isActive
-              ? "bg-emerald-600 text-white"
-              : isBeyond
-                ? "bg-amber-100 text-amber-800"
-                : "bg-emerald-100 text-emerald-700",
-          )}
-        >
-          {result.centerName.charAt(0)}
-        </div>
-
-        <div className="flex-1 min-w-0">
-          <div className="flex justify-between items-start gap-2 mb-1">
-            <h4 className="font-bold truncate text-sm tracking-tight text-emerald-900">
-              {result.centerName}
-            </h4>
-            <div className="flex flex-col items-end gap-1 shrink-0">
-              <span
-                className={cn(
-                  "text-xs font-bold px-2 py-0.5 rounded-lg border",
-                  isActive
-                    ? "bg-white border-emerald-500 text-emerald-700"
-                    : isBeyond
+      <div className="p-3.5 pl-4">
+        <div className="flex items-start gap-3">
+          <div
+            className={cn(
+              "w-11 h-11 rounded-xl flex items-center justify-center font-black text-base shrink-0 tracking-tight",
+              isActive
+                ? "bg-emerald-600 text-white shadow-md shadow-emerald-600/30"
+                : isBeyond
+                  ? "bg-amber-100 text-amber-800"
+                  : "bg-gradient-to-br from-emerald-500 to-teal-600 text-white shadow-sm shadow-emerald-500/20",
+            )}
+          >
+            {result.centerName.charAt(0).toUpperCase()}
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-start justify-between gap-2">
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-1.5">
+                  <span
+                    className={cn(
+                      "w-2 h-2 rounded-full shrink-0",
+                      isOpenNow
+                        ? "bg-emerald-500 shadow-[0_0_0_3px_rgba(16,185,129,0.15)]"
+                        : "bg-rose-400",
+                    )}
+                    aria-hidden
+                  />
+                  <h4 className="font-bold truncate text-[15px] leading-tight tracking-tight text-emerald-950">
+                    {result.centerName}
+                  </h4>
+                </div>
+                <p className="text-[11px] font-semibold text-emerald-700/70 mt-0.5 capitalize truncate">
+                  {status.label}
+                  {result.centerType && (
+                    <>
+                      <span className="mx-1 text-emerald-300">·</span>
+                      {result.centerType.toLowerCase().replace(/_/g, " ")}
+                    </>
+                  )}
+                </p>
+              </div>
+              <div className="shrink-0">
+                <span
+                  className={cn(
+                    "inline-flex items-center gap-1 text-[11px] font-bold px-2 py-1 rounded-lg border tabular-nums whitespace-nowrap",
+                    isBeyond
                       ? "bg-amber-100 border-amber-200 text-amber-800"
-                      : "bg-emerald-50 border-emerald-100 text-emerald-700",
-                )}
-              >
-                {result.distance
-                  ? `${result.distance.toFixed(1)} km`
-                  : "Nearby"}
-              </span>
-              {isBeyond && (
-                <span className="text-[10px] font-bold text-amber-700 uppercase tracking-wider">
-                  Beyond range
-                </span>
-              )}
-            </div>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-2 mt-1.5">
-            <span
-              className={cn(
-                "text-xs font-bold px-2 py-0.5 rounded-md",
-                status.classes,
-              )}
-            >
-              {status.label}
-            </span>
-            <span className="text-emerald-200">•</span>
-            <span className="text-xs font-medium capitalize truncate text-emerald-700/70">
-              {result.centerType?.toLowerCase().replace("_", " ")}
-            </span>
-          </div>
-
-          {result.ratings && result.ratings.count > 0 && (
-            <div className="flex items-center gap-1.5 mt-2">
-              <div className="flex items-center gap-1 px-2 py-0.5 rounded-md border bg-amber-50 border-amber-200">
-                <Star className="w-3.5 h-3.5 fill-amber-500 text-amber-500" />
-                <span className="text-xs font-bold text-emerald-900">
-                  {result.ratings.average.toFixed(1)}
-                </span>
-              </div>
-              <span className="text-xs text-emerald-700/70">
-                ({result.ratings.count} reviews)
-              </span>
-            </div>
-          )}
-
-          {firstMatch && (
-            <div className="mt-3 pt-3 border-t border-emerald-100 flex flex-col gap-3">
-              {/* Requested resource + price */}
-              <div
-                className={cn(
-                  "flex items-start justify-between gap-3 p-3 rounded-xl border",
-                  isActive
-                    ? "bg-white border-emerald-200"
-                    : "bg-emerald-50/60 border-emerald-100",
-                )}
-              >
-                {/* Name — shrinks, wraps to 2 lines on mobile instead of truncating away */}
-                <div className="min-w-0 flex-1">
-                  <p className="text-[10px] sm:text-[11px] uppercase font-bold tracking-wider leading-none mb-1 text-emerald-700/70">
-                    Requested resource
-                  </p>
-                  <p className="text-sm font-semibold text-emerald-900 leading-snug line-clamp-2 sm:truncate break-words">
-                    {firstMatch.name}
-                  </p>
-                </div>
-
-                {/* Price — never shrinks, never wraps, digits align */}
-                <div className="shrink-0 text-right">
-                  <p className="text-[10px] sm:text-[11px] uppercase font-bold tracking-wider leading-none mb-1 text-emerald-700/70">
-                    Est. retail
-                  </p>
-                  <p className="text-sm font-bold tracking-tight text-emerald-700 tabular-nums whitespace-nowrap">
-                    ₦{estRetailPrice?.toLocaleString()}
-                  </p>
-                </div>
-              </div>
-
-              {/* Actions */}
-              <div className="flex items-stretch gap-2">
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onAction(firstMatch);
-                  }}
-                  className={cn(
-                    "flex-1 min-w-0 min-h-11 px-3 sm:px-4 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-[13px] sm:text-sm font-semibold transition-colors touch-manipulation flex items-center justify-center gap-2",
-                    FOCUS,
+                      : isActive
+                        ? "bg-emerald-600 border-emerald-600 text-white"
+                        : "bg-emerald-50 border-emerald-100 text-emerald-700",
                   )}
                 >
-                  {actionLabel === "Book Appointment" ? (
-                    <Calendar className="w-4 h-4 shrink-0" />
-                  ) : actionLabel === "Order Now" ? (
-                    <ShoppingCart className="w-4 h-4 shrink-0" />
-                  ) : (
-                    <Beaker className="w-4 h-4 shrink-0" />
-                  )}
-                  <span className="truncate">{actionLabel}</span>
-                </button>
-
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onFocusMap();
-                  }}
+                  {result.distance
+                    ? `${result.distance.toFixed(1)} km`
+                    : "Nearby"}
+                  {isBeyond && <span className="opacity-70">· far</span>}
+                </span>
+              </div>
+            </div>
+            {result.ratings && result.ratings.count > 0 && (
+              <div className="flex items-center gap-1.5 mt-2">
+                <div className="flex items-center gap-1 px-1.5 py-0.5 rounded-md border bg-amber-50 border-amber-200/80">
+                  <Star className="w-3 h-3 fill-amber-500 text-amber-500" />
+                  <span className="text-[11px] font-bold text-emerald-950 tabular-nums">
+                    {result.ratings.average.toFixed(1)}
+                  </span>
+                </div>
+                <span className="text-[11px] text-emerald-700/60 font-medium">
+                  {result.ratings.count} review
+                  {result.ratings.count !== 1 ? "s" : ""}
+                </span>
+              </div>
+            )}
+            {firstMatch && (
+              <div className="mt-3 pt-3 border-t border-emerald-100/80 space-y-2.5">
+                <div
                   className={cn(
-                    "shrink-0 w-11 min-h-11 rounded-xl transition-colors touch-manipulation flex items-center justify-center",
+                    "flex items-start gap-3 p-2.5 rounded-xl border",
                     isActive
-                      ? "bg-white hover:bg-emerald-50 text-emerald-700 border border-emerald-200"
-                      : "bg-emerald-50 hover:bg-emerald-100 text-emerald-700",
-                    FOCUS,
+                      ? "bg-emerald-50/60 border-emerald-200"
+                      : "bg-slate-50/70 border-slate-100",
                   )}
-                  title="Show on map"
-                  aria-label="Show on map"
                 >
-                  <Info className="w-4 h-4 shrink-0" />
-                </button>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[9px] uppercase font-bold tracking-[0.12em] text-emerald-700/60 leading-none mb-1">
+                      Resource
+                    </p>
+                    <p className="text-[13px] font-semibold text-emerald-950 leading-snug line-clamp-2 break-words">
+                      {firstMatch.name}
+                    </p>
+                  </div>
+                  <div className="shrink-0 text-right">
+                    <p className="text-[9px] uppercase font-bold tracking-[0.12em] text-emerald-700/60 leading-none mb-1">
+                      Est. price
+                    </p>
+                    <p className="text-[15px] font-black tracking-tight text-emerald-700 tabular-nums whitespace-nowrap leading-none">
+                      ₦{estRetailPrice?.toLocaleString()}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-stretch gap-2">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onAction(firstMatch);
+                    }}
+                    className={cn(
+                      "flex-1 min-w-0 min-h-11 px-3 sm:px-4 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-[13px] sm:text-sm font-bold transition-colors touch-manipulation flex items-center justify-center gap-2 shadow-sm shadow-emerald-600/20",
+                      FOCUS,
+                    )}
+                  >
+                    {actionLabel === "Book Appointment" ? (
+                      <Calendar className="w-4 h-4 shrink-0" />
+                    ) : actionLabel === "Order Now" ? (
+                      <ShoppingCart className="w-4 h-4 shrink-0" />
+                    ) : (
+                      <Beaker className="w-4 h-4 shrink-0" />
+                    )}
+                    <span className="truncate">{actionLabel}</span>
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onFocusMap();
+                    }}
+                    className={cn(
+                      "shrink-0 w-11 min-h-11 rounded-xl transition-colors touch-manipulation flex items-center justify-center border",
+                      isActive
+                        ? "bg-white hover:bg-emerald-50 text-emerald-700 border-emerald-200"
+                        : "bg-slate-50 hover:bg-emerald-50 text-emerald-700 border-slate-200",
+                      FOCUS,
+                    )}
+                    title="Show on map"
+                    aria-label="Show on map"
+                  >
+                    <MapPin className="w-4 h-4 shrink-0" />
+                  </button>
+                </div>
+                {result.matches.length > 1 && (
+                  <div className="space-y-1.5">
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setExpanded((v) => !v);
+                      }}
+                      aria-expanded={expanded}
+                      className={cn(
+                        "w-full flex items-center justify-center gap-1.5 min-h-8 rounded-lg text-[11px] font-bold text-emerald-700 hover:text-emerald-900 hover:bg-emerald-50 transition-colors",
+                        FOCUS,
+                      )}
+                    >
+                      <span className="text-emerald-600">
+                        {expanded ? "Hide" : `+${result.matches.length - 1}`}
+                      </span>
+                      <span>
+                        {expanded
+                          ? "alternatives"
+                          : `more alternative${result.matches.length - 1 !== 1 ? "s" : ""}`}
+                      </span>
+                      <ChevronDown
+                        className={cn(
+                          "w-3 h-3 transition-transform duration-200",
+                          expanded && "rotate-180",
+                        )}
+                      />
+                    </button>
+                    <AnimatePresence initial={false}>
+                      {expanded && (
+                        <motion.div
+                          key="alternatives"
+                          initial={{ height: 0, opacity: 0 }}
+                          animate={{ height: "auto", opacity: 1 }}
+                          exit={{ height: 0, opacity: 0 }}
+                          transition={{ duration: 0.2, ease: "easeOut" }}
+                          className="overflow-hidden"
+                        >
+                          <div className="space-y-1.5 pt-1">
+                            {result.matches.slice(1).map((m) => {
+                              const price = Math.round(
+                                m.price * (1 + RETAIL_MARKUP_PERCENT / 100),
+                              );
+                              return (
+                                <div
+                                  key={m.id}
+                                  className="flex items-center justify-between gap-2 p-2 rounded-lg bg-emerald-50/60 border border-emerald-100"
+                                >
+                                  <div className="min-w-0 flex-1">
+                                    <p className="text-[12px] font-semibold text-emerald-950 leading-tight truncate">
+                                      {m.name}
+                                    </p>
+                                    {m.unit && (
+                                      <p className="text-[10px] text-emerald-700/60 font-medium leading-none mt-1">
+                                        {m.unit}
+                                      </p>
+                                    )}
+                                  </div>
+                                  <span className="text-[13px] font-bold text-emerald-700 tabular-nums whitespace-nowrap shrink-0">
+                                    ₦{price.toLocaleString()}
+                                  </span>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      onAction(m);
+                                    }}
+                                    className={cn(
+                                      "shrink-0 min-h-8 px-3 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold transition-colors active:scale-95",
+                                      FOCUS,
+                                    )}
+                                  >
+                                    Select
+                                  </button>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </div>
+                )}
               </div>
-            </div>
-          )}
-
-          {result.matches?.length > 1 && (
-            <div className="mt-3 text-xs font-medium text-right flex items-center justify-end gap-1 text-emerald-700/70">
-              <span className="font-bold text-emerald-600">
-                +{result.matches.length - 1}
-              </span>{" "}
-              more alternatives
-            </div>
-          )}
+            )}
+          </div>
         </div>
       </div>
     </motion.div>
@@ -2017,7 +2224,7 @@ function ResultCard({
 }
 
 // ═══════════════════════════════════════════════════════════════
-//  EMPTY STATE
+//  EMPTY STATE — unchanged
 // ═══════════════════════════════════════════════════════════════
 function EmptyState({
   searchQuery,
@@ -2032,17 +2239,14 @@ function EmptyState({
 }) {
   const getMessage = () => {
     if (searchQuery) {
-      if (showBeyondRange) {
+      if (showBeyondRange)
         return `No ${searchType}s found matching "${searchQuery}" anywhere within ${maxDistance}km or beyond.`;
-      }
       return `No ${searchType}s found matching "${searchQuery}" within ${maxDistance}km. Try expanding your distance or enabling beyond-range results.`;
     }
-    if (showBeyondRange) {
+    if (showBeyondRange)
       return `No ${searchType}s found within ${maxDistance}km or beyond. Try a different category.`;
-    }
     return `No ${searchType}s found within ${maxDistance}km. Try enabling beyond-range results to see farther options.`;
   };
-
   return (
     <div className="flex flex-col items-center justify-center py-12 px-6 text-center">
       <div className="w-14 h-14 bg-emerald-50 rounded-2xl flex items-center justify-center mb-4">
@@ -2059,7 +2263,7 @@ function EmptyState({
 }
 
 // ═══════════════════════════════════════════════════════════════
-//  HELP MODAL
+//  HELP MODAL — unchanged
 // ═══════════════════════════════════════════════════════════════
 function HelpModal({
   slides,

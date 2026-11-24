@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useMemo } from "react";
 import dynamic from "next/dynamic";
 import { motion } from "framer-motion";
 import { Play, Pause, Volume2, VolumeX, Check } from "lucide-react";
@@ -9,6 +9,7 @@ import {
   type WorkoutSnapshot,
 } from "@/app/dashboard/hooks/useWorkoutTracker";
 import { useVoiceCoach } from "./workout/useVoiceCoach";
+import { getTrackerConfig } from "./workout/activityTrackerConfig";
 
 const WorkoutMap = dynamic(
   () => import("./workout/WorkoutMap").then((m) => m.WorkoutMap),
@@ -36,8 +37,9 @@ export function LiveWorkoutPanel({
   const tracker = useWorkoutTracker({ activity, autoPause: true });
   const { speak } = useVoiceCoach({ enabled: voiceEnabled });
   const lastMilestoneRef = useRef(0);
+  const config = getTrackerConfig(activity);
+  const ActivityIcon = config.icon;
 
-  // Seed the map before Start so it's visible immediately.
   useEffect(() => {
     if (initialPosition) {
       tracker.seedPosition(initialPosition);
@@ -67,14 +69,22 @@ export function LiveWorkoutPanel({
     const km = Math.floor(metres / 1000);
     if (km > 0 && km * 1000 > lastMilestoneRef.current) {
       lastMilestoneRef.current = km * 1000;
-      speak(`${km} kilometer${km > 1 ? "s" : ""} down. Keep it going!`);
+      const cue =
+        activity === "cycling"
+          ? `${km} kilometer${km > 1 ? "s" : ""} in. You're flying!`
+          : activity === "walking"
+            ? `${km} kilometer${km > 1 ? "s" : ""} walked. Keep stepping!`
+            : activity === "swimming"
+              ? `${km} kilometer${km > 1 ? "s" : ""} swum. Keep going!`
+              : `${km} kilometer${km > 1 ? "s" : ""} down. Keep it going!`;
+      speak(cue);
     }
-  }, [tracker.distanceMeters, tracker.state, speak]);
+  }, [tracker.distanceMeters, tracker.state, speak, activity]);
 
   const handleStart = () => {
     lastMilestoneRef.current = 0;
     tracker.start();
-    speak("Workout started. Let's go!", { force: true });
+    speak(`${config.label} started. Let's go!`, { force: true });
   };
 
   const handleFinish = () => {
@@ -96,11 +106,32 @@ export function LiveWorkoutPanel({
     if (!secPerKm || !isFinite(secPerKm)) return "—";
     const m = Math.floor(secPerKm / 60);
     const s = Math.round(secPerKm % 60);
-    return `${m}:${String(s).padStart(2, "0")} /km`;
+    return `${m}:${String(s).padStart(2, "0")}`;
   };
 
   const km = (tracker.distanceMeters / 1000).toFixed(2);
+  const steps = Math.round(tracker.distanceMeters / 0.762); // ~1.31 steps/m
+  const laps = Math.round(tracker.distanceMeters / 25); // 25m pool
   const acc = tracker.accuracyM;
+
+  // Third stat differs per activity
+  const thirdStat = useMemo(() => {
+    if (activity === "walking")
+      return { label: "Steps", value: String(steps), unit: "" };
+    if (activity === "swimming")
+      return { label: "Laps", value: String(laps), unit: "25m" };
+    if (activity === "cycling") {
+      const kmh = tracker.avgPaceSecPerKm
+        ? (3600 / tracker.avgPaceSecPerKm).toFixed(1)
+        : "0.0";
+      return { label: "Avg Speed", value: kmh, unit: "km/h" };
+    }
+    return {
+      label: "Pace",
+      value: formatPace(tracker.avgPaceSecPerKm),
+      unit: "/km",
+    };
+  }, [activity, steps, laps, tracker.avgPaceSecPerKm]);
 
   return (
     <motion.div
@@ -118,23 +149,36 @@ export function LiveWorkoutPanel({
         />
 
         <div className="absolute top-0 left-0 right-0 p-4 flex items-start justify-between bg-gradient-to-b from-slate-950/80 to-transparent z-[1000] pointer-events-none">
-          <div className="pointer-events-auto">
-            <p className="text-[10px] font-bold uppercase tracking-widest text-emerald-400">
-              {challengeName}
-            </p>
-            <h2 className="text-white text-lg font-bold capitalize">
-              {activity}
-            </h2>
-            {acc !== null && (
-              <p className="text-[10px] text-white/60 font-medium mt-0.5">
-                GPS ±{Math.round(acc)}m{acc > 50 && " · weak signal"}
+          <div className="pointer-events-auto flex items-start gap-3">
+            <div
+              className={cn(
+                "w-11 h-11 rounded-2xl bg-gradient-to-br flex items-center justify-center text-white shadow-lg shrink-0",
+                config.gradient,
+              )}
+            >
+              <ActivityIcon className="w-5 h-5" />
+            </div>
+            <div className="min-w-0">
+              <p
+                className={cn(
+                  "text-[10px] font-bold uppercase tracking-widest truncate",
+                  config.accent,
+                )}
+              >
+                {challengeName}
               </p>
-            )}
+              <h2 className="text-white text-lg font-bold">{config.label}</h2>
+              {acc !== null && (
+                <p className="text-[10px] text-white/60 font-medium mt-0.5">
+                  GPS ±{Math.round(acc)}m{acc > 50 && " · weak signal"}
+                </p>
+              )}
+            </div>
           </div>
           <button
             onClick={onToggleVoice}
             aria-label={voiceEnabled ? "Mute coach" : "Unmute coach"}
-            className="pointer-events-auto w-10 h-10 rounded-full bg-white/10 backdrop-blur-md flex items-center justify-center text-white hover:bg-white/20 transition-colors"
+            className="pointer-events-auto w-10 h-10 shrink-0 rounded-full bg-white/10 backdrop-blur-md flex items-center justify-center text-white hover:bg-white/20 transition-colors"
           >
             {voiceEnabled ? (
               <Volume2 className="w-4 h-4" />
@@ -155,9 +199,9 @@ export function LiveWorkoutPanel({
             large
           />
           <Stat
-            label="Pace"
-            value={formatPace(tracker.avgPaceSecPerKm)}
-            unit=""
+            label={thirdStat.label}
+            value={thirdStat.value}
+            unit={thirdStat.unit}
           />
         </div>
         <div className="flex justify-center gap-6 text-[11px] text-slate-400 font-medium">
@@ -187,6 +231,7 @@ export function LiveWorkoutPanel({
               icon={<Play className="w-6 h-6" />}
               label="Start"
               primary
+              gradient={config.gradient}
             />
           )}
           {tracker.state === "active" && (
@@ -211,6 +256,7 @@ export function LiveWorkoutPanel({
                 icon={<Play className="w-6 h-6" />}
                 label="Resume"
                 primary
+                gradient={config.gradient}
               />
               <ControlButton
                 onClick={handleFinish}
@@ -269,13 +315,17 @@ function ControlButton({
   primary,
   success,
   danger,
+  gradient,
 }: any) {
   return (
     <button
       onClick={onClick}
       className={cn(
         "flex items-center justify-center gap-2 min-h-14 px-7 rounded-2xl font-black uppercase tracking-wider text-xs transition-all active:scale-95",
-        primary && "bg-emerald-500 text-white shadow-lg shadow-emerald-500/30",
+        primary &&
+          (gradient
+            ? `bg-gradient-to-r ${gradient} text-white shadow-lg shadow-emerald-500/30`
+            : "bg-emerald-500 text-white shadow-lg shadow-emerald-500/30"),
         success && "bg-emerald-600 text-white shadow-lg shadow-emerald-600/40",
         danger && "bg-rose-600 text-white shadow-lg shadow-rose-600/30",
         !primary &&

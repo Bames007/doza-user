@@ -40,6 +40,9 @@ export interface WorkoutSnapshot {
   minSpeedMps: number;
   avgSpeedMps: number;
   avgPaceSecPerKm: number | null;
+  // NEW — strength workouts
+  reps?: number;
+  sets?: number;
 }
 
 export interface LatLng {

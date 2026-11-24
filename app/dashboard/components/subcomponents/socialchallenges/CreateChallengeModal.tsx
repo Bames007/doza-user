@@ -9,7 +9,6 @@ import {
   Loader2,
   Calendar,
   Globe,
-  Mail,
   Layers,
   ChevronDown,
   Check,
@@ -20,6 +19,7 @@ import {
   Trophy,
   Target,
   MedalIcon,
+  Share2,
 } from "lucide-react";
 import { cn } from "@/app/utils/utils";
 import { bebasNeue } from "@/app/constants";
@@ -44,6 +44,7 @@ const getActivityIcon = (value: string) => {
       return <Bike {...props} />;
     case "pushups":
     case "sitps":
+    case "situps":
     case "squats":
     case "pullups":
       return <Dumbbell {...props} />;
@@ -57,9 +58,12 @@ const getActivityIcon = (value: string) => {
 export function CreateChallengeModal({
   onClose,
   onSubmit,
+  onShareCreated,
 }: {
   onClose: () => void;
   onSubmit: (data: FormValues) => Promise<boolean>;
+  /** Called right after successful creation, only if the user opted in. */
+  onShareCreated?: (data: FormValues) => void;
 }) {
   const {
     register,
@@ -85,8 +89,8 @@ export function CreateChallengeModal({
 
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [dailyLockUntil, setDailyLockUntil] = useState<number | null>(null);
+  const [shareAfterCreate, setShareAfterCreate] = useState(true);
 
-  // Auto-clear the daily lock when the cooldown expires
   useEffect(() => {
     if (!dailyLockUntil) return;
     const remaining = dailyLockUntil - Date.now();
@@ -114,9 +118,11 @@ export function CreateChallengeModal({
     setSubmitError(null);
     try {
       const success = await onSubmit(data);
-      if (success) onClose();
+      if (success) {
+        if (shareAfterCreate) onShareCreated?.(data);
+        onClose();
+      }
     } catch (err) {
-      // Session expired → auth layer already redirected. Nothing to show.
       if (err instanceof Error && err.message === "AUTH_REQUIRED") return;
 
       if (err instanceof ApiError && err.code === "DAILY_LIMIT") {
@@ -176,7 +182,6 @@ export function CreateChallengeModal({
         className="bg-white rounded-t-[28px] sm:rounded-[32px] max-w-xl w-full max-h-[94dvh] sm:max-h-[90vh] flex flex-col shadow-2xl border border-slate-100 overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Mobile drag handle */}
         <div
           className="sm:hidden flex justify-center pt-3 shrink-0"
           aria-hidden
@@ -184,9 +189,7 @@ export function CreateChallengeModal({
           <div className="w-10 h-1 rounded-full bg-slate-300" />
         </div>
 
-        {/* ─── SCROLLABLE BODY ─────────────────────────────────── */}
         <div className="flex-1 overflow-y-auto overscroll-contain">
-          {/* Live banner preview */}
           <div className="relative aspect-[16/9] overflow-hidden bg-slate-900">
             <img
               src={previewImage}
@@ -224,7 +227,6 @@ export function CreateChallengeModal({
             </div>
           </div>
 
-          {/* Form */}
           <form
             id="create-challenge-form"
             onSubmit={handleSubmit(handleFormSubmit)}
@@ -321,6 +323,7 @@ export function CreateChallengeModal({
               />
             </InputField>
 
+            {/* Public toggle */}
             <div className="p-4 bg-slate-50/80 border border-slate-200/60 rounded-2xl flex items-center justify-between gap-3 shadow-2xs">
               <div className="flex items-center gap-3 min-w-0">
                 <div className="w-10 h-10 bg-white rounded-xl border border-slate-200/60 shadow-xs flex items-center justify-center text-slate-500 shrink-0">
@@ -345,23 +348,35 @@ export function CreateChallengeModal({
               </label>
             </div>
 
-            <InputField
-              label="Invite Friends by Email"
-              error={errors.invitedEmails?.message}
-            >
-              <div className="relative flex items-center">
-                <Mail className="w-4 h-4 absolute left-3.5 text-slate-400 pointer-events-none" />
-                <input
-                  {...register("invitedEmails")}
-                  className="w-full pl-10 pr-4 py-3 text-base sm:text-sm bg-slate-50/80 border border-slate-200/80 rounded-2xl focus:bg-white focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10 transition-all outline-none font-medium text-slate-900 placeholder:text-slate-400 shadow-2xs"
-                  placeholder="friend1@email.com, friend2@email.com"
-                />
+            {/* Share-after-create toggle */}
+            <div className="p-4 bg-emerald-50/70 border border-emerald-200/60 rounded-2xl flex items-center justify-between gap-3 shadow-2xs">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="w-10 h-10 bg-white rounded-xl border border-emerald-200/60 shadow-xs flex items-center justify-center shrink-0">
+                  <Share2 className="w-5 h-5 text-emerald-600" />
+                </div>
+                <div className="flex flex-col min-w-0">
+                  <span className="text-xs font-bold text-slate-800 leading-tight">
+                    Share after creating
+                  </span>
+                  <span className="text-[11px] text-slate-400 font-medium mt-0.5">
+                    Open the share sheet once your challenge is live
+                  </span>
+                </div>
               </div>
-            </InputField>
+              <label className="relative inline-flex items-center cursor-pointer select-none shrink-0">
+                <input
+                  type="checkbox"
+                  checked={shareAfterCreate}
+                  onChange={(e) => setShareAfterCreate(e.target.checked)}
+                  className="sr-only peer"
+                />
+                <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-500 shadow-inner" />
+              </label>
+            </div>
           </form>
         </div>
 
-        {/* ─── STICKY FOOTER ────────────────────────────────────── */}
+        {/* FOOTER */}
         <div className="shrink-0 px-4 sm:px-7 py-3 sm:py-4 bg-white/95 backdrop-blur-md border-t border-slate-100 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:pb-4">
           {submitError && (
             <div
@@ -408,7 +423,6 @@ export function CreateChallengeModal({
   );
 }
 
-/* ─── Dropdown ─────────────────────────────────────────────── */
 function CustomDropdownSelect({ value, onChange, options, icon }: any) {
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
